@@ -1,0 +1,6 @@
+syntax = "proto3";
+
+message KV {
+  string key = 1;
+  bytes value = 2;
+}
