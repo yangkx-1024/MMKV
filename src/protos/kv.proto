@@ -1,6 +1,13 @@
 syntax = "proto3";
 
+enum Types {
+  I32 = 0;
+  STR = 1;
+  BYTE = 2;
+}
+
 message KV {
   string key = 1;
-  bytes value = 2;
+  Types type = 2;
+  bytes value = 3;
 }
