@@ -1,5 +1,7 @@
 use std::fs::File;
+
 use memmap2::MmapMut;
+
 use crate::core::kv_store::ContentContainer;
 
 const _LEN_OFFSET: usize = 8;
@@ -57,18 +59,15 @@ impl ContentContainer for MemoryMap {
 mod tests {
     use std::fs;
     use std::fs::OpenOptions;
+
     use crate::core::kv_store::ContentContainer;
+
     use super::MemoryMap;
 
     #[test]
     fn test_mmap() {
         let _ = fs::remove_file("memory_map_test.txt");
-        let file = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .read(true)
-            .open("memory_map_test.txt")
-            .unwrap();
+        let file = OpenOptions::new().create(true).write(true).read(true).open("memory_map_test.txt").unwrap();
         file.set_len(1024).unwrap();
         let mut mm = MemoryMap::new(&file);
         assert_eq!(mm.max_len(), 1016);
