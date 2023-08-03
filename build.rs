@@ -3,6 +3,7 @@ fn main() {
     protobuf_codegen::Codegen::new()
         // Use `protoc` parser, optional.
         .protoc()
+        .protoc_path(&protoc_bin_vendored::protoc_bin_path().unwrap())
         // All inputs and imports from the inputs must reside in `includes` directories.
         .includes(&["src/protos"])
         // Inputs must reside in some of include paths.
