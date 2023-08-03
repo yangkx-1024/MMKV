@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt::{Display, Formatter};
 use std::fs::{File, OpenOptions};
 use std::path::Path;
 use std::sync::RwLock;
@@ -7,7 +8,7 @@ use crate::core::buffer::Buffer;
 use crate::core::memory_map::MemoryMap;
 
 #[derive(Debug)]
-pub struct KVStore {
+pub struct KvStore {
     _kv_map: HashMap<String, Buffer>,
     _file: File,
     _mm: RwLock<MemoryMap>,
@@ -22,7 +23,7 @@ pub trait ContentContainer {
     fn read(&self, offset: usize) -> &[u8];
 }
 
-impl<'a> KVStore {
+impl<'a> KvStore {
     pub fn new(path: &Path, page_size: u64) -> Self {
         let file = OpenOptions::new().read(true).write(true).create(true).open(path).unwrap();
         let file_len = file.metadata().unwrap().len();
@@ -30,7 +31,7 @@ impl<'a> KVStore {
             file.set_len(page_size).unwrap();
         }
         let mm = MemoryMap::new(&file);
-        let mut store = KVStore {
+        let mut store = KvStore {
             _kv_map: HashMap::new(),
             _file: file,
             _mm: RwLock::new(mm),
@@ -82,11 +83,17 @@ impl<'a> KVStore {
         let _mm = self._mm.read();
         self._kv_map.get(key)
     }
+}
 
-    pub fn dump(&self) {
-        println!("file size: {}", self._file.metadata().unwrap().len());
-        println!("key count: {}", self._kv_map.len());
-        println!("content len: {}", self._mm.read().unwrap().content_len());
+impl Display for KvStore {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        writeln!(
+            f,
+            "KvStore {{ file_size: {}, key_count: {}, content_len: {} }}",
+            self._file.metadata().unwrap().len(),
+            self._kv_map.len(),
+            self._mm.read().unwrap().content_len()
+        )
     }
 }
 
@@ -98,12 +105,12 @@ mod tests {
     use std::thread::spawn;
 
     use crate::core::buffer::{Buffer, Decoder};
-    use crate::core::kv_store::{ContentContainer, KVStore};
+    use crate::core::kv_store::{ContentContainer, KvStore};
 
     #[test]
     fn test_kv_store() {
         let _ = fs::remove_file("kv_store_test.txt");
-        let mut store = KVStore::new(Path::new("kv_store_test.txt"), 100);
+        let mut store = KvStore::new(Path::new("kv_store_test.txt"), 100);
         store.write("key1", Buffer::from_i32("key1", 1));
         assert_eq!(store._mm.read().unwrap().content_len(), 16);
         assert_eq!(store.get("key1").unwrap().decode_i32().unwrap(), 1);
@@ -130,7 +137,7 @@ mod tests {
         assert_eq!(store.get("key3").unwrap().decode_i32().unwrap(), 6);
 
         drop(store);
-        let mut store = KVStore::new(Path::new("kv_store_test.txt"), 100);
+        let mut store = KvStore::new(Path::new("kv_store_test.txt"), 100);
         assert_eq!(store.get("key1").unwrap().decode_i32().unwrap(), 1);
         assert_eq!(store.get("key2").unwrap().decode_i32().unwrap(), 2);
         assert_eq!(store.get("key3").unwrap().decode_i32().unwrap(), 6);
@@ -151,10 +158,10 @@ mod tests {
     #[test]
     fn test_multi_thread() {
         let _ = fs::remove_file("kv_store_thread_test.txt");
-        static mut STORE: OnceLock<KVStore> = OnceLock::new();
+        static mut STORE: OnceLock<KvStore> = OnceLock::new();
         unsafe {
             STORE.set(
-                KVStore::new(Path::new("kv_store_thread_test.txt"), 1024 * 1024)
+                KvStore::new(Path::new("kv_store_thread_test.txt"), 1024 * 1024)
             ).unwrap();
             let key = "key";
             STORE.get_mut().unwrap().write(key, Buffer::from_i32(key, 0));
@@ -168,7 +175,7 @@ mod tests {
                 STORE.get_mut().unwrap().write(key, Buffer::from_i32(key, i));
             }
             println!("value: {}", STORE.get().unwrap().get(key).unwrap().decode_i32().unwrap());
-            STORE.get().unwrap().dump();
+            println!("{}", STORE.get().unwrap());
             handle.join().unwrap();
             assert_eq!(STORE.get().unwrap()._mm.read().unwrap().content_len(), len + len * 20000)
         }
