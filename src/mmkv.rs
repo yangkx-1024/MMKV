@@ -9,9 +9,31 @@ const _PAGE_SIZE: u64 = 1024;
 
 static mut _STORE: OnceLock<KvStore> = OnceLock::new();
 
+/**
+Rust version of MMKV.
+
+Examples:
+
+```
+use mmkv::MMKV;
+
+MMKV::initialize(".");
+MMKV::put_i32("key1", 1);
+assert_eq!(MMKV::get_i32("key1"), Some(1));
+```
+ */
 pub struct MMKV;
 
 impl MMKV {
+    /**
+    Initialize the MMKV instance with a writeable directory,
+    absolute or relative paths are acceptable.
+
+    All API calls before initialization will panic.
+
+    There will only be one MMKV instance globally,
+    calling initialize multiple times will also cause panic.
+     */
     pub fn initialize(dir: &str) {
         let path = Path::new(dir);
         if !path.is_dir() {
@@ -59,6 +81,11 @@ impl MMKV {
         }).flatten()
     }
 
+    /**
+    Dump the current state of MMKV, the result looks like this:
+
+    `KvStore { file_size: 1024, key_count: 4, content_len: 107 }`
+     */
     pub fn dump() -> String {
         _ensure_store().to_string()
     }
