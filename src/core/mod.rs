@@ -1,4 +1,3 @@
-pub mod mmkv;
-mod buffer;
-mod kv_store;
+pub mod buffer;
+pub mod kv_store;
 mod memory_map;
