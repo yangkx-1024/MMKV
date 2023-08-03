@@ -2,12 +2,12 @@ use std::path::Path;
 use std::sync::OnceLock;
 
 use crate::core::buffer::{Buffer, Decoder};
-use crate::core::kv_store::KVStore;
+use crate::core::kv_store::KvStore;
 
 const _DEFAULT_FILE_NAME: &str = "mini_mmkv";
 const _PAGE_SIZE: u64 = 1024;
 
-static mut _STORE: OnceLock<KVStore> = OnceLock::new();
+static mut _STORE: OnceLock<KvStore> = OnceLock::new();
 
 pub struct MMKV;
 
@@ -24,7 +24,7 @@ impl MMKV {
         let file_path = path.join(_DEFAULT_FILE_NAME);
         unsafe {
             _STORE.set(
-                KVStore::new(file_path.as_path(), _PAGE_SIZE)
+                KvStore::new(file_path.as_path(), _PAGE_SIZE)
             ).expect("initialize more than one time");
         }
     }
@@ -59,18 +59,18 @@ impl MMKV {
         }).flatten()
     }
 
-    pub fn dump() {
-        _ensure_store().dump();
+    pub fn dump() -> String {
+        _ensure_store().to_string()
     }
 }
 
-fn _ensure_store() -> &'static KVStore {
+fn _ensure_store() -> &'static KvStore {
     unsafe {
         _STORE.get().expect("not initialize")
     }
 }
 
-fn _ensure_mut_store() -> &'static mut KVStore {
+fn _ensure_mut_store() -> &'static mut KvStore {
     unsafe {
         _STORE.get_mut().expect("not initialize")
     }
@@ -83,7 +83,7 @@ mod tests {
     use super::MMKV;
 
     #[test]
-    fn test_put_i32() {
+    fn test_put_and_get() {
         MMKV::initialize(".");
         MMKV::put_i32("first", 1);
         MMKV::put_i32("second", 2);
@@ -102,7 +102,7 @@ mod tests {
         MMKV::put_bool("second", false);
         assert_eq!(MMKV::get_str("second"), None);
         assert_eq!(MMKV::get_bool("second"), Some(false));
-        MMKV::dump();
+        println!("{}", MMKV::dump());
         let _ = fs::remove_file("mini_mmkv");
     }
 }
