@@ -12,3 +12,4 @@ memmap2 = { version = "0.5.10" }
 
 [build-dependencies]
 protobuf-codegen = { version = "3.2.0"}
+protoc-bin-vendored = { version = "3.0.0" }
