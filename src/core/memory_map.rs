@@ -1,7 +1,7 @@
 use std::fs::File;
 use std::ops::Range;
 
-use memmap2::MmapMut;
+use memmap2::{Advice, MmapMut};
 use crate::core::buffer::Buffer;
 
 const _LEN_OFFSET: usize = 8;
@@ -11,7 +11,9 @@ pub struct MemoryMap(MmapMut);
 
 impl MemoryMap {
     pub fn new(file: &File) -> Self {
-        MemoryMap(unsafe { MmapMut::map_mut(file) }.unwrap())
+        let raw_mmap = unsafe { MmapMut::map_mut(file) }.unwrap();
+        raw_mmap.advise(Advice::WillNeed).unwrap();
+        MemoryMap(raw_mmap)
     }
 
     pub fn append(&mut self, value: Vec<u8>) -> std::io::Result<()> {
