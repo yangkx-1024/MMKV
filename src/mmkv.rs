@@ -5,7 +5,7 @@ use crate::core::buffer::{Buffer, Decoder};
 use crate::core::kv_store::KvStore;
 
 const _DEFAULT_FILE_NAME: &str = "mini_mmkv";
-const _PAGE_SIZE: u64 = 1024;
+const _PAGE_SIZE: u64 = 4 * 1024; // 4KB is the default Linux page size
 
 static mut _STORE: OnceLock<KvStore> = OnceLock::new();
 
@@ -13,7 +13,6 @@ static mut _STORE: OnceLock<KvStore> = OnceLock::new();
 Rust version of MMKV.
 
 Examples:
-
 ```
 use mmkv::MMKV;
 
