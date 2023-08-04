@@ -6,10 +6,7 @@ use kv::{KV, Types};
 
 include!(concat!(env!("OUT_DIR"), "/protos/mod.rs"));
 #[derive(Debug)]
-pub struct Buffer {
-    raw_data: KV,
-    len: u32,
-}
+pub struct Buffer(KV);
 
 pub trait Decoder {
     fn decode_i32(&self) -> Option<i32>;
@@ -23,10 +20,7 @@ impl Buffer {
         kv.key = key.to_string();
         kv.type_ = EnumOrUnknown::new(t);
         kv.value = value.to_vec();
-        Buffer {
-            raw_data: kv,
-            len: 0,
-        }
+        Buffer(kv)
     }
 
     pub fn from_i32(key: &str, value: i32) -> Self {
@@ -46,19 +40,17 @@ impl Buffer {
         Buffer::from_kv(key, Types::BYTE, vec![out].as_slice())
     }
 
-    pub fn from_encoded_bytes(data: &[u8]) -> Self {
+    pub fn from_encoded_bytes(data: &[u8]) -> (Self, u32) {
         let item_len = u32::from_be_bytes(
             data[0..4].try_into().unwrap()
         );
-        let kv = KV::parse_from_bytes(&data[4..(4 + item_len as usize)]).unwrap();
-        Buffer {
-            raw_data: kv,
-            len: item_len + 4,
-        }
+        (Buffer(
+            KV::parse_from_bytes(&data[4..(4 + item_len as usize)]).unwrap()
+        ), 4 + item_len)
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {
-        let bytes_to_write = self.raw_data.write_to_bytes().unwrap();
+        let bytes_to_write = self.0.write_to_bytes().unwrap();
         let len = bytes_to_write.len() as u32;
         let mut data = len.to_be_bytes().to_vec();
         data.extend_from_slice(bytes_to_write.as_slice());
@@ -66,46 +58,52 @@ impl Buffer {
     }
 
     pub fn key(&self) -> &str {
-        self.raw_data.key.as_str()
+        self.0.key.as_str()
     }
 
     #[allow(dead_code)]
     pub fn value(&self) -> &[u8] {
-        self.raw_data.value.as_slice()
-    }
-
-    pub fn len(&self) -> u32 {
-        self.len
+        self.0.value.as_slice()
     }
 }
 
 impl Decoder for Buffer {
     fn decode_i32(&self) -> Option<i32> {
-        if self.raw_data.type_.unwrap() != Types::I32 {
+        if self.0.type_.unwrap() != Types::I32 {
             return None;
         }
-        let array_result: Result<[u8; 4], _> = self.raw_data.value[0..4].try_into();
+        let array_result: Result<[u8; 4], _> = self.0.value[0..4].try_into();
         array_result.ok().map(|value| {
             i32::from_be_bytes(value)
         })
     }
 
     fn decode_str(&self) -> Option<&str> {
-        match self.raw_data.type_.enum_value() {
+        match self.0.type_.enum_value() {
             Ok(Types::STR) => {
-                str::from_utf8(self.raw_data.value.as_slice()).ok()
+                str::from_utf8(self.0.value.as_slice()).ok()
             }
             _ => None
         }
     }
 
     fn decode_bool(&self) -> Option<bool> {
-        match self.raw_data.type_.enum_value() {
+        match self.0.type_.enum_value() {
             Ok(Types::BYTE) => {
-                Some(self.raw_data.value[0] == 1)
+                Some(self.0.value[0] == 1)
             }
             _ => None
         }
+    }
+}
+
+impl PartialEq for Buffer {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+
+    fn ne(&self, other: &Self) -> bool {
+        self.0 != other.0
     }
 }
 
@@ -116,22 +114,25 @@ mod tests {
     #[test]
     fn test_buffer() {
         let buffer = Buffer::from_str("first_key", "first_value");
-        let copy = Buffer::from_encoded_bytes(buffer.to_bytes().as_slice());
-        assert_eq!(copy.raw_data, buffer.raw_data);
+        let bytes = buffer.to_bytes();
+        let data_len = bytes.len();
+        let (copy, len) = Buffer::from_encoded_bytes(bytes.as_slice());
+        assert_eq!(copy, buffer);
+        assert_eq!(len , data_len as u32);
         assert_eq!(copy.decode_str().unwrap(), "first_value");
         assert_eq!(copy.decode_i32(), None);
         assert_eq!(copy.decode_bool(), None);
 
         let buffer = Buffer::from_i32("first_key", 1);
-        let copy = Buffer::from_encoded_bytes(buffer.to_bytes().as_slice());
-        assert_eq!(copy.raw_data, buffer.raw_data);
+        let (copy, _) = Buffer::from_encoded_bytes(buffer.to_bytes().as_slice());
+        assert_eq!(copy, buffer);
         assert_eq!(copy.decode_str(), None);
         assert_eq!(copy.decode_i32(), Some(1));
         assert_eq!(copy.decode_bool(), None);
 
         let buffer = Buffer::from_bool("first_key", true);
-        let copy = Buffer::from_encoded_bytes(buffer.to_bytes().as_slice());
-        assert_eq!(copy.raw_data, buffer.raw_data);
+        let (copy, _) = Buffer::from_encoded_bytes(buffer.to_bytes().as_slice());
+        assert_eq!(copy, buffer);
         assert_eq!(copy.decode_str(), None);
         assert_eq!(copy.decode_i32(), None);
         assert_eq!(copy.decode_bool(), Some(true));
