@@ -1,8 +1,7 @@
-![Crates.io](https://img.shields.io/crates/l/MMKV)
+[![Crates.io](https://img.shields.io/crates/l/MMKV)](https://crates.io/crates/mmkv)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/yangkx1024/MMKV/pulls)
 [![Crates.io](https://img.shields.io/crates/v/MMKV)](https://crates.io/crates/mmkv)
-![Crates.io](https://img.shields.io/crates/d/MMKV)
-![GitHub Workflow Status (with event)](https://img.shields.io/github/actions/workflow/status/yangkx1024/MMKV/rust.yml)
+[![Crates.io](https://img.shields.io/crates/d/MMKV)](https://crates.io/crates/mmkv)
 
 # Library uses file-based mmap to store key-values
 
