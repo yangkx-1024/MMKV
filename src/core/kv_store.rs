@@ -16,7 +16,7 @@ pub struct KvStore {
     _page_size: u64,
 }
 
-impl<'a> KvStore {
+impl KvStore {
     pub fn new(path: &Path, page_size: u64) -> Self {
         let file = OpenOptions::new().read(true).write(true).create(true).open(path).unwrap();
         let mut file_len = file.metadata().unwrap().len();
@@ -162,8 +162,6 @@ mod tests {
                 KvStore::new(Path::new("test_kv_store_multi_thread"), 1024 * 1024)
             ).unwrap();
             let key = "key";
-            STORE.get_mut().unwrap().write(key, Buffer::from_i32(key, 0));
-            let len = STORE.get().unwrap()._mm.read().unwrap().len() - 8;
             let handle = spawn(move || {
                 for i in 0..10000 {
                     STORE.get_mut().unwrap().write(key, Buffer::from_i32(key, i));
@@ -172,10 +170,11 @@ mod tests {
             for i in 0..10000 {
                 STORE.get_mut().unwrap().write(key, Buffer::from_i32(key, i));
             }
+            handle.join().unwrap();
             println!("value: {}", STORE.get().unwrap().get(key).unwrap().decode_i32().unwrap());
             println!("{}", STORE.get().unwrap());
-            handle.join().unwrap();
-            assert_eq!(STORE.get().unwrap()._mm.read().unwrap().len() - 8, len + len * 20000)
+            let count = STORE.get().unwrap()._mm.read().unwrap().iter().count();
+            assert_eq!(count, 20000)
         }
         let _ = fs::remove_file("test_kv_store_multi_thread");
     }
