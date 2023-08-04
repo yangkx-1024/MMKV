@@ -1,3 +1,9 @@
+![Crates.io](https://img.shields.io/crates/l/MMKV)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/yangkx1024/MMKV/pulls)
+[![Crates.io](https://img.shields.io/crates/v/MMKV)](https://crates.io/crates/mmkv)
+![Crates.io](https://img.shields.io/crates/d/MMKV)
+![GitHub Workflow Status (with event)](https://img.shields.io/github/actions/workflow/status/yangkx1024/MMKV/rust.yml)
+
 # Library uses file-based mmap to store key-values
 
 This is a simple rust version of [mmkv](https://github.com/Tencent/MMKV), 
