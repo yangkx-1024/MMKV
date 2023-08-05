@@ -4,7 +4,7 @@ use std::fs::{File, OpenOptions};
 use std::path::Path;
 use std::sync::RwLock;
 
-use crate::core::buffer::Buffer;
+use crate::core::buffer::{Buffer, BufferResult};
 use crate::core::memory_map::MemoryMap;
 
 #[derive(Debug)]
@@ -40,7 +40,9 @@ impl KvStore {
         // acquire write lock
         let mm = self._mm.read().unwrap();
         for buffer in mm.iter() {
-            self._kv_map.insert(buffer.key().to_string(), buffer);
+            if let BufferResult::Ok(data) = buffer {
+                self._kv_map.insert(data.key().to_string(), data);
+            }
         }
     }
 
@@ -109,14 +111,14 @@ mod tests {
         let _ = fs::remove_file("test_kv_store");
         let mut store = KvStore::new(Path::new("test_kv_store"), 100);
         store.write("key1", Buffer::from_i32("key1", 1));
-        assert_eq!(store._mm.read().unwrap().len(), 24);
+        assert_eq!(store._mm.read().unwrap().len(), 25);
         assert_eq!(store.get("key1").unwrap().decode_i32().unwrap(), 1);
         assert_eq!(store.get("key2").is_none(), true);
         store.write("key2", Buffer::from_i32("key2", 2));
         assert_eq!(store.get("key2").unwrap().decode_i32().unwrap(), 2);
         store.write("key3", Buffer::from_i32("key3", 3));
         assert_eq!(store.get("key3").unwrap().decode_i32().unwrap(), 3);
-        assert_eq!(store._mm.read().unwrap().len(), 56);
+        assert_eq!(store._mm.read().unwrap().len(), 59);
 
         store.write("key1", Buffer::from_i32("key1", 4));
         store.write("key2", Buffer::from_i32("key2", 5));
@@ -124,12 +126,12 @@ mod tests {
         assert_eq!(store.get("key1").unwrap().decode_i32().unwrap(), 4);
         assert_eq!(store.get("key2").unwrap().decode_i32().unwrap(), 5);
         assert_eq!(store.get("key3").unwrap().decode_i32().unwrap(), 6);
-        assert_eq!(store._mm.read().unwrap().len(), 72);
+        assert_eq!(store._mm.read().unwrap().len(), 76);
         store.write("key1", Buffer::from_i32("key1", 1));
-        assert_eq!(store._mm.read().unwrap().len(), 88);
+        assert_eq!(store._mm.read().unwrap().len(), 93);
         assert_eq!(store.get("key1").unwrap().decode_i32().unwrap(), 1);
         store.write("key2", Buffer::from_i32("key2", 2));
-        assert_eq!(store._mm.read().unwrap().len(), 72);
+        assert_eq!(store._mm.read().unwrap().len(), 76);
         assert_eq!(store.get("key2").unwrap().decode_i32().unwrap(), 2);
         assert_eq!(store.get("key3").unwrap().decode_i32().unwrap(), 6);
         assert_eq!(store._file_size, 100);
@@ -140,7 +142,7 @@ mod tests {
         assert_eq!(store.get("key1").unwrap().decode_i32().unwrap(), 1);
         assert_eq!(store.get("key2").unwrap().decode_i32().unwrap(), 2);
         assert_eq!(store.get("key3").unwrap().decode_i32().unwrap(), 6);
-        assert_eq!(store._mm.read().unwrap().len(), 72);
+        assert_eq!(store._mm.read().unwrap().len(), 76);
 
         store.write("key4", Buffer::from_i32("key4", 4));
         store.write("key5", Buffer::from_i32("key5", 5));
