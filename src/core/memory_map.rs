@@ -2,9 +2,10 @@ use std::fs::File;
 use std::ops::Range;
 
 use memmap2::{Advice, MmapMut};
-use crate::core::buffer::Buffer;
+use crate::core::buffer::{Buffer, BufferResult};
 
 const _LEN_OFFSET: usize = 8;
+const _CRC_OFFSET: usize = 4;
 
 #[derive(Debug)]
 pub struct MemoryMap(MmapMut);
@@ -66,7 +67,7 @@ impl MemoryMap {
 }
 
 impl <'a> Iterator for Iter<'a> {
-    type Item = Buffer;
+    type Item = BufferResult;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.start >= self.end {
@@ -124,7 +125,7 @@ mod tests {
         }
         let mut index = 0;
         for i in mm.iter() {
-            assert_eq!(buffers[index], i);
+            assert_eq!(buffers[index], i.unwrap());
             index += 1;
         }
         let _ = fs::remove_file("test_mmap_iterator");
