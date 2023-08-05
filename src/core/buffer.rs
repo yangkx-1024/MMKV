@@ -3,10 +3,26 @@ use std::str;
 use protobuf::{EnumOrUnknown, Message};
 
 use kv::{KV, Types};
+use crate::core::crc::CRC8;
 
 include!(concat!(env!("OUT_DIR"), "/protos/mod.rs"));
 #[derive(Debug)]
 pub struct Buffer(KV);
+
+pub enum BufferResult {
+    Ok(Buffer),
+    Invalid()
+}
+
+impl BufferResult {
+    #[allow(dead_code)]
+    pub fn unwrap(self) -> Buffer {
+        match self {
+            BufferResult::Ok(buffer) => buffer,
+            BufferResult::Invalid() => panic!("Invalid buffer data"),
+        }
+    }
+}
 
 pub trait Decoder {
     fn decode_i32(&self) -> Option<i32>;
@@ -40,20 +56,29 @@ impl Buffer {
         Buffer::from_kv(key, Types::BYTE, vec![out].as_slice())
     }
 
-    pub fn from_encoded_bytes(data: &[u8]) -> (Self, u32) {
+    pub fn from_encoded_bytes(data: &[u8]) -> (BufferResult, u32) {
         let item_len = u32::from_be_bytes(
             data[0..4].try_into().unwrap()
         );
-        (Buffer(
-            KV::parse_from_bytes(&data[4..(4 + item_len as usize)]).unwrap()
-        ), 4 + item_len)
+        let bytes_to_decode = &data[4..(3 + item_len as usize)];
+        let sum = data[3 + item_len as usize];
+        let result = if CRC8.checksum(bytes_to_decode) == sum {
+            BufferResult::Ok(
+                Buffer(KV::parse_from_bytes(bytes_to_decode).unwrap()),
+            )
+        } else {
+            BufferResult::Invalid()
+        };
+        (result, 4 + item_len)
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {
         let bytes_to_write = self.0.write_to_bytes().unwrap();
-        let len = bytes_to_write.len() as u32;
+        let sum = CRC8.checksum(bytes_to_write.as_slice());
+        let len = bytes_to_write.len() as u32 + 1;
         let mut data = len.to_be_bytes().to_vec();
         data.extend_from_slice(bytes_to_write.as_slice());
+        data.push(sum);
         data
     }
 
@@ -117,6 +142,7 @@ mod tests {
         let bytes = buffer.to_bytes();
         let data_len = bytes.len();
         let (copy, len) = Buffer::from_encoded_bytes(bytes.as_slice());
+        let copy = copy.unwrap();
         assert_eq!(copy, buffer);
         assert_eq!(len , data_len as u32);
         assert_eq!(copy.decode_str().unwrap(), "first_value");
@@ -125,6 +151,7 @@ mod tests {
 
         let buffer = Buffer::from_i32("first_key", 1);
         let (copy, _) = Buffer::from_encoded_bytes(buffer.to_bytes().as_slice());
+        let copy = copy.unwrap();
         assert_eq!(copy, buffer);
         assert_eq!(copy.decode_str(), None);
         assert_eq!(copy.decode_i32(), Some(1));
@@ -132,6 +159,7 @@ mod tests {
 
         let buffer = Buffer::from_bool("first_key", true);
         let (copy, _) = Buffer::from_encoded_bytes(buffer.to_bytes().as_slice());
+        let copy = copy.unwrap();
         assert_eq!(copy, buffer);
         assert_eq!(copy.decode_str(), None);
         assert_eq!(copy.decode_i32(), None);
