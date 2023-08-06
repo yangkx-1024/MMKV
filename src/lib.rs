@@ -1,3 +1,4 @@
+pub use crate::mmkv::MMKV;
+
 mod core;
 mod mmkv;
-pub use crate::mmkv::MMKV;
