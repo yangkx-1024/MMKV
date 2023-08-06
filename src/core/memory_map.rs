@@ -2,9 +2,8 @@ use std::fs::File;
 use std::ops::Range;
 
 use memmap2::{Advice, MmapMut};
-use crate::core::buffer::Buffer;
 
-const _LEN_OFFSET: usize = 8;
+pub const _LEN_OFFSET: usize = 8;
 
 #[derive(Debug)]
 pub struct MemoryMap(MmapMut);
@@ -42,41 +41,8 @@ impl MemoryMap {
         ) + _LEN_OFFSET
     }
 
-    fn read(&self, range: Range<usize>) -> &[u8] {
+    pub fn read(&self, range: Range<usize>) -> &[u8] {
         self.0[range].as_ref()
-    }
-}
-
-pub struct Iter<'a> {
-    mm: &'a MemoryMap,
-    start: usize,
-    end: usize,
-}
-
-impl MemoryMap {
-    pub fn iter(&self) -> Iter {
-        let start = _LEN_OFFSET;
-        let end = self.len();
-        Iter {
-            mm: self,
-            start,
-            end
-        }
-    }
-}
-
-impl <'a> Iterator for Iter<'a> {
-    type Item = Buffer;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.start >= self.end {
-            return None
-        }
-        let (buffer, len) = Buffer::from_encoded_bytes(
-            self.mm.read(self.start..self.end).as_ref()
-        );
-        self.start += len as usize;
-        Some(buffer)
     }
 }
 
@@ -84,13 +50,15 @@ impl <'a> Iterator for Iter<'a> {
 mod tests {
     use std::fs;
     use std::fs::OpenOptions;
-    use crate::core::buffer::Buffer;
 
     use super::MemoryMap;
 
     #[test]
     fn test_mmap() {
-        let mut mm = new_mm("test_mmap");
+        let _ = fs::remove_file("test_mmap");
+        let file = OpenOptions::new().create(true).write(true).read(true).open("test_mmap").unwrap();
+        file.set_len(1024).unwrap();
+        let mut mm = MemoryMap::new(&file);
         assert_eq!(mm.len(), 8);
         mm.append(vec![1, 2, 3]).unwrap();
         mm.append(vec![4]).unwrap();
@@ -111,29 +79,5 @@ mod tests {
         let read = mm.read(9..10);
         assert_eq!(read[0], 4);
         let _ = fs::remove_file("test_mmap");
-    }
-
-    #[test]
-    fn test_mmap_iterator() {
-        let mut mm = new_mm("test_mmap_iterator");
-        let mut buffers: Vec<Buffer> = vec![];
-        for i in 0..10 {
-            let buffer = Buffer::from_i32(&i.to_string(), i);
-            mm.append(buffer.to_bytes()).unwrap();
-            buffers.push(buffer);
-        }
-        let mut index = 0;
-        for i in mm.iter() {
-            assert_eq!(buffers[index], i);
-            index += 1;
-        }
-        let _ = fs::remove_file("test_mmap_iterator");
-    }
-
-    fn new_mm(file_name: &str) -> MemoryMap {
-        let _ = fs::remove_file(file_name);
-        let file = OpenOptions::new().create(true).write(true).read(true).open(file_name).unwrap();
-        file.set_len(1024).unwrap();
-        MemoryMap::new(&file)
     }
 }
