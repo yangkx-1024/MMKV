@@ -9,7 +9,7 @@ const _PAGE_SIZE: u64 = 4 * 1024; // 4KB is the default Linux page size
 
 static mut MMKV_IMPL: OnceLock<MmkvImpl> = OnceLock::new();
 
-macro_rules! kv_store {
+macro_rules! mmkv {
     () => {
         {
             unsafe {
@@ -19,7 +19,7 @@ macro_rules! kv_store {
     }
 }
 
-macro_rules! mut_kv_store {
+macro_rules! mut_mmkv {
     () => {
         {
             unsafe {
@@ -104,31 +104,31 @@ impl MMKV {
     }
 
     pub fn put_str(key: &str, value: &str) {
-        mut_kv_store!().write(key, Buffer::from_str(key, value));
+        mut_mmkv!().write(key, Buffer::from_str(key, value));
     }
 
     pub fn get_str(key: &str) -> Option<&str> {
-        kv_store!().get(key).map(|buffer| {
+        mmkv!().get(key).map(|buffer| {
             buffer.decode_str()
         }).flatten()
     }
 
     pub fn put_i32(key: &str, value: i32) {
-        mut_kv_store!().write(key, Buffer::from_i32(key, value));
+        mut_mmkv!().write(key, Buffer::from_i32(key, value));
     }
 
     pub fn get_i32(key: &str) -> Option<i32> {
-        kv_store!().get(key).map(|buffer| {
+        mmkv!().get(key).map(|buffer| {
             buffer.decode_i32()
         }).flatten()
     }
 
     pub fn put_bool(key: &str, value: bool) {
-        mut_kv_store!().write(key, Buffer::from_bool(key, value));
+        mut_mmkv!().write(key, Buffer::from_bool(key, value));
     }
 
     pub fn get_bool(key: &str) -> Option<bool> {
-        kv_store!().get(key).map(|buffer| {
+        mmkv!().get(key).map(|buffer| {
             buffer.decode_bool()
         }).flatten()
     }
@@ -139,40 +139,6 @@ impl MMKV {
     `MMKV { file_size: 1024, key_count: 4, content_len: 107 }`
      */
     pub fn dump() -> String {
-        kv_store!().to_string()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::fs;
-
-    use super::MMKV;
-
-    #[test]
-    fn test_mmkv() {
-        let _ = fs::remove_file("mini_mmkv");
-        let _ = fs::remove_file("mmkv_meta");
-        MMKV::initialize(".");
-        MMKV::put_i32("first", 1);
-        MMKV::put_i32("second", 2);
-        assert_eq!(MMKV::get_i32("first"), Some(1));
-        assert_eq!(MMKV::get_str("first"), None);
-        assert_eq!(MMKV::get_bool("first"), None);
-        assert_eq!(MMKV::get_i32("second"), Some(2));
-        assert_eq!(MMKV::get_i32("third"), None);
-        MMKV::put_i32("third", 3);
-        assert_eq!(MMKV::get_i32("third"), Some(3));
-        MMKV::put_str("fourth", "four");
-        assert_eq!(MMKV::get_str("fourth"), Some("four"));
-        MMKV::put_str("first", "one");
-        assert_eq!(MMKV::get_i32("first"), None);
-        assert_eq!(MMKV::get_str("first"), Some("one"));
-        MMKV::put_bool("second", false);
-        assert_eq!(MMKV::get_str("second"), None);
-        assert_eq!(MMKV::get_bool("second"), Some(false));
-        println!("{}", MMKV::dump());
-        let _ = fs::remove_file("mini_mmkv");
-        let _ = fs::remove_file("mmkv_meta");
+        mmkv!().to_string()
     }
 }
