@@ -21,7 +21,6 @@ pub struct Crypt {
 
 type Result = aead::Result<Vec<u8>>;
 
-#[macro_export]
 macro_rules! stream {
     ($k:expr, $nonce:expr) => {
         {
@@ -31,20 +30,18 @@ macro_rules! stream {
     };
 }
 
-#[macro_export]
 macro_rules! encryptor {
     ($k:expr, $nonce:expr) => {
         {
-            $crate::stream!($k, $nonce).encryptor()
+            stream!($k, $nonce).encryptor()
         }
     }
 }
 
-#[macro_export]
 macro_rules! decryptor {
     ($k:expr, $nonce:expr) => {
         {
-            $crate::stream!($k, $nonce).decryptor()
+            stream!($k, $nonce).decryptor()
         }
     }
 }
@@ -54,8 +51,8 @@ impl Crypt {
         let generic_array = GenericArray::from_slice(&key);
         let mut nonce = GenericArray::default();
         OsRng.fill_bytes(&mut nonce);
-        let encryptor = crate::encryptor!(generic_array, nonce);
-        let decryptor = crate::decryptor!(generic_array, nonce);
+        let encryptor = encryptor!(generic_array, nonce);
+        let decryptor = decryptor!(generic_array, nonce);
         Self {
             encryptor,
             decryptor,
@@ -67,8 +64,8 @@ impl Crypt {
     pub fn new_with_nonce(key: [u8; 16], nonce: &[u8]) -> Self {
         let generic_array = GenericArray::from_slice(&key);
         let nonce = GenericArray::from_slice(nonce);
-        let encryptor = crate::encryptor!(generic_array, nonce);
-        let decryptor = crate::decryptor!(generic_array, nonce);
+        let encryptor = encryptor!(generic_array, nonce);
+        let decryptor = decryptor!(generic_array, nonce);
         Self {
             encryptor,
             decryptor,
@@ -169,7 +166,7 @@ mod tests {
     const TEST_KEY: &str = "88C51C536176AD8A8EE4A06F62EE897E";
 
     #[test]
-    fn test() {
+    fn test_crypt_buffer() {
         let key = hex::decode(TEST_KEY).unwrap();
         let crypt = Rc::new(RefCell::new(Crypt::new(key.try_into().unwrap())));
         let buffer = Buffer::from_i32("key1", 1);

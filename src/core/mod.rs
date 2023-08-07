@@ -1,5 +1,5 @@
 pub mod buffer;
-pub mod kv_store;
+pub mod mmkv_impl;
 mod memory_map;
 mod crc;
 mod crypt;
