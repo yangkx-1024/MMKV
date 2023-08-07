@@ -5,17 +5,16 @@
 
 # Library uses file-based mmap to store key-values
 
-This is a simple rust version of [mmkv](https://github.com/Tencent/MMKV), 
-only part of the core features have been implemented so far, 
-and it is still far from production availability.
+This is a Rust version of [mmkv](https://github.com/Tencent/MMKV).
+By default, this lib uses CRC8 to check data integrity.
+
+If include feature `encryption`, this lib will encrypt 
+the data with [AES-EAX](https://github.com/RustCrypto/AEADs/tree/master/eax). 
 
 ### How to use
 Add dependency:
-```toml
-[dependencies]
-mmkv = { version = "0.1.0" }
-```
-And use `MMKV` directly:
+`cargo add mmkv`
+and use `MMKV` directly:
 ```rust
 use mmkv::MMKV;
 
@@ -37,3 +36,13 @@ fn main() {
     println!("{:?}", MMKV::get_bool("key1"));
 }
 ```
+
+### Use with encryption feature
+Add dependency:
+`cargo add mmkv --features encryption`
+
+Then init `MMKV` with an encryption credential:
+`MMKV::initialize(".", "88C51C536176AD8A8EE4A06F62EE897E")`
+
+Encryption will greatly reduce the efficiency of reading and writing, 
+and will also increase the file size, use at your own risk!
