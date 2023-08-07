@@ -5,8 +5,8 @@ use mmkv::MMKV;
 #[test]
 fn integration() {
     let _ = fs::remove_file("mini_mmkv");
-    let _ = fs::remove_file("mmkv_meta");
-    MMKV::initialize(".");
+    let _ = fs::remove_file("mini_mmkv.meta");
+    MMKV::initialize(".", #[cfg(feature = "encryption")] "88C51C536176AD8A8EE4A06F62EE897E");
     MMKV::put_i32("first", 1);
     MMKV::put_i32("second", 2);
     assert_eq!(MMKV::get_i32("first"), Some(1));
@@ -26,5 +26,5 @@ fn integration() {
     assert_eq!(MMKV::get_bool("second"), Some(false));
     println!("{}", MMKV::dump());
     let _ = fs::remove_file("mini_mmkv");
-    let _ = fs::remove_file("mmkv_meta");
+    let _ = fs::remove_file("mini_mmkv.meta");
 }

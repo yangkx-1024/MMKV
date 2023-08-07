@@ -16,7 +16,11 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
-    - name: Build
+    - name: Build default
       run: cargo build --verbose
-    - name: Run tests
+    - name: Build feature encryption
+      run: cargo build --features encryption --verbose
+    - name: Run default tests
       run: cargo test --verbose
+    - name: Run feature encryption tests
+      run: cargo test --features encryption --verbose
