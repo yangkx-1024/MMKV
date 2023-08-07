@@ -38,16 +38,7 @@ Using directly:
 ```
 use mmkv::MMKV;
 
-MMKV::initialize(".");
-MMKV::put_i32("key1", 1);
-assert_eq!(MMKV::get_i32("key1"), Some(1));
-```
-
-Using with encryption:
-```
-use mmkv::MMKV;
-
-MMKV::initialize_with_encrypt_key(".", "88C51C536176AD8A8EE4A06F62EE897E");
+MMKV::initialize(".", #[cfg(feature = "encryption")] "88C51C536176AD8A8EE4A06F62EE897E");
 MMKV::put_i32("key1", 1);
 assert_eq!(MMKV::get_i32("key1"), Some(1));
 ```
@@ -63,30 +54,17 @@ impl MMKV {
 
     There will only be one MMKV instance globally,
     calling initialize multiple times will also cause panic.
+
+    If enabled feature "encryption", additional param `key` is required,
+    the key should be a hexadecimal string of length 16, for example:
+
+    `88C51C536176AD8A8EE4A06F62EE897E`
      */
-    pub fn initialize(dir: &str) {
+    pub fn initialize(dir: &str, #[cfg(feature = "encryption")] key: &str) {
         let file_path = MMKV::resolve_file_path(dir);
         unsafe {
             MMKV_IMPL.set(
-                MmkvImpl::new(file_path.as_path(), PAGE_SIZE)
-            ).expect("initialize more than one time");
-        }
-    }
-
-    /**
-    See [initialize](MMKV::initialize)
-
-    Initialize the MMKV instance with a writeable directory,
-    and a credential for encryption(enable content encryption).
-
-    The key should be a hexadecimal string of length 16, for example:
-    "88C51C536176AD8A8EE4A06F62EE897E".
-     */
-    pub fn initialize_with_encrypt_key(dir: &str, key: &str) {
-        let file_path = MMKV::resolve_file_path(dir);
-        unsafe {
-            MMKV_IMPL.set(
-                MmkvImpl::new_with_encrypt_key(file_path.as_path(), PAGE_SIZE, key)
+                MmkvImpl::new(file_path.as_path(), PAGE_SIZE, #[cfg(feature = "encryption")] key)
             ).expect("initialize more than one time");
         }
     }
