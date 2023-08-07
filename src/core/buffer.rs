@@ -21,19 +21,6 @@ pub trait Take {
     fn take(self) -> Option<Buffer>;
 }
 
-#[derive(Debug)]
-pub struct Error {
-    _reason: String,
-}
-
-impl Default for Error {
-    fn default() -> Self {
-        Error {
-            _reason: "invalid data".to_string()
-        }
-    }
-}
-
 impl Buffer {
     fn from_kv(key: &str, t: Types, value: &[u8]) -> Self {
         let mut kv = KV::new();
