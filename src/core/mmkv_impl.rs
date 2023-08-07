@@ -15,23 +15,23 @@ use crate::core::memory_map::MemoryMap;
 const _META_FILE_NAME: &str = "mmkv_meta";
 
 #[derive(Debug)]
-pub struct KvStore {
-    _kv_map: HashMap<String, Buffer>,
-    _file: File,
-    _meta_file_path: PathBuf,
-    _mm: RwLock<MemoryMap>,
-    _file_size: u64,
-    _page_size: u64,
-    _crypt: Option<Rc<RefCell<Crypt>>>,
+pub struct MmkvImpl {
+    kv_map: HashMap<String, Buffer>,
+    file: File,
+    meta_file_path: PathBuf,
+    mm: RwLock<MemoryMap>,
+    file_size: u64,
+    page_size: u64,
+    crypt: Option<Rc<RefCell<Crypt>>>,
 }
 
-impl KvStore {
+impl MmkvImpl {
     pub fn new(path: &Path, page_size: u64) -> Self {
-        KvStore::new_kv_store(path, page_size, None)
+        MmkvImpl::new_kv_store(path, page_size, None)
     }
 
     pub fn new_with_encrypt_key(path: &Path, page_size: u64, key: &str) -> Self {
-        KvStore::new_kv_store(path, page_size, Some(key))
+        MmkvImpl::new_kv_store(path, page_size, Some(key))
     }
 
     fn new_kv_store(path: &Path, page_size: u64, key: Option<&str>) -> Self {
@@ -45,19 +45,19 @@ impl KvStore {
         let crypt = key.map(|raw_key| {
             let key = hex::decode(raw_key).unwrap();
             Rc::new(RefCell::new(
-                KvStore::init_crypt(&meta_file_path, key.as_slice())
+                MmkvImpl::init_crypt(&meta_file_path, key.as_slice())
             ))
         });
 
         let mm = MemoryMap::new(&file);
-        let mut store = KvStore {
-            _kv_map: HashMap::new(),
-            _file: file,
-            _meta_file_path: meta_file_path,
-            _mm: RwLock::new(mm),
-            _file_size: file_len,
-            _page_size: page_size,
-            _crypt: crypt,
+        let mut store = MmkvImpl {
+            kv_map: HashMap::new(),
+            file,
+            meta_file_path,
+            mm: RwLock::new(mm),
+            file_size: file_len,
+            page_size,
+            crypt,
         };
         store.init();
         store
@@ -65,13 +65,13 @@ impl KvStore {
 
     fn init(&mut self) {
         // acquire write lock
-        let mm = self._mm.read().unwrap();
+        let mm = self.mm.read().unwrap();
         let decode = |buffer: Option<Buffer>| {
             if let Some(data) = buffer {
-                self._kv_map.insert(data.key().to_string(), data);
+                self.kv_map.insert(data.key().to_string(), data);
             }
         };
-        match self._crypt.as_ref() {
+        match self.crypt.as_ref() {
             Some(crypt) => {
                 mm.iter(|| CryptBuffer::new(crypt.clone())).for_each(decode)
             }
@@ -99,7 +99,7 @@ impl KvStore {
     }
 
     pub fn write(&mut self, key: &str, buffer: Buffer) {
-        if let Some(crypt) = self._crypt.clone() {
+        if let Some(crypt) = self.crypt.clone() {
             self.write_internal(key, buffer, |buffer: Buffer| CryptBuffer::new_with_buffer(buffer, crypt.clone()))
         } else {
             self.write_internal(key, buffer, |buffer: Buffer| CrcBuffer::new_with_buffer(buffer))
@@ -108,65 +108,70 @@ impl KvStore {
 
     fn write_internal<T, F>(&mut self, key: &str, raw_buffer: Buffer, transform: F) where T: Encoder + Take, F: Fn(Buffer) -> T {
         // acquire write lock
-        let mut mm = self._mm.write().unwrap();
+        let mut mm = self.mm.write().unwrap();
         let buffer = transform(raw_buffer);
         let mut data = buffer.encode_to_bytes();
         let mut target_end = data.len() + mm.len();
-        if target_end as u64 > self._file_size {
+        if target_end as u64 > self.file_size {
             // trim the file, drop the duplicate items
             let mut crypt_changed = false;
-            if let Some(crypt) = self._crypt.clone() {
-                let _ = fs::remove_file(self._meta_file_path.to_path_buf());
+            if let Some(crypt) = self.crypt.clone() {
+                let _ = fs::remove_file(self.meta_file_path.to_path_buf());
                 let key = crypt.borrow().key();
-                *crypt.borrow_mut() = KvStore::init_crypt(
-                    &self._meta_file_path, key.as_slice(),
+                // The crypt is using stream encryption,
+                // subsequent data encryption depends on the results of previous data encryption,
+                // we want rewrite the entire stream, so crypt needs to be reset.
+                *crypt.borrow_mut() = MmkvImpl::init_crypt(
+                    &self.meta_file_path, key.as_slice(),
                 );
                 crypt_changed = true;
             }
             let mut vec: Vec<u8> = vec!();
-            for buffer in self._kv_map.values() {
+            for buffer in self.kv_map.values() {
                 let buffer = transform(buffer.clone());
                 vec.extend_from_slice(buffer.encode_to_bytes().as_slice());
             }
+            // rewrite the entire map
             mm.write_all(vec).unwrap();
+            // the crypt has been reset, need encode it with new crypt
             if crypt_changed {
                 data = buffer.encode_to_bytes();
             }
             target_end = data.len() + mm.len()
         }
-        while target_end as u64 > self._file_size {
-            // expand the file size with _page_size
-            self._file.sync_all().unwrap();
-            self._file_size += self._page_size;
-            self._file.set_len(self._file_size).unwrap();
-            *mm = MemoryMap::new(&self._file);
+        while target_end as u64 > self.file_size {
+            // expand the file size with page_size
+            self.file.sync_all().unwrap();
+            self.file_size += self.page_size;
+            self.file.set_len(self.file_size).unwrap();
+            *mm = MemoryMap::new(&self.file);
         }
         mm.append(data).unwrap();
-        self._kv_map.insert(key.to_string(), buffer.take().unwrap());
+        self.kv_map.insert(key.to_string(), buffer.take().unwrap());
     }
 
     pub fn get(&self, key: &str) -> Option<&Buffer> {
         // acquire read lock
-        let _mm = self._mm.read();
-        self._kv_map.get(key)
+        let _mm = self.mm.read();
+        self.kv_map.get(key)
     }
 }
 
-impl Display for KvStore {
+impl Display for MmkvImpl {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         writeln!(
             f,
-            "KvStore {{ file_size: {}, key_count: {}, content_len: {} }}",
-            self._file_size,
-            self._kv_map.len(),
-            self._mm.read().unwrap().len()
+            "MMKV {{ file_size: {}, key_count: {}, content_len: {} }}",
+            self.file_size,
+            self.kv_map.len(),
+            self.mm.read().unwrap().len()
         )
     }
 }
 
-impl Drop for KvStore {
+impl Drop for MmkvImpl {
     fn drop(&mut self) {
-        self._file.sync_all().unwrap();
+        self.file.sync_all().unwrap();
     }
 }
 
@@ -179,29 +184,29 @@ mod tests {
 
     use crate::core::buffer::Buffer;
     use crate::core::crc::CrcBuffer;
-    use crate::core::kv_store::{_META_FILE_NAME, KvStore};
+    use crate::core::mmkv_impl::{_META_FILE_NAME, MmkvImpl};
 
     #[test]
-    fn test_normal_kv_store() {
-        let _ = fs::remove_file("test_kv_store");
-        test_kv_store(|| KvStore::new(Path::new("test_kv_store"), 100));
-        let _ = fs::remove_file("test_kv_store");
+    fn test_normal_mmkv() {
+        let _ = fs::remove_file("test_normal_mmkv");
+        test_mmkv(|| MmkvImpl::new(Path::new("test_normal_mmkv"), 100));
+        let _ = fs::remove_file("test_normal_mmkv");
     }
 
     #[test]
-    fn test_crypt_kv_store() {
-        let _ = fs::remove_file("test_crypt_kv_store");
+    fn test_crypt_mmkv() {
+        let _ = fs::remove_file("test_crypt_mmkv");
         let _ = fs::remove_file(_META_FILE_NAME);
-        test_kv_store(|| KvStore::new_with_encrypt_key(
-            Path::new("test_crypt_kv_store"),
+        test_mmkv(|| MmkvImpl::new_with_encrypt_key(
+            Path::new("test_crypt_mmkv"),
             100,
             "88C51C536176AD8A8EE4A06F62EE897E",
         ));
-        let _ = fs::remove_file("test_crypt_kv_store");
+        let _ = fs::remove_file("test_crypt_mmkv");
         let _ = fs::remove_file(_META_FILE_NAME);
     }
 
-    fn test_kv_store<F>(f: F) where F: Fn() -> KvStore {
+    fn test_mmkv<F>(f: F) where F: Fn() -> MmkvImpl {
         let mut store = f();
         store.write("key1", Buffer::from_i32("key1", 1));
         assert_eq!(store.get("key1").unwrap().decode_i32().unwrap(), 1);
@@ -232,28 +237,28 @@ mod tests {
     }
 
     #[test]
-    fn test_kv_store_multi_thread() {
-        let _ = fs::remove_file("test_kv_store_multi_thread");
-        static mut STORE: OnceLock<KvStore> = OnceLock::new();
+    fn test_multi_thread_mmkv() {
+        let _ = fs::remove_file("test_multi_thread_mmkv");
+        static mut MMKV: OnceLock<MmkvImpl> = OnceLock::new();
         unsafe {
-            STORE.set(
-                KvStore::new(Path::new("test_kv_store_multi_thread"), 1024 * 1024)
+            MMKV.set(
+                MmkvImpl::new(Path::new("test_multi_thread_mmkv"), 1024 * 1024)
             ).unwrap();
             let key = "key";
             let handle = spawn(move || {
                 for i in 0..10000 {
-                    STORE.get_mut().unwrap().write(key, Buffer::from_i32(key, i));
+                    MMKV.get_mut().unwrap().write(key, Buffer::from_i32(key, i));
                 }
             });
             for i in 0..10000 {
-                STORE.get_mut().unwrap().write(key, Buffer::from_i32(key, i));
+                MMKV.get_mut().unwrap().write(key, Buffer::from_i32(key, i));
             }
             handle.join().unwrap();
-            println!("value: {}", STORE.get().unwrap().get(key).unwrap().decode_i32().unwrap());
-            println!("{}", STORE.get().unwrap());
-            let count = STORE.get().unwrap()._mm.read().unwrap().iter(|| CrcBuffer::new()).count();
+            println!("value: {}", MMKV.get().unwrap().get(key).unwrap().decode_i32().unwrap());
+            println!("{}", MMKV.get().unwrap());
+            let count = MMKV.get().unwrap().mm.read().unwrap().iter(|| CrcBuffer::new()).count();
             assert_eq!(count, 20000)
         }
-        let _ = fs::remove_file("test_kv_store_multi_thread");
+        let _ = fs::remove_file("test_multi_thread_mmkv");
     }
 }

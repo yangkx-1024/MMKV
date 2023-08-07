@@ -2,12 +2,32 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use crate::core::buffer::Buffer;
-use crate::core::kv_store::KvStore;
+use crate::core::mmkv_impl::MmkvImpl;
 
 const _DEFAULT_FILE_NAME: &str = "mini_mmkv";
 const _PAGE_SIZE: u64 = 4 * 1024; // 4KB is the default Linux page size
 
-static mut _STORE: OnceLock<KvStore> = OnceLock::new();
+static mut MMKV_IMPL: OnceLock<MmkvImpl> = OnceLock::new();
+
+macro_rules! kv_store {
+    () => {
+        {
+            unsafe {
+                MMKV_IMPL.get().expect("not initialize")
+            }
+        }
+    }
+}
+
+macro_rules! mut_kv_store {
+    () => {
+        {
+            unsafe {
+                MMKV_IMPL.get_mut().expect("not initialize")
+            }
+        }
+    }
+}
 
 /**
 Rust version of MMKV.
@@ -47,8 +67,8 @@ impl MMKV {
     pub fn initialize(dir: &str) {
         let file_path = MMKV::resolve_file_path(dir);
         unsafe {
-            _STORE.set(
-                KvStore::new(file_path.as_path(), _PAGE_SIZE)
+            MMKV_IMPL.set(
+                MmkvImpl::new(file_path.as_path(), _PAGE_SIZE)
             ).expect("initialize more than one time");
         }
     }
@@ -58,12 +78,15 @@ impl MMKV {
 
     Initialize the MMKV instance with a writeable directory,
     and a credential for encryption(enable content encryption).
+
+    The key should be a hexadecimal string of length 16, for example:
+    "88C51C536176AD8A8EE4A06F62EE897E".
      */
     pub fn initialize_with_encrypt_key(dir: &str, key: &str) {
         let file_path = MMKV::resolve_file_path(dir);
         unsafe {
-            _STORE.set(
-                KvStore::new_with_encrypt_key(file_path.as_path(), _PAGE_SIZE, key)
+            MMKV_IMPL.set(
+                MmkvImpl::new_with_encrypt_key(file_path.as_path(), _PAGE_SIZE, key)
             ).expect("initialize more than one time");
         }
     }
@@ -81,31 +104,31 @@ impl MMKV {
     }
 
     pub fn put_str(key: &str, value: &str) {
-        crate::mut_kv_store!().write(key, Buffer::from_str(key, value));
+        mut_kv_store!().write(key, Buffer::from_str(key, value));
     }
 
     pub fn get_str(key: &str) -> Option<&str> {
-        crate::kv_store!().get(key).map(|buffer| {
+        kv_store!().get(key).map(|buffer| {
             buffer.decode_str()
         }).flatten()
     }
 
     pub fn put_i32(key: &str, value: i32) {
-        crate::mut_kv_store!().write(key, Buffer::from_i32(key, value));
+        mut_kv_store!().write(key, Buffer::from_i32(key, value));
     }
 
     pub fn get_i32(key: &str) -> Option<i32> {
-        crate::kv_store!().get(key).map(|buffer| {
+        kv_store!().get(key).map(|buffer| {
             buffer.decode_i32()
         }).flatten()
     }
 
     pub fn put_bool(key: &str, value: bool) {
-        crate::mut_kv_store!().write(key, Buffer::from_bool(key, value));
+        mut_kv_store!().write(key, Buffer::from_bool(key, value));
     }
 
     pub fn get_bool(key: &str) -> Option<bool> {
-        crate::kv_store!().get(key).map(|buffer| {
+        kv_store!().get(key).map(|buffer| {
             buffer.decode_bool()
         }).flatten()
     }
@@ -113,32 +136,10 @@ impl MMKV {
     /**
     Dump the current state of MMKV, the result looks like this:
 
-    `KvStore { file_size: 1024, key_count: 4, content_len: 107 }`
+    `MMKV { file_size: 1024, key_count: 4, content_len: 107 }`
      */
     pub fn dump() -> String {
-        crate::kv_store!().to_string()
-    }
-}
-
-#[macro_export]
-macro_rules! kv_store {
-    () => {
-        {
-            unsafe {
-                _STORE.get().expect("not initialize")
-            }
-        }
-    }
-}
-
-#[macro_export]
-macro_rules! mut_kv_store {
-    () => {
-        {
-            unsafe {
-                _STORE.get_mut().expect("not initialize")
-            }
-        }
+        kv_store!().to_string()
     }
 }
 
@@ -149,10 +150,10 @@ mod tests {
     use super::MMKV;
 
     #[test]
-    fn test_put_and_get_with_encryption() {
+    fn test_mmkv() {
         let _ = fs::remove_file("mini_mmkv");
         let _ = fs::remove_file("mmkv_meta");
-        MMKV::initialize_with_encrypt_key(".", "88C51C536176AD8A8EE4A06F62EE897E");
+        MMKV::initialize(".");
         MMKV::put_i32("first", 1);
         MMKV::put_i32("second", 2);
         assert_eq!(MMKV::get_i32("first"), Some(1));
