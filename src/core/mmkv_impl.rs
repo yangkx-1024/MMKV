@@ -12,7 +12,7 @@ use crate::core::crc::CrcBuffer;
 use crate::core::crypt::{Crypt, CryptBuffer};
 use crate::core::memory_map::MemoryMap;
 
-const _META_FILE_NAME: &str = "mmkv_meta";
+const META_FILE_NAME: &str = "mmkv_meta";
 
 #[derive(Debug)]
 pub struct MmkvImpl {
@@ -27,21 +27,21 @@ pub struct MmkvImpl {
 
 impl MmkvImpl {
     pub fn new(path: &Path, page_size: u64) -> Self {
-        MmkvImpl::new_kv_store(path, page_size, None)
+        MmkvImpl::new_mmkv(path, page_size, None)
     }
 
     pub fn new_with_encrypt_key(path: &Path, page_size: u64, key: &str) -> Self {
-        MmkvImpl::new_kv_store(path, page_size, Some(key))
+        MmkvImpl::new_mmkv(path, page_size, Some(key))
     }
 
-    fn new_kv_store(path: &Path, page_size: u64, key: Option<&str>) -> Self {
+    fn new_mmkv(path: &Path, page_size: u64, key: Option<&str>) -> Self {
         let file = OpenOptions::new().read(true).write(true).create(true).open(path).unwrap();
         let mut file_len = file.metadata().unwrap().len();
         if file_len == 0 {
             file_len += page_size;
             file.set_len(file_len).unwrap();
         }
-        let meta_file_path = path.parent().expect("unable to access dir").join(_META_FILE_NAME);
+        let meta_file_path = path.parent().expect("unable to access dir").join(META_FILE_NAME);
         let crypt = key.map(|raw_key| {
             let key = hex::decode(raw_key).unwrap();
             Rc::new(RefCell::new(
@@ -50,7 +50,7 @@ impl MmkvImpl {
         });
 
         let mm = MemoryMap::new(&file);
-        let mut store = MmkvImpl {
+        let mut mmkv = MmkvImpl {
             kv_map: HashMap::new(),
             file,
             meta_file_path,
@@ -59,8 +59,8 @@ impl MmkvImpl {
             page_size,
             crypt,
         };
-        store.init();
-        store
+        mmkv.init();
+        mmkv
     }
 
     fn init(&mut self) {
@@ -177,14 +177,14 @@ impl Drop for MmkvImpl {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
+    use std::{fs, thread};
     use std::path::Path;
     use std::sync::OnceLock;
-    use std::thread::spawn;
+    use std::thread::{JoinHandle, spawn};
 
     use crate::core::buffer::Buffer;
     use crate::core::crc::CrcBuffer;
-    use crate::core::mmkv_impl::{_META_FILE_NAME, MmkvImpl};
+    use crate::core::mmkv_impl::{META_FILE_NAME, MmkvImpl};
 
     #[test]
     fn test_normal_mmkv() {
@@ -196,44 +196,44 @@ mod tests {
     #[test]
     fn test_crypt_mmkv() {
         let _ = fs::remove_file("test_crypt_mmkv");
-        let _ = fs::remove_file(_META_FILE_NAME);
+        let _ = fs::remove_file(META_FILE_NAME);
         test_mmkv(|| MmkvImpl::new_with_encrypt_key(
             Path::new("test_crypt_mmkv"),
             100,
             "88C51C536176AD8A8EE4A06F62EE897E",
         ));
         let _ = fs::remove_file("test_crypt_mmkv");
-        let _ = fs::remove_file(_META_FILE_NAME);
+        let _ = fs::remove_file(META_FILE_NAME);
     }
 
     fn test_mmkv<F>(f: F) where F: Fn() -> MmkvImpl {
-        let mut store = f();
-        store.write("key1", Buffer::from_i32("key1", 1));
-        assert_eq!(store.get("key1").unwrap().decode_i32().unwrap(), 1);
-        assert_eq!(store.get("key2").is_none(), true);
-        store.write("key2", Buffer::from_i32("key2", 2));
-        assert_eq!(store.get("key2").unwrap().decode_i32().unwrap(), 2);
-        store.write("key3", Buffer::from_i32("key3", 3));
-        assert_eq!(store.get("key3").unwrap().decode_i32().unwrap(), 3);
+        let mut mmkv = f();
+        mmkv.write("key1", Buffer::from_i32("key1", 1));
+        assert_eq!(mmkv.get("key1").unwrap().decode_i32().unwrap(), 1);
+        assert_eq!(mmkv.get("key2").is_none(), true);
+        mmkv.write("key2", Buffer::from_i32("key2", 2));
+        assert_eq!(mmkv.get("key2").unwrap().decode_i32().unwrap(), 2);
+        mmkv.write("key3", Buffer::from_i32("key3", 3));
+        assert_eq!(mmkv.get("key3").unwrap().decode_i32().unwrap(), 3);
 
-        store.write("key1", Buffer::from_str("key1", "4"));
-        assert_eq!(store.get("key1").unwrap().decode_i32(), None);
-        assert_eq!(store.get("key1").unwrap().decode_str().unwrap(), "4");
+        mmkv.write("key1", Buffer::from_str("key1", "4"));
+        assert_eq!(mmkv.get("key1").unwrap().decode_i32(), None);
+        assert_eq!(mmkv.get("key1").unwrap().decode_str().unwrap(), "4");
 
-        drop(store);
+        drop(mmkv);
 
-        let mut store = f();
-        assert_eq!(store.get("key1").unwrap().decode_str().unwrap(), "4");
-        assert_eq!(store.get("key2").unwrap().decode_i32().unwrap(), 2);
-        assert_eq!(store.get("key3").unwrap().decode_i32().unwrap(), 3);
+        let mut mmkv = f();
+        assert_eq!(mmkv.get("key1").unwrap().decode_str().unwrap(), "4");
+        assert_eq!(mmkv.get("key2").unwrap().decode_i32().unwrap(), 2);
+        assert_eq!(mmkv.get("key3").unwrap().decode_i32().unwrap(), 3);
 
-        store.write("key4", Buffer::from_i32("key4", 4));
-        store.write("key5", Buffer::from_i32("key5", 5));
-        store.write("key6", Buffer::from_i32("key6", 6));
-        store.write("key7", Buffer::from_i32("key7", 7));
-        store.write("key8", Buffer::from_i32("key8", 8));
-        store.write("key9", Buffer::from_i32("key9", 9));
-        assert_eq!(store.get("key9").unwrap().decode_i32().unwrap(), 9);
+        mmkv.write("key4", Buffer::from_i32("key4", 4));
+        mmkv.write("key5", Buffer::from_i32("key5", 5));
+        mmkv.write("key6", Buffer::from_i32("key6", 6));
+        mmkv.write("key7", Buffer::from_i32("key7", 7));
+        mmkv.write("key8", Buffer::from_i32("key8", 8));
+        mmkv.write("key9", Buffer::from_i32("key9", 9));
+        assert_eq!(mmkv.get("key9").unwrap().decode_i32().unwrap(), 9);
     }
 
     #[test]
@@ -242,20 +242,23 @@ mod tests {
         static mut MMKV: OnceLock<MmkvImpl> = OnceLock::new();
         unsafe {
             MMKV.set(
-                MmkvImpl::new(Path::new("test_multi_thread_mmkv"), 1024 * 1024)
+                MmkvImpl::new(Path::new("test_multi_thread_mmkv"), 4096)
             ).unwrap();
-            let key = "key";
-            let handle = spawn(move || {
-                for i in 0..10000 {
+            let action = || {
+                let current_thread = thread::current();
+                let thread_id = current_thread.id();
+                for i in 0..5000 {
+                    let key = &format!("{:?}_key_{i}", thread_id);
                     MMKV.get_mut().unwrap().write(key, Buffer::from_i32(key, i));
                 }
-            });
-            for i in 0..10000 {
-                MMKV.get_mut().unwrap().write(key, Buffer::from_i32(key, i));
+            };
+            let mut threads = Vec::<JoinHandle<()>>::new();
+            for _ in 0..4 {
+                threads.push(spawn(action));
             }
-            handle.join().unwrap();
-            println!("value: {}", MMKV.get().unwrap().get(key).unwrap().decode_i32().unwrap());
-            println!("{}", MMKV.get().unwrap());
+            for handle in threads {
+                handle.join().unwrap()
+            }
             let count = MMKV.get().unwrap().mm.read().unwrap().iter(|| CrcBuffer::new()).count();
             assert_eq!(count, 20000)
         }
