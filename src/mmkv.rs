@@ -4,8 +4,8 @@ use std::sync::OnceLock;
 use crate::core::buffer::Buffer;
 use crate::core::mmkv_impl::MmkvImpl;
 
-const _DEFAULT_FILE_NAME: &str = "mini_mmkv";
-const _PAGE_SIZE: u64 = 4 * 1024; // 4KB is the default Linux page size
+const DEFAULT_FILE_NAME: &str = "mini_mmkv";
+const PAGE_SIZE: u64 = 4 * 1024; // 4KB is the default Linux page size
 
 static mut MMKV_IMPL: OnceLock<MmkvImpl> = OnceLock::new();
 
@@ -68,7 +68,7 @@ impl MMKV {
         let file_path = MMKV::resolve_file_path(dir);
         unsafe {
             MMKV_IMPL.set(
-                MmkvImpl::new(file_path.as_path(), _PAGE_SIZE)
+                MmkvImpl::new(file_path.as_path(), PAGE_SIZE)
             ).expect("initialize more than one time");
         }
     }
@@ -86,7 +86,7 @@ impl MMKV {
         let file_path = MMKV::resolve_file_path(dir);
         unsafe {
             MMKV_IMPL.set(
-                MmkvImpl::new_with_encrypt_key(file_path.as_path(), _PAGE_SIZE, key)
+                MmkvImpl::new_with_encrypt_key(file_path.as_path(), PAGE_SIZE, key)
             ).expect("initialize more than one time");
         }
     }
@@ -100,7 +100,7 @@ impl MMKV {
         if metadata.permissions().readonly() {
             panic!("path {}, is readonly", dir);
         }
-        path.join(_DEFAULT_FILE_NAME)
+        path.join(DEFAULT_FILE_NAME)
     }
 
     pub fn put_str(key: &str, value: &str) {
