@@ -1,7 +1,7 @@
 pub mod buffer;
-pub mod mmkv_impl;
-mod memory_map;
 mod crc;
 #[cfg(feature = "encryption")]
-mod crypt;
+mod encrypt;
 mod iter;
+mod memory_map;
+pub mod mmkv_impl;
