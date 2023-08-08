@@ -16,7 +16,6 @@ class MainActivity : AppCompatActivity() {
         MMKV.putString("first_key", "first value")
         MMKV.putInt("second_key", 1024)
         MMKV.putBool("third_key", true)
-        // Example of a call to a native method
         binding.string.text = MMKV.getString("first_key")
         binding.integer.text = MMKV.getInt("second_key").toString()
         binding.bool.text = MMKV.getBool("third_key").toString()
