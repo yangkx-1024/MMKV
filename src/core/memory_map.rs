@@ -36,9 +36,7 @@ impl MemoryMap {
     }
 
     pub fn len(&self) -> usize {
-        usize::from_be_bytes(
-            self.0[0.._LEN_OFFSET].try_into().unwrap()
-        ) + _LEN_OFFSET
+        usize::from_be_bytes(self.0[0.._LEN_OFFSET].try_into().unwrap()) + _LEN_OFFSET
     }
 
     pub fn read(&self, range: Range<usize>) -> &[u8] {
@@ -56,7 +54,12 @@ mod tests {
     #[test]
     fn test_mmap() {
         let _ = fs::remove_file("test_mmap");
-        let file = OpenOptions::new().create(true).write(true).read(true).open("test_mmap").unwrap();
+        let file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .read(true)
+            .open("test_mmap")
+            .unwrap();
         file.set_len(1024).unwrap();
         let mut mm = MemoryMap::new(&file);
         assert_eq!(mm.len(), 8);
