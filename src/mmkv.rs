@@ -10,23 +10,15 @@ const PAGE_SIZE: u64 = 4 * 1024; // 4KB is the default Linux page size
 static mut MMKV_IMPL: OnceLock<MmkvImpl> = OnceLock::new();
 
 macro_rules! mmkv {
-    () => {
-        {
-            unsafe {
-                MMKV_IMPL.get().expect("not initialize")
-            }
-        }
-    }
+    () => {{
+        unsafe { MMKV_IMPL.get().expect("not initialize") }
+    }};
 }
 
 macro_rules! mut_mmkv {
-    () => {
-        {
-            unsafe {
-                MMKV_IMPL.get_mut().expect("not initialize")
-            }
-        }
-    }
+    () => {{
+        unsafe { MMKV_IMPL.get_mut().expect("not initialize") }
+    }};
 }
 
 /**
@@ -63,9 +55,14 @@ impl MMKV {
     pub fn initialize(dir: &str, #[cfg(feature = "encryption")] key: &str) {
         let file_path = MMKV::resolve_file_path(dir);
         unsafe {
-            MMKV_IMPL.set(
-                MmkvImpl::new(file_path.as_path(), PAGE_SIZE, #[cfg(feature = "encryption")] key)
-            ).expect("initialize more than one time");
+            MMKV_IMPL
+                .set(MmkvImpl::new(
+                    file_path.as_path(),
+                    PAGE_SIZE,
+                    #[cfg(feature = "encryption")]
+                    key,
+                ))
+                .expect("initialize more than one time");
         }
     }
 
@@ -74,7 +71,9 @@ impl MMKV {
         if !path.is_dir() {
             panic!("path {}, is not dir", dir);
         }
-        let metadata = path.metadata().expect(format!("failed to get attr of dir {}", dir).as_str());
+        let metadata = path
+            .metadata()
+            .expect(format!("failed to get attr of dir {}", dir).as_str());
         if metadata.permissions().readonly() {
             panic!("path {}, is readonly", dir);
         }
@@ -86,9 +85,7 @@ impl MMKV {
     }
 
     pub fn get_str(key: &str) -> Option<&str> {
-        mmkv!().get(key).map(|buffer| {
-            buffer.decode_str()
-        }).flatten()
+        mmkv!().get(key).map(|buffer| buffer.decode_str()).flatten()
     }
 
     pub fn put_i32(key: &str, value: i32) {
@@ -96,9 +93,7 @@ impl MMKV {
     }
 
     pub fn get_i32(key: &str) -> Option<i32> {
-        mmkv!().get(key).map(|buffer| {
-            buffer.decode_i32()
-        }).flatten()
+        mmkv!().get(key).map(|buffer| buffer.decode_i32()).flatten()
     }
 
     pub fn put_bool(key: &str, value: bool) {
@@ -106,9 +101,10 @@ impl MMKV {
     }
 
     pub fn get_bool(key: &str) -> Option<bool> {
-        mmkv!().get(key).map(|buffer| {
-            buffer.decode_bool()
-        }).flatten()
+        mmkv!()
+            .get(key)
+            .map(|buffer| buffer.decode_bool())
+            .flatten()
     }
 
     /**
