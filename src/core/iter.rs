@@ -1,7 +1,11 @@
 use crate::core::buffer::{Buffer, Decoder, Take};
-use crate::core::memory_map::{_LEN_OFFSET, MemoryMap};
+use crate::core::memory_map::{MemoryMap, _LEN_OFFSET};
 
-pub struct Iter<'a, T: Sized, F> where T: Decoder + Take, F: Fn() -> T {
+pub struct Iter<'a, T: Sized, F>
+where
+    T: Decoder + Take,
+    F: Fn() -> T,
+{
     mm: &'a MemoryMap,
     start: usize,
     end: usize,
@@ -10,14 +14,26 @@ pub struct Iter<'a, T: Sized, F> where T: Decoder + Take, F: Fn() -> T {
 
 impl MemoryMap {
     pub fn iter<T, F>(&self, buffer_allocator: F) -> Iter<T, F>
-        where T: Decoder + Take, F: Fn() -> T {
+    where
+        T: Decoder + Take,
+        F: Fn() -> T,
+    {
         let start = _LEN_OFFSET;
         let end = self.len();
-        Iter { mm: self, start, end, buffer_allocator }
+        Iter {
+            mm: self,
+            start,
+            end,
+            buffer_allocator,
+        }
     }
 }
 
-impl<'a, T, F> Iterator for Iter<'a, T, F> where T: Decoder + Take, F: Fn() -> T {
+impl<'a, T, F> Iterator for Iter<'a, T, F>
+where
+    T: Decoder + Take,
+    F: Fn() -> T,
+{
     type Item = Option<Buffer>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -25,9 +41,7 @@ impl<'a, T, F> Iterator for Iter<'a, T, F> where T: Decoder + Take, F: Fn() -> T
             return None;
         }
         let mut buffer = (self.buffer_allocator)();
-        let len = buffer.decode_bytes(
-            self.mm.read(self.start..self.end).as_ref()
-        );
+        let len = buffer.decode_bytes(self.mm.read(self.start..self.end).as_ref());
         self.start += len as usize;
         Some(buffer.take())
     }
@@ -46,7 +60,12 @@ mod tests {
     fn test_mmap_iterator() {
         let file_name = "test_mmap_iterator";
         let _ = fs::remove_file(file_name);
-        let file = OpenOptions::new().create(true).write(true).read(true).open(file_name).unwrap();
+        let file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .read(true)
+            .open(file_name)
+            .unwrap();
         file.set_len(1024).unwrap();
         let mut mm = MemoryMap::new(&file);
         let mut buffers: Vec<Buffer> = vec![];
