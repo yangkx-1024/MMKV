@@ -1,5 +1,5 @@
-use crc::{Crc, CRC_8_AUTOSAR};
 use crate::core::buffer::{Buffer, Decoder, Encoder, Take};
+use crc::{Crc, CRC_8_AUTOSAR};
 
 const CRC8: Crc<u8> = Crc::<u8>::new(&CRC_8_AUTOSAR);
 
@@ -30,9 +30,7 @@ impl Encoder for CrcBuffer {
 
 impl Decoder for CrcBuffer {
     fn decode_bytes(&mut self, data: &[u8]) -> u32 {
-        let item_len = u32::from_be_bytes(
-            data[0..4].try_into().unwrap()
-        );
+        let item_len = u32::from_be_bytes(data[0..4].try_into().unwrap());
         let bytes_to_decode = &data[4..(3 + item_len as usize)];
         let sum = data[3 + item_len as usize];
         if CRC8.checksum(bytes_to_decode) == sum {
