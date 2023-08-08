@@ -2,7 +2,7 @@ use std::str;
 
 use protobuf::{EnumOrUnknown, Message};
 
-use kv::{KV, Types};
+use kv::{Types, KV};
 
 include!(concat!(env!("OUT_DIR"), "/protos/mod.rs"));
 
@@ -39,11 +39,7 @@ impl Buffer {
     }
 
     pub fn from_bool(key: &str, value: bool) -> Self {
-        let out = if value {
-            1u8
-        } else {
-            0u8
-        };
+        let out = if value { 1u8 } else { 0u8 };
         Buffer::from_kv(key, Types::BYTE, vec![out].as_slice())
     }
 
@@ -69,26 +65,20 @@ impl Buffer {
             return None;
         }
         let array_result: Result<[u8; 4], _> = self.0.value[0..4].try_into();
-        array_result.ok().map(|value| {
-            i32::from_be_bytes(value)
-        })
+        array_result.ok().map(|value| i32::from_be_bytes(value))
     }
 
     pub fn decode_str(&self) -> Option<&str> {
         match self.0.type_.enum_value() {
-            Ok(Types::STR) => {
-                str::from_utf8(self.0.value.as_slice()).ok()
-            }
-            _ => None
+            Ok(Types::STR) => str::from_utf8(self.0.value.as_slice()).ok(),
+            _ => None,
         }
     }
 
     pub fn decode_bool(&self) -> Option<bool> {
         match self.0.type_.enum_value() {
-            Ok(Types::BYTE) => {
-                Some(self.0.value[0] == 1)
-            }
-            _ => None
+            Ok(Types::BYTE) => Some(self.0.value[0] == 1),
+            _ => None,
         }
     }
 }
