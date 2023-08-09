@@ -52,6 +52,6 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.6.1")
     "defaultImplementation"(project(":library"))
     "encryptionImplementation"(project(":library-encrypt"))
-//    "defaultImplementation"("net.yangkx:mmkv:0.1.0-SNAPSHOT")
-//    "encryptionImplementation"("net.yangkx:mmkv-encrypt:0.1.0-SNAPSHOT")
+//    "defaultImplementation"("net.yangkx:mmkv:0.1.7")
+//    "encryptionImplementation"("net.yangkx:mmkv-encrypt:0.1.7")
 }
