@@ -92,8 +92,8 @@ impl EncryptBuffer {
         EncryptBuffer(Some(buffer), crypt)
     }
 
-    pub fn new(crypt: Rc<RefCell<Encrypt>>) -> Self {
-        EncryptBuffer(None, crypt)
+    pub fn new(encrypt: Rc<RefCell<Encrypt>>) -> Self {
+        EncryptBuffer(None, encrypt)
     }
 }
 
