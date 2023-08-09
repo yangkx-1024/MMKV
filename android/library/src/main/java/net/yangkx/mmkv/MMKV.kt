@@ -21,4 +21,8 @@ object MMKV {
 
     @Throws(NoSuchElementException::class)
     external fun getBool(key: String): Boolean
+
+    external fun clearData()
+
+    external fun close()
 }

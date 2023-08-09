@@ -119,6 +119,16 @@ pub mod android {
         }
     }
 
+    #[no_mangle]
+    pub unsafe extern "C" fn Java_net_yangkx_mmkv_MMKV_clearData(_: JNIEnv, _: JClass) {
+        MMKV::clear_data();
+    }
+
+    #[no_mangle]
+    pub unsafe extern "C" fn Java_net_yangkx_mmkv_MMKV_close(_: JNIEnv, _: JClass) {
+        MMKV::close();
+    }
+
     fn throw_key_not_found(env: &mut JNIEnv, key: &str) {
         let _ = env.throw_new(
             "java/util/NoSuchElementException",
