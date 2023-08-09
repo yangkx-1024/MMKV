@@ -7,14 +7,11 @@ use crate::core::memory_map::MemoryMap;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
-#[cfg(feature = "encryption")]
 use std::fs;
 use std::fs::{File, OpenOptions};
 #[cfg(feature = "encryption")]
 use std::io::{Read, Write};
-use std::path::Path;
-#[cfg(feature = "encryption")]
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 #[cfg(feature = "encryption")]
 use std::rc::Rc;
 use std::sync::RwLock;
@@ -22,27 +19,20 @@ use std::sync::RwLock;
 #[derive(Debug)]
 pub struct MmkvImpl {
     kv_map: HashMap<String, Buffer>,
-    file: File,
-    #[cfg(feature = "encryption")]
-    meta_file_path: PathBuf,
     mm: RwLock<MemoryMap>,
     file_size: u64,
     page_size: u64,
+    path: PathBuf,
+    file: File,
+    is_valid: bool,
     #[cfg(feature = "encryption")]
-    crypt: Rc<RefCell<Encrypt>>,
+    meta_file_path: PathBuf,
+    #[cfg(feature = "encryption")]
+    encrypt: Rc<RefCell<Encrypt>>,
 }
 
 impl MmkvImpl {
     pub fn new(path: &Path, page_size: u64, #[cfg(feature = "encryption")] key: &str) -> Self {
-        MmkvImpl::new_mmkv(
-            path,
-            page_size,
-            #[cfg(feature = "encryption")]
-            key,
-        )
-    }
-
-    fn new_mmkv(path: &Path, page_size: u64, #[cfg(feature = "encryption")] key: &str) -> Self {
         let file = OpenOptions::new()
             .read(true)
             .write(true)
@@ -64,9 +54,9 @@ impl MmkvImpl {
             path.with_extension(meta_ext)
         };
         #[cfg(feature = "encryption")]
-        let crypt = {
+        let encrypt = {
             let key = hex::decode(key).unwrap();
-            Rc::new(RefCell::new(MmkvImpl::init_crypt(
+            Rc::new(RefCell::new(MmkvImpl::init_encrypt(
                 &meta_file_path,
                 key.as_slice(),
             )))
@@ -74,14 +64,16 @@ impl MmkvImpl {
         let mm = MemoryMap::new(&file);
         let mut mmkv = MmkvImpl {
             kv_map: HashMap::new(),
-            file,
-            #[cfg(feature = "encryption")]
-            meta_file_path,
             mm: RwLock::new(mm),
             file_size: file_len,
             page_size,
+            path: path.to_path_buf(),
+            file,
+            is_valid: true,
             #[cfg(feature = "encryption")]
-            crypt,
+            meta_file_path,
+            #[cfg(feature = "encryption")]
+            encrypt,
         };
         mmkv.init();
         mmkv
@@ -97,7 +89,7 @@ impl MmkvImpl {
         };
         if cfg!(feature = "encryption") {
             #[cfg(feature = "encryption")]
-            mm.iter(|| EncryptBuffer::new(self.crypt.clone()))
+            mm.iter(|| EncryptBuffer::new(self.encrypt.clone()))
                 .for_each(decode)
         } else {
             mm.iter(|| CrcBuffer::new()).for_each(decode)
@@ -105,7 +97,7 @@ impl MmkvImpl {
     }
 
     #[cfg(feature = "encryption")]
-    fn init_crypt(meta_path: &PathBuf, key: &[u8]) -> Encrypt {
+    fn init_encrypt(meta_path: &PathBuf, key: &[u8]) -> Encrypt {
         if meta_path.exists() {
             let mut nonce_file = OpenOptions::new().read(true).open(meta_path).unwrap();
             let mut nonce = Vec::<u8>::new();
@@ -123,15 +115,14 @@ impl MmkvImpl {
             nonce_file
                 .write_all(crypt.nonce().as_slice())
                 .expect("failed to write nonce file");
-            nonce_file.sync_all().unwrap();
             crypt
         }
     }
 
-    pub fn write(&mut self, key: &str, buffer: Buffer) {
+    pub fn put(&mut self, key: &str, buffer: Buffer) {
         if cfg!(feature = "encryption") {
             #[cfg(feature = "encryption")]
-            let crypt = self.crypt.clone();
+            let crypt = self.encrypt.clone();
             #[cfg(feature = "encryption")]
             self.write_internal(key, buffer, |buffer: Buffer| {
                 EncryptBuffer::new_with_buffer(buffer, crypt.clone())
@@ -150,20 +141,23 @@ impl MmkvImpl {
     {
         // acquire write lock
         let mut mm = self.mm.write().unwrap();
+        if !self.is_valid {
+            return;
+        }
         let buffer = transform(raw_buffer);
         let mut data = buffer.encode_to_bytes();
         let mut target_end = data.len() + mm.len();
         if target_end as u64 > self.file_size {
             // trim the file, drop the duplicate items
-            // The crypt is using stream encryption,
+            // The encrypt is using stream encryption,
             // subsequent data encryption depends on the results of previous data encryption,
-            // we want rewrite the entire stream, so crypt needs to be reset.
+            // we want rewrite the entire stream, so encrypt needs to be reset.
             #[cfg(feature = "encryption")]
             {
-                let _ = fs::remove_file(self.meta_file_path.to_path_buf());
-                let key = self.crypt.borrow().key();
-                *self.crypt.borrow_mut() =
-                    MmkvImpl::init_crypt(&self.meta_file_path, key.as_slice());
+                let _ = fs::remove_file(&self.meta_file_path);
+                let key = self.encrypt.borrow().key();
+                *self.encrypt.borrow_mut() =
+                    MmkvImpl::init_encrypt(&self.meta_file_path, key.as_slice());
             }
             let mut vec: Vec<u8> = vec![];
             for buffer in self.kv_map.values() {
@@ -172,7 +166,7 @@ impl MmkvImpl {
             }
             // rewrite the entire map
             mm.write_all(vec).unwrap();
-            // the crypt has been reset, need encode it with new crypt
+            // the encrypt has been reset, need encode it with new encrypt
             if cfg!(feature = "encryption") {
                 data = buffer.encode_to_bytes();
             }
@@ -194,6 +188,18 @@ impl MmkvImpl {
         let _mm = self.mm.read();
         self.kv_map.get(key)
     }
+
+    pub fn clear_data(&mut self) {
+        // acquire write lock
+        let _mm = self.mm.write().unwrap();
+        self.kv_map.clear();
+        let _ = fs::remove_file(&self.path);
+        #[cfg(feature = "encryption")]
+        {
+            let _ = fs::remove_file(&self.meta_file_path);
+        }
+        self.is_valid = false
+    }
 }
 
 impl Display for MmkvImpl {
@@ -205,12 +211,6 @@ impl Display for MmkvImpl {
             self.kv_map.len(),
             self.mm.read().unwrap().len()
         )
-    }
-}
-
-impl Drop for MmkvImpl {
-    fn drop(&mut self) {
-        self.file.sync_all().unwrap();
     }
 }
 
@@ -248,15 +248,15 @@ mod tests {
         F: Fn() -> MmkvImpl,
     {
         let mut mmkv = f();
-        mmkv.write("key1", Buffer::from_i32("key1", 1));
+        mmkv.put("key1", Buffer::from_i32("key1", 1));
         assert_eq!(mmkv.get("key1").unwrap().decode_i32().unwrap(), 1);
         assert_eq!(mmkv.get("key2").is_none(), true);
-        mmkv.write("key2", Buffer::from_i32("key2", 2));
+        mmkv.put("key2", Buffer::from_i32("key2", 2));
         assert_eq!(mmkv.get("key2").unwrap().decode_i32().unwrap(), 2);
-        mmkv.write("key3", Buffer::from_i32("key3", 3));
+        mmkv.put("key3", Buffer::from_i32("key3", 3));
         assert_eq!(mmkv.get("key3").unwrap().decode_i32().unwrap(), 3);
 
-        mmkv.write("key1", Buffer::from_str("key1", "4"));
+        mmkv.put("key1", Buffer::from_str("key1", "4"));
         assert_eq!(mmkv.get("key1").unwrap().decode_i32(), None);
         assert_eq!(mmkv.get("key1").unwrap().decode_str().unwrap(), "4");
 
@@ -267,13 +267,20 @@ mod tests {
         assert_eq!(mmkv.get("key2").unwrap().decode_i32().unwrap(), 2);
         assert_eq!(mmkv.get("key3").unwrap().decode_i32().unwrap(), 3);
 
-        mmkv.write("key4", Buffer::from_i32("key4", 4));
-        mmkv.write("key5", Buffer::from_i32("key5", 5));
-        mmkv.write("key6", Buffer::from_i32("key6", 6));
-        mmkv.write("key7", Buffer::from_i32("key7", 7));
-        mmkv.write("key8", Buffer::from_i32("key8", 8));
-        mmkv.write("key9", Buffer::from_i32("key9", 9));
+        mmkv.put("key4", Buffer::from_i32("key4", 4));
+        mmkv.put("key5", Buffer::from_i32("key5", 5));
+        mmkv.put("key6", Buffer::from_i32("key6", 6));
+        mmkv.put("key7", Buffer::from_i32("key7", 7));
+        mmkv.put("key8", Buffer::from_i32("key8", 8));
+        mmkv.put("key9", Buffer::from_i32("key9", 9));
         assert_eq!(mmkv.get("key9").unwrap().decode_i32().unwrap(), 9);
+        mmkv.clear_data();
+        assert_eq!(mmkv.get("key9"), None);
+        mmkv.put("key9", Buffer::from_i32("key9", 9));
+        assert_eq!(mmkv.get("key9"), None);
+        assert_eq!(mmkv.path.exists(), false);
+        #[cfg(feature = "encryption")]
+        assert_eq!(mmkv.meta_file_path.exists(), false);
     }
 
     #[test]
@@ -294,7 +301,7 @@ mod tests {
                 let thread_id = current_thread.id();
                 for i in 0..500 {
                     let key = &format!("{:?}_key_{i}", thread_id);
-                    MMKV.get_mut().unwrap().write(key, Buffer::from_i32(key, i));
+                    MMKV.get_mut().unwrap().put(key, Buffer::from_i32(key, i));
                 }
             };
             let mut threads = Vec::<JoinHandle<()>>::new();
@@ -307,14 +314,14 @@ mod tests {
             if cfg!(feature = "encryption") {
                 #[cfg(feature = "encryption")]
                 {
-                    let crypt = MMKV.get().unwrap().crypt.clone();
+                    let encrypt = MMKV.get().unwrap().encrypt.clone();
                     let count = MMKV
                         .get()
                         .unwrap()
                         .mm
                         .read()
                         .unwrap()
-                        .iter(|| EncryptBuffer::new(crypt.clone()))
+                        .iter(|| EncryptBuffer::new(encrypt.clone()))
                         .count();
                     assert_eq!(count, 2000);
                 }
