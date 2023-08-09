@@ -19,5 +19,7 @@ class MainActivity : AppCompatActivity() {
         binding.string.text = MMKV.getString("first_key")
         binding.integer.text = MMKV.getInt("second_key").toString()
         binding.bool.text = MMKV.getBool("third_key").toString()
+        MMKV.clearData()
+//        MMKV.close()
     }
 }
