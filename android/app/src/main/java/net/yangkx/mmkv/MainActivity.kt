@@ -1,7 +1,7 @@
 package net.yangkx.mmkv
 
-import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
+import androidx.appcompat.app.AppCompatActivity
 import net.yangkx.mmkv.databinding.ActivityMainBinding
 
 class MainActivity : AppCompatActivity() {
@@ -13,6 +13,8 @@ class MainActivity : AppCompatActivity() {
 
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        MMKV.close()
+        MMKVInitializer.init(this)
         MMKV.putString("first_key", "first value")
         MMKV.putInt("second_key", 1024)
         MMKV.putBool("third_key", true)
@@ -20,6 +22,5 @@ class MainActivity : AppCompatActivity() {
         binding.integer.text = MMKV.getInt("second_key").toString()
         binding.bool.text = MMKV.getBool("third_key").toString()
         MMKV.clearData()
-//        MMKV.close()
     }
 }
