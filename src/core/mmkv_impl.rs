@@ -3,6 +3,7 @@ use crate::core::crc::CrcBuffer;
 #[cfg(feature = "encryption")]
 use crate::core::encrypt::{Encrypt, EncryptBuffer};
 use crate::core::memory_map::MemoryMap;
+use log::info;
 #[cfg(feature = "encryption")]
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -124,17 +125,17 @@ impl MmkvImpl {
             #[cfg(feature = "encryption")]
             let crypt = self.encrypt.clone();
             #[cfg(feature = "encryption")]
-            self.write_internal(key, buffer, |buffer: Buffer| {
+            self.put_internal(key, buffer, |buffer: Buffer| {
                 EncryptBuffer::new_with_buffer(buffer, crypt.clone())
             })
         } else {
-            self.write_internal(key, buffer, |buffer: Buffer| {
+            self.put_internal(key, buffer, |buffer: Buffer| {
                 CrcBuffer::new_with_buffer(buffer)
             })
         };
     }
 
-    fn write_internal<T, F>(&mut self, key: &str, raw_buffer: Buffer, transform: F)
+    fn put_internal<T, F>(&mut self, key: &str, raw_buffer: Buffer, transform: F)
     where
         T: Encoder + Take,
         F: Fn(Buffer) -> T,
@@ -166,6 +167,7 @@ impl MmkvImpl {
             }
             // rewrite the entire map
             mm.write_all(vec).unwrap();
+            info!("mmkv trimmed, current len: {}", mm.len());
             // the encrypt has been reset, need encode it with new encrypt
             if cfg!(feature = "encryption") {
                 data = buffer.encode_to_bytes();
@@ -178,6 +180,7 @@ impl MmkvImpl {
             self.file_size += self.page_size;
             self.file.set_len(self.file_size).unwrap();
             *mm = MemoryMap::new(&self.file);
+            info!("mmkv expanded, current file size: {}", self.file_size);
         }
         mm.append(data).unwrap();
         self.kv_map.insert(key.to_string(), buffer.take().unwrap());
@@ -204,7 +207,7 @@ impl MmkvImpl {
 
 impl Display for MmkvImpl {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        writeln!(
+        write!(
             f,
             "MMKV {{ file_size: {}, key_count: {}, content_len: {} }}",
             self.file_size,
