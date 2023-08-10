@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicPtr, Ordering};
 
 use crate::core::buffer::Buffer;
 use crate::core::mmkv_impl::MmkvImpl;
+use crate::log::mmkv_log;
 
 const DEFAULT_FILE_NAME: &str = "mini_mmkv";
 const PAGE_SIZE: u64 = 4 * 1024; // 4KB is the default Linux page size
@@ -50,8 +51,11 @@ impl MMKV {
             #[cfg(feature = "encryption")]
             key,
         );
+        mmkv_log::init_log();
         let raw_ptr = Box::into_raw(Box::new(mmkv_impl));
         MMKV_IMPL.swap(raw_ptr, Ordering::Release);
+        info!("mmkv instance initialized");
+        MMKV::dump();
     }
 
     fn resolve_file_path(dir: &str) -> PathBuf {
@@ -115,7 +119,7 @@ impl MMKV {
         if p != std::ptr::null_mut() {
             unsafe {
                 drop(Box::from_raw(p));
-                info!("old instance dropped");
+                info!("mmkv instance closed");
             }
         }
     }
@@ -126,7 +130,9 @@ impl MMKV {
     `MMKV { file_size: 1024, key_count: 4, content_len: 107 }`
      */
     pub fn dump() -> String {
-        mmkv!().to_string()
+        let str = mmkv!().to_string();
+        info!("mmkv dump state {}", &str);
+        str
     }
 }
 
@@ -166,7 +172,7 @@ mod tests {
         MMKV::put_bool("second", false);
         assert_eq!(MMKV::get_str("second"), None);
         assert_eq!(MMKV::get_bool("second"), Some(false));
-        println!("{}", MMKV::dump());
+        MMKV::dump();
         MMKV::close();
         assert_eq!(MMKV_IMPL.load(Ordering::Acquire), std::ptr::null_mut());
         MMKV::initialize(

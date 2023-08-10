@@ -2,13 +2,11 @@
 #[cfg(target_os = "android")]
 #[allow(non_snake_case)]
 pub mod android {
-    extern crate android_log;
     extern crate jni;
 
     use jni::objects::{JClass, JString};
     use jni::sys::{jboolean, jint, jstring};
     use jni::JNIEnv;
-    use log::info;
 
     use crate::MMKV;
 
@@ -19,7 +17,6 @@ pub mod android {
         dir: JString,
         #[cfg(feature = "encryption")] key: JString,
     ) {
-        android_log::init("MMKV").unwrap();
         let path: String = env.get_string(&dir).unwrap().into();
         #[cfg(feature = "encryption")]
         let key: String = env.get_string(&key).unwrap().into();
@@ -28,7 +25,6 @@ pub mod android {
             #[cfg(feature = "encryption")]
             &key,
         );
-        info!("{}", MMKV::dump());
     }
 
     #[no_mangle]

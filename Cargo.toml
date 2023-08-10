@@ -33,4 +33,4 @@ jni = { version = "0.21.1", default-features = false }
 android_log = "0.1.3"
 
 [lib]
-crate-type=["rlib", "dylib"]
+crate-type=["rlib", "cdylib"]
