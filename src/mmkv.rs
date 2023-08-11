@@ -1,11 +1,12 @@
-use log::info;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicPtr, Ordering};
 
 use crate::core::buffer::Buffer;
 use crate::core::mmkv_impl::MmkvImpl;
-use crate::log::mmkv_log;
+use crate::log::logger;
+use crate::Result;
 
+const LOG_TAG: &str = "MMKV";
 const DEFAULT_FILE_NAME: &str = "mini_mmkv";
 const PAGE_SIZE: u64 = 4 * 1024; // 4KB is the default Linux page size
 
@@ -43,7 +44,7 @@ impl MMKV {
     `88C51C536176AD8A8EE4A06F62EE897E`
      */
     pub fn initialize(dir: &str, #[cfg(feature = "encryption")] key: &str) {
-        MMKV::close();
+        MMKV::drop_instance();
         let file_path = MMKV::resolve_file_path(dir);
         let mmkv_impl = MmkvImpl::new(
             file_path.as_path(),
@@ -51,10 +52,9 @@ impl MMKV {
             #[cfg(feature = "encryption")]
             key,
         );
-        mmkv_log::init_log();
         let raw_ptr = Box::into_raw(Box::new(mmkv_impl));
         MMKV_IMPL.swap(raw_ptr, Ordering::Release);
-        info!("mmkv instance initialized");
+        verbose!(LOG_TAG, "instance initialized");
         MMKV::dump();
     }
 
@@ -72,31 +72,28 @@ impl MMKV {
         path.join(DEFAULT_FILE_NAME)
     }
 
-    pub fn put_str(key: &str, value: &str) {
-        mut_mmkv!().put(key, Buffer::from_str(key, value));
+    pub fn put_str(key: &str, value: &str) -> Result<()> {
+        mut_mmkv!().put(key, Buffer::from_str(key, value))
     }
 
-    pub fn get_str(key: &str) -> Option<&str> {
-        mmkv!().get(key).map(|buffer| buffer.decode_str()).flatten()
+    pub fn get_str(key: &str) -> Result<&str> {
+        mmkv!().get(key)?.decode_str()
     }
 
-    pub fn put_i32(key: &str, value: i32) {
-        mut_mmkv!().put(key, Buffer::from_i32(key, value));
+    pub fn put_i32(key: &str, value: i32) -> Result<()> {
+        mut_mmkv!().put(key, Buffer::from_i32(key, value))
     }
 
-    pub fn get_i32(key: &str) -> Option<i32> {
-        mmkv!().get(key).map(|buffer| buffer.decode_i32()).flatten()
+    pub fn get_i32(key: &str) -> Result<i32> {
+        mmkv!().get(key)?.decode_i32()
     }
 
-    pub fn put_bool(key: &str, value: bool) {
-        mut_mmkv!().put(key, Buffer::from_bool(key, value));
+    pub fn put_bool(key: &str, value: bool) -> Result<()> {
+        mut_mmkv!().put(key, Buffer::from_bool(key, value))
     }
 
-    pub fn get_bool(key: &str) -> Option<bool> {
-        mmkv!()
-            .get(key)
-            .map(|buffer| buffer.decode_bool())
-            .flatten()
+    pub fn get_bool(key: &str) -> Result<bool> {
+        mmkv!().get(key)?.decode_bool()
     }
 
     /**
@@ -115,11 +112,16 @@ impl MMKV {
     If you want to continue using the API, need to [initialize](MMKV::initialize) again.
     */
     pub fn close() {
+        MMKV::drop_instance();
+        logger::reset();
+    }
+
+    fn drop_instance() {
         let p = MMKV_IMPL.swap(std::ptr::null_mut(), Ordering::Release);
         if p != std::ptr::null_mut() {
             unsafe {
                 drop(Box::from_raw(p));
-                info!("mmkv instance closed");
+                verbose!(LOG_TAG, "instance closed");
             }
         }
     }
@@ -131,8 +133,61 @@ impl MMKV {
      */
     pub fn dump() -> String {
         let str = mmkv!().to_string();
-        info!("mmkv dump state {}", &str);
+        debug!(LOG_TAG, "dump state {}", &str);
         str
+    }
+
+    /**
+    Set a custom logger for MMKV, MMKV will redirect the inner logs to this logger.
+
+    The default impl of Logger is like this:
+    ```
+    use mmkv::Logger;
+
+    #[derive(Debug)]
+    struct DefaultLogger;
+
+    impl Logger for DefaultLogger {
+        fn verbose(&self, log_str: &str) {
+            println!("{log_str}");
+        }
+
+        fn info(&self, log_str: &str) {
+            println!("{log_str}");
+        }
+
+        fn debug(&self, log_str: &str) {
+            println!("{log_str}");
+        }
+
+        fn warn(&self, log_str: &str) {
+            println!("{log_str}");
+        }
+
+        fn error(&self, log_str: &str) {
+            println!("{log_str}");
+        }
+    }
+    ```
+    */
+    pub fn set_logger(log_impl: Box<dyn crate::Logger>) {
+        logger::set_logger(log_impl);
+    }
+
+    /**
+    Set log level to mmkv:
+
+    - 0: log off,
+    - 1: corresponds to the Error log level,
+    - 2: corresponds to the Warn log level,
+    - 3: corresponds to the Info log level,
+    - 4: corresponds to the Debug log level,
+    - 5: corresponds to the Trace log level.
+
+    The default log level is 5.
+    */
+    pub fn set_log_level(level: i32) {
+        logger::set_log_level(level);
     }
 }
 
@@ -155,23 +210,23 @@ mod tests {
             #[cfg(feature = "encryption")]
             "88C51C536176AD8A8EE4A06F62EE897E",
         );
-        MMKV::put_i32("first", 1);
-        MMKV::put_i32("second", 2);
-        assert_eq!(MMKV::get_i32("first"), Some(1));
-        assert_eq!(MMKV::get_str("first"), None);
-        assert_eq!(MMKV::get_bool("first"), None);
-        assert_eq!(MMKV::get_i32("second"), Some(2));
-        assert_eq!(MMKV::get_i32("third"), None);
-        MMKV::put_i32("third", 3);
-        assert_eq!(MMKV::get_i32("third"), Some(3));
-        MMKV::put_str("fourth", "four");
-        assert_eq!(MMKV::get_str("fourth"), Some("four"));
-        MMKV::put_str("first", "one");
-        assert_eq!(MMKV::get_i32("first"), None);
-        assert_eq!(MMKV::get_str("first"), Some("one"));
-        MMKV::put_bool("second", false);
-        assert_eq!(MMKV::get_str("second"), None);
-        assert_eq!(MMKV::get_bool("second"), Some(false));
+        MMKV::put_i32("first", 1).unwrap();
+        MMKV::put_i32("second", 2).unwrap();
+        assert_eq!(MMKV::get_i32("first"), Ok(1));
+        assert_eq!(MMKV::get_str("first").is_err(), true);
+        assert_eq!(MMKV::get_bool("first").is_err(), true);
+        assert_eq!(MMKV::get_i32("second"), Ok(2));
+        assert_eq!(MMKV::get_i32("third").is_err(), true);
+        MMKV::put_i32("third", 3).unwrap();
+        assert_eq!(MMKV::get_i32("third"), Ok(3));
+        MMKV::put_str("fourth", "four").unwrap();
+        assert_eq!(MMKV::get_str("fourth"), Ok("four"));
+        MMKV::put_str("first", "one").unwrap();
+        assert_eq!(MMKV::get_i32("first").is_err(), true);
+        assert_eq!(MMKV::get_str("first"), Ok("one"));
+        MMKV::put_bool("second", false).unwrap();
+        assert_eq!(MMKV::get_str("second").is_err(), true);
+        assert_eq!(MMKV::get_bool("second"), Ok(false));
         MMKV::dump();
         MMKV::close();
         assert_eq!(MMKV_IMPL.load(Ordering::Acquire), std::ptr::null_mut());
@@ -180,7 +235,7 @@ mod tests {
             #[cfg(feature = "encryption")]
             "88C51C536176AD8A8EE4A06F62EE897E",
         );
-        assert_eq!(MMKV::get_str("first"), Some("one"));
+        assert_eq!(MMKV::get_str("first"), Ok("one"));
         MMKV::clear_data();
         assert_eq!(Path::new("./mini_mmkv").exists(), false);
         assert_eq!(Path::new("./mini_mmkv.meta").exists(), false);
