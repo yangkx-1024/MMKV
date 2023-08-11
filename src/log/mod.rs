@@ -1,43 +1,24 @@
-pub mod mmkv_log {
-    use std::sync::atomic::{AtomicBool, Ordering};
+use std::fmt::Debug;
 
-    #[cfg(not(target_os = "android"))]
-    struct Logger;
+pub mod logger;
 
-    #[cfg(not(target_os = "android"))]
-    impl log::Log for Logger {
-        fn enabled(&self, metadata: &log::Metadata) -> bool {
-            metadata.level() <= log::Level::Info
-        }
+/**
+See [MMKV::set_logger](crate::MMKV::set_logger)
+ */
+pub trait Logger: Sync + Send + Debug {
+    fn verbose(&self, log_str: &str);
+    fn info(&self, log_str: &str);
+    fn debug(&self, log_str: &str);
+    fn warn(&self, log_str: &str);
+    fn error(&self, log_str: &str);
+}
 
-        fn log(&self, record: &log::Record) {
-            if self.enabled(record.metadata()) {
-                println!("{} - {}", record.level(), record.args());
-            }
-        }
-
-        fn flush(&self) {}
-    }
-
-    #[cfg(not(target_os = "android"))]
-    static LOGGER: Logger = Logger;
-    static LOG_SET: AtomicBool = AtomicBool::new(false);
-
-    pub fn init_log() {
-        if LOG_SET.load(Ordering::Acquire) {
-            return;
-        }
-        if cfg!(target_os = "android") {
-            #[cfg(target_os = "android")]
-            android_log::init("MMKV").unwrap();
-        } else {
-            #[cfg(not(target_os = "android"))]
-            {
-                log::set_logger(&LOGGER).unwrap();
-                log::set_max_level(log::LevelFilter::Info);
-            }
-        }
-        LOG_SET.swap(true, Ordering::Release);
-        log::set_max_level(log::LevelFilter::Info);
-    }
+#[derive(Copy, Clone)]
+pub enum LogLevel {
+    Off,
+    Error,
+    Warn,
+    Info,
+    Debug,
+    Verbose,
 }

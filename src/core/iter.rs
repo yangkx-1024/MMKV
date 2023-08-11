@@ -1,6 +1,8 @@
 use crate::core::buffer::{Buffer, Decoder, Take};
 use crate::core::memory_map::{MemoryMap, _LEN_OFFSET};
 
+const LOG_TAG: &str = "MMKV:MemoryMap";
+
 pub struct Iter<'a, T: Sized, F>
 where
     T: Decoder + Take,
@@ -41,9 +43,17 @@ where
             return None;
         }
         let mut buffer = (self.buffer_allocator)();
-        let len = buffer.decode_bytes(self.mm.read(self.start..self.end).as_ref());
-        self.start += len as usize;
-        Some(buffer.take())
+        let len = buffer.decode_bytes_into(self.mm.read(self.start..self.end).as_ref());
+        match len {
+            Ok(len) => {
+                self.start += len as usize;
+                Some(buffer.take())
+            }
+            Err(e) => {
+                error!(LOG_TAG, "Failed to iter memory map, reason: {:?}", e);
+                None
+            }
+        }
     }
 }
 
@@ -71,7 +81,7 @@ mod tests {
         let mut buffers: Vec<Buffer> = vec![];
         for i in 0..10 {
             let buffer = CrcBuffer::new_with_buffer(Buffer::from_i32(&i.to_string(), i));
-            mm.append(buffer.encode_to_bytes()).unwrap();
+            mm.append(buffer.encode_to_bytes().unwrap()).unwrap();
             buffers.push(buffer.take().unwrap());
         }
         let mut index = 0;

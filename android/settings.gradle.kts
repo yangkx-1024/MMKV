@@ -18,3 +18,4 @@ rootProject.name = "MMKV"
 include(":app")
 include(":library")
 include(":library-encrypt")
+include(":base")

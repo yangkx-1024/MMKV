@@ -3,7 +3,8 @@ use crate::core::crc::CrcBuffer;
 #[cfg(feature = "encryption")]
 use crate::core::encrypt::{Encrypt, EncryptBuffer};
 use crate::core::memory_map::MemoryMap;
-use log::info;
+use crate::Error::{EncodeFailed, InstanceClosed};
+use crate::{Error, Result};
 #[cfg(feature = "encryption")]
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -16,6 +17,8 @@ use std::path::{Path, PathBuf};
 #[cfg(feature = "encryption")]
 use std::rc::Rc;
 use std::sync::RwLock;
+
+const LOG_TAG: &str = "MMKV:Core";
 
 #[derive(Debug)]
 pub struct MmkvImpl {
@@ -120,33 +123,33 @@ impl MmkvImpl {
         }
     }
 
-    pub fn put(&mut self, key: &str, buffer: Buffer) {
-        if cfg!(feature = "encryption") {
-            #[cfg(feature = "encryption")]
-            let crypt = self.encrypt.clone();
-            #[cfg(feature = "encryption")]
-            self.put_internal(key, buffer, |buffer: Buffer| {
-                EncryptBuffer::new_with_buffer(buffer, crypt.clone())
-            })
-        } else {
-            self.put_internal(key, buffer, |buffer: Buffer| {
-                CrcBuffer::new_with_buffer(buffer)
-            })
-        };
+    #[cfg(feature = "encryption")]
+    pub fn put(&mut self, key: &str, buffer: Buffer) -> Result<()> {
+        let encrypt = self.encrypt.clone();
+        self.put_internal(key, buffer, |buffer: Buffer| {
+            EncryptBuffer::new_with_buffer(buffer, encrypt.clone())
+        })
     }
 
-    fn put_internal<T, F>(&mut self, key: &str, raw_buffer: Buffer, transform: F)
+    #[cfg(not(feature = "encryption"))]
+    pub fn put(&mut self, key: &str, buffer: Buffer) -> Result<()> {
+        self.put_internal(key, buffer, |buffer: Buffer| {
+            CrcBuffer::new_with_buffer(buffer)
+        })
+    }
+
+    fn put_internal<T, F>(&mut self, key: &str, raw_buffer: Buffer, transform: F) -> Result<()>
     where
         T: Encoder + Take,
         F: Fn(Buffer) -> T,
     {
         // acquire write lock
-        let mut mm = self.mm.write().unwrap();
+        let mut mm = self.mm.write().map_err(|e| EncodeFailed(e.to_string()))?;
         if !self.is_valid {
-            return;
+            return Err(InstanceClosed);
         }
         let buffer = transform(raw_buffer);
-        let mut data = buffer.encode_to_bytes();
+        let mut data = buffer.encode_to_bytes()?;
         let mut target_end = data.len() + mm.len();
         if target_end as u64 > self.file_size {
             // trim the file, drop the duplicate items
@@ -163,14 +166,14 @@ impl MmkvImpl {
             let mut vec: Vec<u8> = vec![];
             for buffer in self.kv_map.values() {
                 let buffer = transform(buffer.clone());
-                vec.extend_from_slice(buffer.encode_to_bytes().as_slice());
+                vec.extend_from_slice(buffer.encode_to_bytes()?.as_slice());
             }
             // rewrite the entire map
-            mm.write_all(vec).unwrap();
-            info!("mmkv trimmed, current len: {}", mm.len());
+            mm.write_all(vec).map_err(|e| EncodeFailed(e.to_string()))?;
+            info!(LOG_TAG, "trimmed, current len: {}", mm.len());
             // the encrypt has been reset, need encode it with new encrypt
             if cfg!(feature = "encryption") {
-                data = buffer.encode_to_bytes();
+                data = buffer.encode_to_bytes()?;
             }
             target_end = data.len() + mm.len()
         }
@@ -180,16 +183,20 @@ impl MmkvImpl {
             self.file_size += self.page_size;
             self.file.set_len(self.file_size).unwrap();
             *mm = MemoryMap::new(&self.file);
-            info!("mmkv expanded, current file size: {}", self.file_size);
+            info!(LOG_TAG, "expanded, current file size: {}", self.file_size);
         }
-        mm.append(data).unwrap();
+        mm.append(data).map_err(|e| EncodeFailed(e.to_string()))?;
         self.kv_map.insert(key.to_string(), buffer.take().unwrap());
+        Ok(())
     }
 
-    pub fn get(&self, key: &str) -> Option<&Buffer> {
+    pub fn get(&self, key: &str) -> Result<&Buffer> {
         // acquire read lock
         let _mm = self.mm.read();
-        self.kv_map.get(key)
+        match self.kv_map.get(key) {
+            Some(buffer) => Ok(buffer),
+            None => Err(Error::KeyNotFound),
+        }
     }
 
     pub fn clear_data(&mut self) {
@@ -201,7 +208,8 @@ impl MmkvImpl {
         {
             let _ = fs::remove_file(&self.meta_file_path);
         }
-        self.is_valid = false
+        self.is_valid = false;
+        info!(LOG_TAG, "data cleared");
     }
 }
 
@@ -229,6 +237,7 @@ mod tests {
     #[cfg(feature = "encryption")]
     use crate::core::encrypt::EncryptBuffer;
     use crate::core::mmkv_impl::MmkvImpl;
+    use crate::Error::{InstanceClosed, KeyNotFound, TypeMissMatch};
 
     #[test]
     fn test_mmkv_impl() {
@@ -251,16 +260,16 @@ mod tests {
         F: Fn() -> MmkvImpl,
     {
         let mut mmkv = f();
-        mmkv.put("key1", Buffer::from_i32("key1", 1));
+        mmkv.put("key1", Buffer::from_i32("key1", 1)).unwrap();
         assert_eq!(mmkv.get("key1").unwrap().decode_i32().unwrap(), 1);
-        assert_eq!(mmkv.get("key2").is_none(), true);
-        mmkv.put("key2", Buffer::from_i32("key2", 2));
+        assert_eq!(mmkv.get("key2").is_err(), true);
+        mmkv.put("key2", Buffer::from_i32("key2", 2)).unwrap();
         assert_eq!(mmkv.get("key2").unwrap().decode_i32().unwrap(), 2);
-        mmkv.put("key3", Buffer::from_i32("key3", 3));
+        mmkv.put("key3", Buffer::from_i32("key3", 3)).unwrap();
         assert_eq!(mmkv.get("key3").unwrap().decode_i32().unwrap(), 3);
 
-        mmkv.put("key1", Buffer::from_str("key1", "4"));
-        assert_eq!(mmkv.get("key1").unwrap().decode_i32(), None);
+        mmkv.put("key1", Buffer::from_str("key1", "4")).unwrap();
+        assert_eq!(mmkv.get("key1").unwrap().decode_i32(), Err(TypeMissMatch));
         assert_eq!(mmkv.get("key1").unwrap().decode_str().unwrap(), "4");
 
         drop(mmkv);
@@ -270,17 +279,18 @@ mod tests {
         assert_eq!(mmkv.get("key2").unwrap().decode_i32().unwrap(), 2);
         assert_eq!(mmkv.get("key3").unwrap().decode_i32().unwrap(), 3);
 
-        mmkv.put("key4", Buffer::from_i32("key4", 4));
-        mmkv.put("key5", Buffer::from_i32("key5", 5));
-        mmkv.put("key6", Buffer::from_i32("key6", 6));
-        mmkv.put("key7", Buffer::from_i32("key7", 7));
-        mmkv.put("key8", Buffer::from_i32("key8", 8));
-        mmkv.put("key9", Buffer::from_i32("key9", 9));
+        mmkv.put("key4", Buffer::from_i32("key4", 4)).unwrap();
+        mmkv.put("key5", Buffer::from_i32("key5", 5)).unwrap();
+        mmkv.put("key6", Buffer::from_i32("key6", 6)).unwrap();
+        mmkv.put("key7", Buffer::from_i32("key7", 7)).unwrap();
+        mmkv.put("key8", Buffer::from_i32("key8", 8)).unwrap();
+        mmkv.put("key9", Buffer::from_i32("key9", 9)).unwrap();
         assert_eq!(mmkv.get("key9").unwrap().decode_i32().unwrap(), 9);
         mmkv.clear_data();
-        assert_eq!(mmkv.get("key9"), None);
-        mmkv.put("key9", Buffer::from_i32("key9", 9));
-        assert_eq!(mmkv.get("key9"), None);
+        assert_eq!(mmkv.get("key9"), Err(KeyNotFound));
+        let ret = mmkv.put("key9", Buffer::from_i32("key9", 9));
+        assert_eq!(ret, Err(InstanceClosed));
+        assert_eq!(mmkv.get("key9"), Err(KeyNotFound));
         assert_eq!(mmkv.path.exists(), false);
         #[cfg(feature = "encryption")]
         assert_eq!(mmkv.meta_file_path.exists(), false);
@@ -304,7 +314,10 @@ mod tests {
                 let thread_id = current_thread.id();
                 for i in 0..500 {
                     let key = &format!("{:?}_key_{i}", thread_id);
-                    MMKV.get_mut().unwrap().put(key, Buffer::from_i32(key, i));
+                    MMKV.get_mut()
+                        .unwrap()
+                        .put(key, Buffer::from_i32(key, i))
+                        .unwrap();
                 }
             };
             let mut threads = Vec::<JoinHandle<()>>::new();
