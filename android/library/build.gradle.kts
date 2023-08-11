@@ -56,7 +56,7 @@ dependencies {
 
 publishing {
     val artifactId = "mmkv"
-    val version = "0.1.8"
+    val version = "0.1.9"
     publications {
         register<MavenPublication>("release") {
             groupId = "net.yangkx"
