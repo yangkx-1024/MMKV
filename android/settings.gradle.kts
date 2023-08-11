@@ -10,7 +10,7 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-//        maven("https://s01.oss.sonatype.org/content/repositories/snapshots/")
+        maven("https://s01.oss.sonatype.org/content/repositories/")
     }
 }
 
@@ -18,4 +18,3 @@ rootProject.name = "MMKV"
 include(":app")
 include(":library")
 include(":library-encrypt")
-include(":base")
