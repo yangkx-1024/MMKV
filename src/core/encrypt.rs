@@ -1,14 +1,18 @@
 use crate::core::buffer::{Buffer, Decoder, Encoder, Take};
+use crate::Error::{DataInvalid, DecryptFailed, EncryptFailed};
+use crate::Result;
 use aes::Aes128;
 use eax::aead::consts::U8;
 use eax::aead::rand_core::RngCore;
 use eax::aead::stream::{DecryptorBE32, EncryptorBE32, NewStream, StreamPrimitive};
 use eax::aead::{generic_array::GenericArray, KeyInit, OsRng, Payload};
-use eax::{aead, Eax};
+use eax::Eax;
 use std::cell::RefCell;
 use std::fmt::{Debug, Formatter};
 use std::ops::Deref;
 use std::rc::Rc;
+
+const LOG_TAG: &str = "MMKV:Encrypt";
 
 type Aes128Eax = Eax<Aes128, U8>;
 
@@ -18,8 +22,6 @@ pub struct Encrypt {
     key: [u8; 16],
     nonce: [u8; 11],
 }
-
-type Result = aead::Result<Vec<u8>>;
 
 macro_rules! stream {
     ($k:expr, $nonce:expr) => {{
@@ -76,12 +78,16 @@ impl Encrypt {
         self.key.to_vec()
     }
 
-    pub fn encrypt(&mut self, bytes: Vec<u8>) -> Result {
-        self.encryptor.encrypt_next(Payload::from(bytes.as_slice()))
+    pub fn encrypt(&mut self, bytes: Vec<u8>) -> Result<Vec<u8>> {
+        self.encryptor
+            .encrypt_next(Payload::from(bytes.as_slice()))
+            .map_err(|e| EncryptFailed(e.to_string()))
     }
 
-    pub fn decrypt(&mut self, bytes: Vec<u8>) -> Result {
-        self.decryptor.decrypt_next(Payload::from(bytes.as_slice()))
+    pub fn decrypt(&mut self, bytes: Vec<u8>) -> Result<Vec<u8>> {
+        self.decryptor
+            .decrypt_next(Payload::from(bytes.as_slice()))
+            .map_err(|e| DecryptFailed(e.to_string()))
     }
 }
 
@@ -98,24 +104,28 @@ impl EncryptBuffer {
 }
 
 impl Encoder for EncryptBuffer {
-    fn encode_to_bytes(&self) -> Vec<u8> {
+    fn encode_to_bytes(&self) -> Result<Vec<u8>> {
         let bytes_to_write = self.0.as_ref().unwrap().to_bytes();
-        let crypt_bytes = self.1.borrow_mut().encrypt(bytes_to_write).unwrap();
+        let crypt_bytes = self.1.borrow_mut().encrypt(bytes_to_write)?;
         let len = crypt_bytes.len() as u32;
         let mut data = len.to_be_bytes().to_vec();
         data.extend_from_slice(crypt_bytes.as_slice());
-        data
+        Ok(data)
     }
 }
 
 impl Decoder for EncryptBuffer {
-    fn decode_bytes(&mut self, data: &[u8]) -> u32 {
-        let item_len = u32::from_be_bytes(data[0..4].try_into().unwrap());
+    fn decode_bytes_into(&mut self, data: &[u8]) -> Result<u32> {
+        let item_len = u32::from_be_bytes(data[0..4].try_into().map_err(|_| DataInvalid)?);
         let bytes_to_decode = &data[4..(4 + item_len as usize)];
-        if let Ok(data) = self.1.borrow_mut().decrypt(bytes_to_decode.to_vec()) {
-            self.0 = Some(Buffer::from_encoded_bytes(data.as_slice()))
+        match self.1.borrow_mut().decrypt(bytes_to_decode.to_vec()) {
+            Ok(data) => {
+                let buffer = Buffer::from_encoded_bytes(data.as_slice())?;
+                self.0 = Some(buffer)
+            }
+            Err(e) => error!(LOG_TAG, "Failed to decode data, reason: {:?}", e),
         }
-        4 + item_len
+        Ok(4 + item_len)
     }
 }
 
@@ -157,18 +167,18 @@ mod tests {
     #[test]
     fn test_crypt_buffer() {
         let key = hex::decode(TEST_KEY).unwrap();
-        let crypt = Rc::new(RefCell::new(Encrypt::new(key.try_into().unwrap())));
+        let encrypt = Rc::new(RefCell::new(Encrypt::new(key.try_into().unwrap())));
         let buffer = Buffer::from_i32("key1", 1);
-        let buffer = EncryptBuffer::new_with_buffer(buffer, crypt.clone());
-        let bytes = buffer.encode_to_bytes();
-        let mut copy = EncryptBuffer::new(crypt.clone());
-        copy.decode_bytes(bytes.as_slice());
+        let buffer = EncryptBuffer::new_with_buffer(buffer, encrypt.clone());
+        let bytes = buffer.encode_to_bytes().unwrap();
+        let mut copy = EncryptBuffer::new(encrypt.clone());
+        copy.decode_bytes_into(bytes.as_slice()).unwrap();
         assert_eq!(copy, buffer);
         let buffer = Buffer::from_i32("key2", 2);
-        let buffer = EncryptBuffer::new_with_buffer(buffer, crypt.clone());
-        let bytes = buffer.encode_to_bytes();
-        let mut copy = EncryptBuffer::new(crypt.clone());
-        copy.decode_bytes(bytes.as_slice());
+        let buffer = EncryptBuffer::new_with_buffer(buffer, encrypt.clone());
+        let bytes = buffer.encode_to_bytes().unwrap();
+        let mut copy = EncryptBuffer::new(encrypt.clone());
+        copy.decode_bytes_into(bytes.as_slice()).unwrap();
         assert_eq!(copy, buffer);
     }
 }

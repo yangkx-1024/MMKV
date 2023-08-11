@@ -8,23 +8,42 @@
     android:gravity="center"
     tools:context=".MainActivity">
 
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="3"
+        android:orientation="vertical">
+        <TextView
+            android:id="@+id/string"
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:text="Hello World!"
+            android:gravity="center" />
+        <TextView
+            android:id="@+id/integer"
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:text="Hello World!"
+            android:gravity="center" />
+        <TextView
+            android:id="@+id/bool"
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:text="Hello World!"
+            android:gravity="center" />
+    </LinearLayout>
+
     <TextView
-        android:id="@+id/string"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Hello World!"
-        android:layout_gravity="center" />
-    <TextView
-        android:id="@+id/integer"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Hello World!"
-        android:layout_gravity="center" />
-    <TextView
-        android:id="@+id/bool"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Hello World!"
-        android:layout_gravity="center" />
+        android:id="@+id/log"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:background="@color/black"
+        android:padding="8dp"
+        android:textColor="@android:color/holo_green_light"
+        android:textSize="12sp"
+        android:scrollbars="vertical"
+        android:lineSpacingMultiplier="1.2"
+        tools:text="Test Test Test Test Test\nTest Test"/>
 
 </LinearLayout>
