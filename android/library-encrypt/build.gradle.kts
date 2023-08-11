@@ -51,12 +51,11 @@ android {
 
 dependencies {
     implementation("androidx.core:core-ktx:1.10.1")
-    api(project(":base"))
 }
 
 publishing {
     val artifactId = "mmkv-encrypt"
-    val version = "0.1.9"
+    val version = "0.1.9.1"
     publications {
         register<MavenPublication>("release") {
             groupId = "net.yangkx"

@@ -25,44 +25,44 @@ object MMKV {
     @JvmStatic
     external fun initialize(dir: String, key: String)
 
-    @Throws(NativeException::class)
+    @Throws(net.yangkx.mmkv.NativeException::class)
     external fun putString(key: String, value: String)
 
-    @Throws(NativeException::class)
+    @Throws(net.yangkx.mmkv.NativeException::class)
     external fun putInt(key: String, value: Int)
 
-    @Throws(NativeException::class)
+    @Throws(net.yangkx.mmkv.NativeException::class)
     external fun putBool(key: String, value: Boolean)
 
-    @Throws(KeyNotFoundException::class)
+    @Throws(net.yangkx.mmkv.KeyNotFoundException::class)
     external fun getString(key: String): String
 
     fun getString(key: String, default: String): String {
         return try {
             getString(key)
-        } catch (e: KeyNotFoundException) {
+        } catch (e: net.yangkx.mmkv.KeyNotFoundException) {
             default
         }
     }
 
-    @Throws(KeyNotFoundException::class)
+    @Throws(net.yangkx.mmkv.KeyNotFoundException::class)
     external fun getInt(key: String): Int
 
     fun getInt(key: String, default: Int): Int {
         return try {
             getInt(key)
-        } catch (e: KeyNotFoundException) {
+        } catch (e: net.yangkx.mmkv.KeyNotFoundException) {
             default
         }
     }
 
-    @Throws(KeyNotFoundException::class)
+    @Throws(net.yangkx.mmkv.KeyNotFoundException::class)
     external fun getBool(key: String): Boolean
 
     fun getBool(key: String, default: Boolean): Boolean {
         return try {
             getBool(key)
-        } catch (e: KeyNotFoundException) {
+        } catch (e: net.yangkx.mmkv.KeyNotFoundException) {
             default
         }
     }
