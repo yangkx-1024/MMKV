@@ -30,16 +30,20 @@ fn main() {
     // named "mini_mmkv" under this dir
     MMKV::initialize(".");
     MMKV::put_i32("key1", 1);
-    // Some(1)
+    // Ok(1)
     println!("{:?}", MMKV::get_i32("key1"));
     MMKV::put_str("key1", "value");
-    // None, cause "key1" was override by put_str
+    // Err(Error::KeyNotFound), cause "key1" was override by put_str
     println!("{:?}", MMKV::get_i32("key1"));
-    // Some("value")
+    // Ok("value")
     println!("{:?}", MMKV::get_str("key1"));
     MMKV::put_bool("key1", true);
-    // Some(true)
+    // Ok(true)
     println!("{:?}", MMKV::get_bool("key1"));
+    // close the instance if you need to re-initialize with different config.
+    // MMKV::close();
+    // clear all related data to free disk space, this call will also close the instance.
+    // MMKV::clear_data();
 }
 ```
 
@@ -59,9 +63,9 @@ and will also increase the file size, use at your own risk!
 Add lib dependency to gradle:
 ```kotlin
 dependencies {
-    implementation("net.yangkx:mmkv:0.1.0")
+    implementation("net.yangkx:mmkv:0.1.9.1")
     // Or another one with encryption feature
-    // implementation("net.yangkx:mmkv-encrypt:0.1.0")
+    // implementation("net.yangkx:mmkv-encrypt:0.1.9.1")
 }
 ```
 Use the kotlin API:
@@ -84,9 +88,9 @@ class MainActivity : AppCompatActivity() {
         MMKV.putString("first_key", "first value")
         MMKV.putInt("second_key", 1024)
         MMKV.putBool("third_key", true)
-        binding.string.text = MMKV.getString("first_key")
-        binding.integer.text = MMKV.getInt("second_key").toString()
-        binding.bool.text = MMKV.getBool("third_key").toString()
+        binding.string.text = MMKV.getString("first_key", "default")
+        binding.integer.text = MMKV.getInt("second_key", 0).toString()
+        binding.bool.text = MMKV.getBool("third_key", false).toString()
     }
 }
 ```
