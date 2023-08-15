@@ -4,15 +4,191 @@
 pub mod android {
     extern crate jni;
 
-    use jni::objects::{GlobalRef, JClass, JString, JValue};
-    use jni::sys::{jboolean, jint, jstring};
+    use jni::objects::{
+        GlobalRef, JByteArray, JClass, JDoubleArray, JFloatArray, JIntArray, JLongArray, JString,
+        JValue,
+    };
+    use jni::sys::{
+        jboolean, jbyteArray, jdouble, jdoubleArray, jfloat, jfloatArray, jint, jintArray, jlong,
+        jlongArray, jsize, jstring,
+    };
     use jni::{JNIEnv, JavaVM};
     use std::fmt::{Debug, Formatter};
 
+    use crate::Logger;
     use crate::MMKV;
-    use crate::{Error, Logger};
 
     const LOG_TAG: &str = "MMKV:Android";
+
+    #[inline]
+    fn env_str(env: &mut JNIEnv, name: JString) -> String {
+        env.get_string(&name).unwrap().into()
+    }
+
+    macro_rules! jarray_to_native {
+        ($env:expr, $value:expr, $op:tt, $default:expr) => {{
+            let len = $env.get_array_length(&$value).unwrap();
+            let mut vec = Vec::new();
+            vec.resize(len as usize, $default);
+            $env.$op($value, 0, vec.as_mut_slice()).unwrap();
+            vec
+        }};
+    }
+
+    macro_rules! native_to_jarray {
+        ($env:expr, $value:expr, $new_op:tt, $set_op:tt) => {{
+            let array = $env.$new_op($value.len() as jsize).unwrap();
+            $env.$set_op(&array, 0, $value.as_slice()).unwrap();
+            array.into_raw()
+        }};
+    }
+
+    macro_rules! mmkv_put {
+        ($env:expr, $key:expr, $value:expr, JString) => {{
+            let value = env_str($env, $value);
+            MMKV::put_str(&$key, &value)
+        }};
+        ($env:expr, $key:expr, $value:expr, jint) => {{
+            MMKV::put_i32(&$key, $value)
+        }};
+        ($env:expr, $key:expr, $value:expr, jboolean) => {{
+            MMKV::put_bool(&$key, $value == 1u8)
+        }};
+        ($env:expr, $key:expr, $value:expr, jlong) => {{
+            MMKV::put_i64(&$key, $value)
+        }};
+        ($env:expr, $key:expr, $value:expr, jfloat) => {{
+            MMKV::put_f32(&$key, $value)
+        }};
+        ($env:expr, $key:expr, $value:expr, jdouble) => {{
+            MMKV::put_f64(&$key, $value)
+        }};
+        ($env:expr, $key:expr, $value:expr, JByteArray) => {{
+            let vec = jarray_to_native!($env, $value, get_byte_array_region, 0);
+            let byte_array: Vec<u8> = vec.into_iter().map(|item| item as u8).collect();
+            MMKV::put_byte_array(&$key, byte_array.as_slice())
+        }};
+        ($env:expr, $key:expr, $value:expr, JIntArray) => {{
+            let vec = jarray_to_native!($env, $value, get_int_array_region, 0);
+            MMKV::put_i32_array(&$key, vec.as_slice())
+        }};
+        ($env:expr, $key:expr, $value:expr, JLongArray) => {{
+            let vec = jarray_to_native!($env, $value, get_long_array_region, 0);
+            MMKV::put_i64_array(&$key, vec.as_slice())
+        }};
+        ($env:expr, $key:expr, $value:expr, JFloatArray) => {{
+            let vec = jarray_to_native!($env, $value, get_float_array_region, 0.0);
+            MMKV::put_f32_array(&$key, vec.as_slice())
+        }};
+        ($env:expr, $key:expr, $value:expr, JDoubleArray) => {{
+            let vec = jarray_to_native!($env, $value, get_double_array_region, 0.0);
+            MMKV::put_f64_array(&$key, vec.as_slice())
+        }};
+    }
+
+    macro_rules! mmkv_get {
+        ($env:expr, $key:expr, jstring) => {{
+            let result =
+                MMKV::get_str(&$key).map(|value| $env.new_string(value).unwrap().into_raw());
+            result
+        }};
+        ($env:expr, $key:expr, jint) => {{
+            MMKV::get_i32(&$key)
+        }};
+        ($env:expr, $key:expr, jboolean) => {{
+            MMKV::get_bool(&$key).map(|value| if (value) { 1u8 } else { 0u8 })
+        }};
+        ($env:expr, $key:expr, jlong) => {{
+            MMKV::get_i64(&$key)
+        }};
+        ($env:expr, $key:expr, jfloat) => {{
+            MMKV::get_f32(&$key)
+        }};
+        ($env:expr, $key:expr, jdouble) => {{
+            MMKV::get_f64(&$key)
+        }};
+        ($env:expr, $key:expr, jbyteArray) => {{
+            MMKV::get_byte_array(&$key).map(|value| {
+                let vec: Vec<i8> = value.into_iter().map(|item| item as i8).collect();
+                native_to_jarray!($env, vec, new_byte_array, set_byte_array_region)
+            })
+        }};
+        ($env:expr, $key:expr, jintArray) => {{
+            MMKV::get_i32_array(&$key)
+                .map(|value| native_to_jarray!($env, value, new_int_array, set_int_array_region))
+        }};
+        ($env:expr, $key:expr, jlongArray) => {{
+            MMKV::get_i64_array(&$key)
+                .map(|value| native_to_jarray!($env, value, new_long_array, set_long_array_region))
+        }};
+        ($env:expr, $key:expr, jfloatArray) => {{
+            MMKV::get_f32_array(&$key).map(|value| {
+                native_to_jarray!($env, value, new_float_array, set_float_array_region)
+            })
+        }};
+        ($env:expr, $key:expr, jdoubleArray) => {{
+            MMKV::get_f64_array(&$key).map(|value| {
+                native_to_jarray!($env, value, new_double_array, set_double_array_region)
+            })
+        }};
+    }
+
+    macro_rules! impl_java_put {
+        ($name:ident, $value_type:tt, $log_type:literal) => {
+            #[no_mangle]
+            pub unsafe extern "C" fn $name(
+                mut env: JNIEnv,
+                _: JClass,
+                key: JString,
+                value: $value_type,
+            ) {
+                let key = env_str(&mut env, key);
+                match mmkv_put!(&mut env, key, value, $value_type) {
+                    Err(e) => {
+                        let log_str = format!(
+                            "failed to put {} for key {}, reason {:?}",
+                            $log_type, key, e
+                        );
+                        error!(LOG_TAG, "{}", &log_str);
+                        env.throw_new("net/yangkx/mmkv/NativeException", log_str)
+                            .expect("throw");
+                    }
+                    Ok(()) => {
+                        verbose!(LOG_TAG, "put {} for key '{}' success", $log_type, key);
+                    }
+                };
+            }
+        };
+    }
+
+    macro_rules! impl_java_get {
+        ($name:ident, $value_type:tt, $log_type:literal, $default:expr) => {
+            #[no_mangle]
+            pub unsafe extern "C" fn $name(
+                mut env: JNIEnv,
+                _: JClass,
+                key: JString,
+            ) -> $value_type {
+                let key = env_str(&mut env, key);
+                match mmkv_get!(&mut env, key, $value_type) {
+                    Ok(value) => {
+                        verbose!(LOG_TAG, "found {} with key '{}'", $log_type, key);
+                        value
+                    }
+                    Err(e) => {
+                        let log_str = format!(
+                            "get {} for key '{}' failed, reason: {:?}",
+                            $log_type, key, e
+                        );
+                        error!(LOG_TAG, "{}", &log_str);
+                        env.throw_new("net/yangkx/mmkv/KeyNotFoundException", log_str)
+                            .expect("throw");
+                        $default
+                    }
+                }
+            }
+        };
+    }
 
     struct AndroidLogger {
         jvm: JavaVM,
@@ -92,115 +268,99 @@ pub mod android {
         );
     }
 
-    #[no_mangle]
-    pub unsafe extern "C" fn Java_net_yangkx_mmkv_MMKV_putString(
-        mut env: JNIEnv,
-        _: JClass,
-        key: JString,
-        value: JString,
-    ) {
-        let key: String = env.get_string(&key).unwrap().into();
-        let value: String = env.get_string(&value).unwrap().into();
-        match MMKV::put_str(&key, &value) {
-            Err(e) => throw_put_failed(&mut env, &key, e),
-            Ok(()) => {
-                verbose!(LOG_TAG, "put string for key '{}'", key);
-            }
-        };
-    }
+    impl_java_put!(Java_net_yangkx_mmkv_MMKV_putString, JString, "string");
 
-    #[no_mangle]
-    pub unsafe extern "C" fn Java_net_yangkx_mmkv_MMKV_putInt(
-        mut env: JNIEnv,
-        _: JClass,
-        key: JString,
-        value: jint,
-    ) {
-        let key: String = env.get_string(&key).unwrap().into();
-        match MMKV::put_i32(&key, value) {
-            Err(e) => throw_put_failed(&mut env, &key, e),
-            _ => {
-                verbose!(LOG_TAG, "put int for key '{}' success", key);
-            }
-        };
-    }
+    impl_java_put!(Java_net_yangkx_mmkv_MMKV_putInt, jint, "i32");
 
-    #[no_mangle]
-    pub unsafe extern "C" fn Java_net_yangkx_mmkv_MMKV_putBool(
-        mut env: JNIEnv,
-        _: JClass,
-        key: JString,
-        value: jboolean,
-    ) {
-        let key: String = env.get_string(&key).unwrap().into();
-        match MMKV::put_bool(&key, value == 1u8) {
-            Err(e) => throw_put_failed(&mut env, &key, e),
-            _ => {
-                verbose!(LOG_TAG, "put bool for key '{}' success", key);
-            }
-        };
-    }
+    impl_java_put!(Java_net_yangkx_mmkv_MMKV_putBool, jboolean, "bool");
 
-    #[no_mangle]
-    pub unsafe extern "C" fn Java_net_yangkx_mmkv_MMKV_getString(
-        mut env: JNIEnv,
-        _: JClass,
-        key: JString,
-    ) -> jstring {
-        let key: String = env.get_string(&key).unwrap().into();
-        match MMKV::get_str(&key) {
-            Ok(str) => {
-                verbose!(LOG_TAG, "found string with key '{}'", key);
-                env.new_string(str).unwrap().into_raw()
-            }
-            Err(e) => {
-                throw_key_not_found(&mut env, &key, e);
-                std::ptr::null_mut()
-            }
-        }
-    }
+    impl_java_put!(Java_net_yangkx_mmkv_MMKV_putLong, jlong, "long");
 
-    #[no_mangle]
-    pub unsafe extern "C" fn Java_net_yangkx_mmkv_MMKV_getInt(
-        mut env: JNIEnv,
-        _: JClass,
-        key: JString,
-    ) -> jint {
-        let key: String = env.get_string(&key).unwrap().into();
-        match MMKV::get_i32(&key) {
-            Ok(value) => {
-                verbose!(LOG_TAG, "found int with key '{}'", key);
-                value
-            }
-            Err(e) => {
-                throw_key_not_found(&mut env, &key, e);
-                0
-            }
-        }
-    }
+    impl_java_put!(Java_net_yangkx_mmkv_MMKV_putFloat, jfloat, "float");
 
-    #[no_mangle]
-    pub unsafe extern "C" fn Java_net_yangkx_mmkv_MMKV_getBool(
-        mut env: JNIEnv,
-        _: JClass,
-        key: JString,
-    ) -> jboolean {
-        let key: String = env.get_string(&key).unwrap().into();
-        match MMKV::get_bool(&key) {
-            Ok(value) => {
-                verbose!(LOG_TAG, "found bool with key '{}'", key);
-                if value {
-                    1
-                } else {
-                    0
-                }
-            }
-            Err(e) => {
-                throw_key_not_found(&mut env, &key, e);
-                0
-            }
-        }
-    }
+    impl_java_put!(Java_net_yangkx_mmkv_MMKV_putDouble, jdouble, "double");
+
+    impl_java_put!(
+        Java_net_yangkx_mmkv_MMKV_putByteArray,
+        JByteArray,
+        "byte array"
+    );
+
+    impl_java_put!(
+        Java_net_yangkx_mmkv_MMKV_putIntArray,
+        JIntArray,
+        "int array"
+    );
+
+    impl_java_put!(
+        Java_net_yangkx_mmkv_MMKV_putLongArray,
+        JLongArray,
+        "long array"
+    );
+
+    impl_java_put!(
+        Java_net_yangkx_mmkv_MMKV_putFloatArray,
+        JFloatArray,
+        "float array"
+    );
+
+    impl_java_put!(
+        Java_net_yangkx_mmkv_MMKV_putDoubleArray,
+        JDoubleArray,
+        "double array"
+    );
+
+    impl_java_get!(
+        Java_net_yangkx_mmkv_MMKV_getString,
+        jstring,
+        "string",
+        std::ptr::null_mut()
+    );
+
+    impl_java_get!(Java_net_yangkx_mmkv_MMKV_getInt, jint, "int", 0);
+
+    impl_java_get!(Java_net_yangkx_mmkv_MMKV_getBool, jboolean, "bool", 0);
+
+    impl_java_get!(Java_net_yangkx_mmkv_MMKV_getLong, jlong, "long", 0);
+
+    impl_java_get!(Java_net_yangkx_mmkv_MMKV_getFloat, jfloat, "float", 0.0);
+
+    impl_java_get!(Java_net_yangkx_mmkv_MMKV_getDouble, jdouble, "double", 0.0);
+
+    impl_java_get!(
+        Java_net_yangkx_mmkv_MMKV_getByteArray,
+        jbyteArray,
+        "byte array",
+        std::ptr::null_mut()
+    );
+
+    impl_java_get!(
+        Java_net_yangkx_mmkv_MMKV_getIntArray,
+        jintArray,
+        "int array",
+        std::ptr::null_mut()
+    );
+
+    impl_java_get!(
+        Java_net_yangkx_mmkv_MMKV_getLongArray,
+        jlongArray,
+        "long array",
+        std::ptr::null_mut()
+    );
+
+    impl_java_get!(
+        Java_net_yangkx_mmkv_MMKV_getFloatArray,
+        jfloatArray,
+        "float array",
+        std::ptr::null_mut()
+    );
+
+    impl_java_get!(
+        Java_net_yangkx_mmkv_MMKV_getDoubleArray,
+        jdoubleArray,
+        "double array",
+        std::ptr::null_mut()
+    );
 
     #[no_mangle]
     pub unsafe extern "C" fn Java_net_yangkx_mmkv_MMKV_setLogLevel(
@@ -219,19 +379,5 @@ pub mod android {
     #[no_mangle]
     pub unsafe extern "C" fn Java_net_yangkx_mmkv_MMKV_close(_: JNIEnv, _: JClass) {
         MMKV::close();
-    }
-
-    fn throw_key_not_found(env: &mut JNIEnv, key: &str, e: Error) {
-        let log_str = format!("get key '{}' failed, reason: {:?}", key, e);
-        error!(LOG_TAG, "{}", &log_str);
-        env.throw_new("net/yangkx/mmkv/KeyNotFoundException", log_str)
-            .expect("throw");
-    }
-
-    fn throw_put_failed(env: &mut JNIEnv, key: &str, e: Error) {
-        let log_str = format!("failed to put key {}, reason {:?}", key, e);
-        error!(LOG_TAG, "{}", &log_str);
-        env.throw_new("net/yangkx/mmkv/NativeException", log_str)
-            .expect("throw");
     }
 }
