@@ -96,6 +96,70 @@ impl MMKV {
         mmkv!().get(key)?.decode_bool()
     }
 
+    pub fn put_i64(key: &str, value: i64) -> Result<()> {
+        mut_mmkv!().put(key, Buffer::from_i64(key, value))
+    }
+
+    pub fn get_i64(key: &str) -> Result<i64> {
+        mmkv!().get(key)?.decode_i64()
+    }
+
+    pub fn put_f32(key: &str, value: f32) -> Result<()> {
+        mut_mmkv!().put(key, Buffer::from_f32(key, value))
+    }
+
+    pub fn get_f32(key: &str) -> Result<f32> {
+        mmkv!().get(key)?.decode_f32()
+    }
+
+    pub fn put_f64(key: &str, value: f64) -> Result<()> {
+        mut_mmkv!().put(key, Buffer::from_f64(key, value))
+    }
+
+    pub fn get_f64(key: &str) -> Result<f64> {
+        mmkv!().get(key)?.decode_f64()
+    }
+
+    pub fn put_byte_array(key: &str, value: &[u8]) -> Result<()> {
+        mut_mmkv!().put(key, Buffer::from_byte_array(key, value))
+    }
+
+    pub fn get_byte_array(key: &str) -> Result<Vec<u8>> {
+        mmkv!().get(key)?.decode_byte_array()
+    }
+
+    pub fn put_i32_array(key: &str, value: &[i32]) -> Result<()> {
+        mut_mmkv!().put(key, Buffer::from_i32_array(key, value))
+    }
+
+    pub fn get_i32_array(key: &str) -> Result<Vec<i32>> {
+        mmkv!().get(key)?.decode_i32_array()
+    }
+
+    pub fn put_i64_array(key: &str, value: &[i64]) -> Result<()> {
+        mut_mmkv!().put(key, Buffer::from_i64_array(key, value))
+    }
+
+    pub fn get_i64_array(key: &str) -> Result<Vec<i64>> {
+        mmkv!().get(key)?.decode_i64_array()
+    }
+
+    pub fn put_f32_array(key: &str, value: &[f32]) -> Result<()> {
+        mut_mmkv!().put(key, Buffer::from_f32_array(key, value))
+    }
+
+    pub fn get_f32_array(key: &str) -> Result<Vec<f32>> {
+        mmkv!().get(key)?.decode_f32_array()
+    }
+
+    pub fn put_f64_array(key: &str, value: &[f64]) -> Result<()> {
+        mut_mmkv!().put(key, Buffer::from_f64_array(key, value))
+    }
+
+    pub fn get_f64_array(key: &str) -> Result<Vec<f64>> {
+        mmkv!().get(key)?.decode_f64_array()
+    }
+
     /**
     Clear all data and [close](MMKV::close) the instance.
 
@@ -227,7 +291,31 @@ mod tests {
         MMKV::put_bool("second", false).unwrap();
         assert_eq!(MMKV::get_str("second").is_err(), true);
         assert_eq!(MMKV::get_bool("second"), Ok(false));
-        MMKV::dump();
+
+        MMKV::put_i64("i64", 2).unwrap();
+        assert_eq!(MMKV::get_i64("i64"), Ok(2));
+
+        MMKV::put_f32("f32", 2.2).unwrap();
+        assert_eq!(MMKV::get_f32("f32"), Ok(2.2));
+
+        MMKV::put_f64("f64", 2.22).unwrap();
+        assert_eq!(MMKV::get_f64("f64"), Ok(2.22));
+
+        MMKV::put_byte_array("byte_array", vec![1, 2, 3].as_slice()).unwrap();
+        assert_eq!(MMKV::get_byte_array("byte_array"), Ok(vec![1, 2, 3]));
+
+        MMKV::put_i32_array("i32_array", vec![1, 2, 3].as_slice()).unwrap();
+        assert_eq!(MMKV::get_i32_array("i32_array"), Ok(vec![1, 2, 3]));
+
+        MMKV::put_i64_array("i64_array", vec![1, 2, 3].as_slice()).unwrap();
+        assert_eq!(MMKV::get_i64_array("i64_array"), Ok(vec![1, 2, 3]));
+
+        MMKV::put_f32_array("f32_array", vec![1.1, 2.2, 3.3].as_slice()).unwrap();
+        assert_eq!(MMKV::get_f32_array("f32_array"), Ok(vec![1.1, 2.2, 3.3]));
+
+        MMKV::put_f64_array("f64_array", vec![1.1, 2.2, 3.3].as_slice()).unwrap();
+        assert_eq!(MMKV::get_f64_array("f64_array"), Ok(vec![1.1, 2.2, 3.3]));
+
         MMKV::close();
         assert_eq!(MMKV_IMPL.load(Ordering::Acquire), std::ptr::null_mut());
         MMKV::initialize(

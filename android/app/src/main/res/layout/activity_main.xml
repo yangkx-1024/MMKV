@@ -17,20 +17,87 @@
             android:id="@+id/string"
             android:layout_width="match_parent"
             android:layout_height="40dp"
-            android:text="Hello World!"
-            android:gravity="center" />
+            android:text="String"
+            android:gravity="center"
+            tools:ignore="HardcodedText" />
         <TextView
             android:id="@+id/integer"
             android:layout_width="match_parent"
             android:layout_height="40dp"
-            android:text="Hello World!"
-            android:gravity="center" />
+            android:text="int"
+            android:gravity="center"
+            tools:ignore="HardcodedText" />
         <TextView
             android:id="@+id/bool"
             android:layout_width="match_parent"
             android:layout_height="40dp"
-            android:text="Hello World!"
-            android:gravity="center" />
+            android:text="boolean"
+            android:gravity="center"
+            tools:ignore="HardcodedText" />
+        <TextView
+            android:id="@+id/jlong"
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:text="long"
+            android:gravity="center"
+            tools:ignore="HardcodedText" />
+        <TextView
+            android:id="@+id/jfloat"
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:text="float"
+            android:gravity="center"
+            tools:ignore="HardcodedText" />
+        <TextView
+            android:id="@+id/jdouble"
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:text="double"
+            android:gravity="center"
+            tools:ignore="HardcodedText" />
+        <TextView
+            android:id="@+id/byte_array"
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:text="byte array"
+            android:gravity="center"
+            tools:ignore="HardcodedText" />
+        <TextView
+            android:id="@+id/int_array"
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:text="int array"
+            android:gravity="center"
+            tools:ignore="HardcodedText" />
+        <TextView
+            android:id="@+id/long_array"
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:text="long array"
+            android:gravity="center"
+            tools:ignore="HardcodedText" />
+        <TextView
+            android:id="@+id/float_array"
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:text="float array"
+            android:gravity="center"
+            tools:ignore="HardcodedText" />
+        <TextView
+            android:id="@+id/double_array"
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:text="double array"
+            android:gravity="center"
+            tools:ignore="HardcodedText" />
+
+        <Button
+            android:id="@+id/clear_data"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_margin="8dp"
+            android:text="Clear Data"
+            tools:ignore="HardcodedText" />
     </LinearLayout>
 
     <TextView
