@@ -26,12 +26,6 @@ object MMKV {
     @Throws(NativeException::class)
     external fun putString(key: String, value: String)
 
-    @Throws(NativeException::class)
-    external fun putInt(key: String, value: Int)
-
-    @Throws(NativeException::class)
-    external fun putBool(key: String, value: Boolean)
-
     @Throws(KeyNotFoundException::class)
     external fun getString(key: String): String
 
@@ -42,6 +36,9 @@ object MMKV {
             default
         }
     }
+
+    @Throws(NativeException::class)
+    external fun putInt(key: String, value: Int)
 
     @Throws(KeyNotFoundException::class)
     external fun getInt(key: String): Int
@@ -54,12 +51,127 @@ object MMKV {
         }
     }
 
+    @Throws(NativeException::class)
+    external fun putBool(key: String, value: Boolean)
+
     @Throws(KeyNotFoundException::class)
     external fun getBool(key: String): Boolean
 
     fun getBool(key: String, default: Boolean): Boolean {
         return try {
             getBool(key)
+        } catch (e: KeyNotFoundException) {
+            default
+        }
+    }
+
+    @Throws(NativeException::class)
+    external fun putLong(key: String, value: Long)
+
+    @Throws(KeyNotFoundException::class)
+    external fun getLong(key: String): Long
+
+    fun getLong(key: String, default: Long): Long {
+        return try {
+            getLong(key)
+        } catch (e: KeyNotFoundException) {
+            default
+        }
+    }
+
+    @Throws(NativeException::class)
+    external fun putFloat(key: String, value: Float)
+
+    @Throws(KeyNotFoundException::class)
+    external fun getFloat(key: String): Float
+
+    fun getFloat(key: String, default: Float): Float {
+        return try {
+            getFloat(key)
+        } catch (e: KeyNotFoundException) {
+            default
+        }
+    }
+
+    @Throws(NativeException::class)
+    external fun putDouble(key: String, value: Double)
+
+    @Throws(KeyNotFoundException::class)
+    external fun getDouble(key: String): Double
+
+    fun getDouble(key: String, default: Double): Double {
+        return try {
+            getDouble(key)
+        } catch (e: KeyNotFoundException) {
+            default
+        }
+    }
+
+    @Throws(NativeException::class)
+    external fun putByteArray(key: String, value: ByteArray)
+
+    @Throws(KeyNotFoundException::class)
+    external fun getByteArray(key: String): ByteArray
+
+    fun getByteArray(key: String, default: ByteArray): ByteArray {
+        return try {
+            getByteArray(key)
+        } catch (e: KeyNotFoundException) {
+            default
+        }
+    }
+
+    @Throws(NativeException::class)
+    external fun putIntArray(key: String, value: IntArray)
+
+    @Throws(KeyNotFoundException::class)
+    external fun getIntArray(key: String): IntArray
+
+    fun getIntArray(key: String, default: IntArray): IntArray {
+        return try {
+            getIntArray(key)
+        } catch (e: KeyNotFoundException) {
+            default
+        }
+    }
+
+    @Throws(NativeException::class)
+    external fun putLongArray(key: String, value: LongArray)
+
+    @Throws(KeyNotFoundException::class)
+    external fun getLongArray(key: String): LongArray
+
+    fun getLongArray(key: String, default: LongArray): LongArray {
+        return try {
+            getLongArray(key)
+        } catch (e: KeyNotFoundException) {
+            default
+        }
+    }
+
+    @Throws(NativeException::class)
+    external fun putFloatArray(key: String, value: FloatArray)
+
+    @Throws(KeyNotFoundException::class)
+    external fun getFloatArray(key: String): FloatArray
+
+    fun getFloatArray(key: String, default: FloatArray): FloatArray {
+        return try {
+            getFloatArray(key)
+        } catch (e: KeyNotFoundException) {
+            default
+        }
+    }
+
+    @Throws(NativeException::class)
+    external fun putDoubleArray(key: String, value: DoubleArray)
+
+    @Throws(KeyNotFoundException::class)
+    external fun getDoubleArray(key: String): DoubleArray
+
+    fun getDoubleArray(key: String, default: DoubleArray): DoubleArray {
+        return try {
+            getDoubleArray(key)
         } catch (e: KeyNotFoundException) {
             default
         }
