@@ -1,4 +1,3 @@
-#![macro_use]
 //! Rust version of MMKV.
 //! Examples:
 //! ```
