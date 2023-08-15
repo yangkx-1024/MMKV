@@ -50,8 +50,8 @@ android {
 dependencies {
     implementation("androidx.core:core-ktx:1.10.1")
     implementation("androidx.appcompat:appcompat:1.6.1")
-//    "defaultImplementation"(project(":library"))
-//    "encryptionImplementation"(project(":library-encrypt"))
-    "defaultImplementation"("net.yangkx:mmkv:0.1.9.1")
-    "encryptionImplementation"("net.yangkx:mmkv-encrypt:0.1.9.1")
+    "defaultImplementation"(project(":library"))
+    "encryptionImplementation"(project(":library-encrypt"))
+//    "defaultImplementation"("net.yangkx:mmkv:0.1.9.1")
+//    "encryptionImplementation"("net.yangkx:mmkv-encrypt:0.1.9.1")
 }

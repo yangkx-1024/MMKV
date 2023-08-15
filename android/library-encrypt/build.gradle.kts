@@ -55,7 +55,7 @@ dependencies {
 
 publishing {
     val artifactId = "mmkv-encrypt"
-    val version = "0.1.9.1"
+    val version = "0.2.0"
     publications {
         register<MavenPublication>("release") {
             groupId = "net.yangkx"
