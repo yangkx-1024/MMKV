@@ -1,5 +1,5 @@
 object Configuration {
-//    const val libVersion = "0.2.0.2-SNAPSHOT"
+//    const val libVersion = "0.2.0.3-SNAPSHOT"
     const val libVersion = "0.2.0.1"
     const val groupId = "net.yangkx"
     const val description = "Library uses file-based mmap to store key-values"
