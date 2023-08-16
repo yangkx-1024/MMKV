@@ -1,6 +1,14 @@
+import org.gradle.api.artifacts.Configuration
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+}
+
+val prop = Properties().apply {
+    load(FileInputStream(File(rootProject.rootDir, "local.properties")))
 }
 
 android {
@@ -9,21 +17,32 @@ android {
 
     defaultConfig {
         applicationId = "net.yangkx.mmkv"
-        minSdk = 24
+        minSdk = 21
         targetSdk = 33
         versionCode = 1
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
-
+    signingConfigs {
+        create("release") {
+            keyAlias = prop.getProperty("keyAlias")
+            keyPassword = prop.getProperty("keyPassword")
+            storeFile = file(prop.getProperty("storeFile"))
+            storePassword = prop.getProperty("storePassword")
+        }
+    }
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.getByName("release")
+        }
+        debug {
+            signingConfig = signingConfigs.getByName("release")
         }
     }
     compileOptions {
@@ -47,11 +66,16 @@ android {
     }
 }
 
+val defaultDebugImplementation: Configuration by configurations.creating
+val encryptionDebugImplementation: Configuration by configurations.creating
+val defaultReleaseImplementation: Configuration by configurations.creating
+val encryptionReleaseImplementation: Configuration by configurations.creating
+
 dependencies {
-    implementation("androidx.core:core-ktx:1.10.1")
+    implementation(Deps.kotlin)
     implementation("androidx.appcompat:appcompat:1.6.1")
-    "defaultImplementation"(project(":library"))
-    "encryptionImplementation"(project(":library-encrypt"))
-//    "defaultImplementation"("net.yangkx:mmkv:0.1.9.1")
-//    "encryptionImplementation"("net.yangkx:mmkv-encrypt:0.1.9.1")
+    defaultDebugImplementation(project(":library"))
+    encryptionDebugImplementation(project(":library-encrypt"))
+    defaultReleaseImplementation(Deps.mmkv)
+    encryptionReleaseImplementation(Deps.mmkv_encrypt)
 }

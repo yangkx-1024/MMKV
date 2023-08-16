@@ -21,14 +21,14 @@ android {
     compileSdk = 33
 
     defaultConfig {
-        minSdk = 24
+        minSdk = 21
 
         consumerProguardFiles("consumer-rules.pro")
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -50,57 +50,49 @@ android {
 }
 
 dependencies {
-    implementation("androidx.core:core-ktx:1.10.1")
+    implementation(Deps.kotlin)
 }
 
 publishing {
     val artifactId = "mmkv-encrypt"
-    val version = "0.2.0"
     publications {
         register<MavenPublication>("release") {
             groupId = "net.yangkx"
             this.artifactId = artifactId
-            this.version = version
+            this.version = Configuration.libVersion
 
             afterEvaluate {
                 from(components["release"])
             }
             pom {
                 name.set(artifactId)
-                description.set("Library uses file-based mmap to store key-values")
+                description.set(Configuration.description)
                 licenses {
                     license {
-                        name.set("The Apache License, Version 2.0")
-                        url.set("http://www.apache.org/licenses/LICENSE-2.0.txt")
+                        name.set(Configuration.licenceApache.first)
+                        url.set(Configuration.licenceApache.second)
                     }
                     license {
-                        name.set("The MIT License")
-                        url.set("https://opensource.org/licenses/MIT")
+                        name.set(Configuration.licenceMit.first)
+                        url.set(Configuration.licenceMit.second)
                     }
                 }
                 developers {
                     developer {
-                        name.set("Kexuan Yang")
-                        email.set("kexuan.yang@gmail.com")
+                        name.set(Configuration.developer.first)
+                        email.set(Configuration.developer.second)
                     }
                 }
                 scm {
-                    url.set("https://github.com/yangkx1024/MMKV")
+                    url.set(Configuration.scmUrl)
                 }
             }
         }
     }
     repositories {
         maven {
-            val releasesRepoUrl = "https://s01.oss.sonatype.org/content/repositories/releases"
-            val snapshotsRepoUrl = "https://s01.oss.sonatype.org/content/repositories/snapshots/"
-
             url = URI(
-                if (version.endsWith("-SNAPSHOT")) {
-                    snapshotsRepoUrl
-                } else {
-                    releasesRepoUrl
-                }
+                Configuration.publishUrl
             )
             credentials {
                 username = prop["sonatypeUsername"] as String
