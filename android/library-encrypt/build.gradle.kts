@@ -9,11 +9,12 @@ plugins {
     id("signing")
 }
 
-val prop = Properties().apply {
-    load(FileInputStream(File(rootProject.rootDir, "local.properties")))
-}
-prop.forEach {
-    ext[it.key as String] = it.value as String
+val propFile = File(rootProject.rootDir, "local.properties")
+val prop = Properties()
+if (propFile.exists()) {
+    FileInputStream(propFile).use {
+        prop.load(it)
+    }
 }
 
 android {
@@ -95,8 +96,8 @@ publishing {
                 Configuration.publishUrl
             )
             credentials {
-                username = prop["sonatypeUsername"] as String
-                password = prop["sonatypePassword"] as String
+                username = prop["sonatypeUsername"] as String?
+                password = prop["sonatypePassword"] as String?
             }
         }
     }
