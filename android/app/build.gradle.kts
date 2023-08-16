@@ -7,8 +7,21 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-val prop = Properties().apply {
-    load(FileInputStream(File(rootProject.rootDir, "local.properties")))
+val propFile = File(rootProject.rootDir, "local.properties")
+if (propFile.exists()) {
+    val prop = Properties().apply {
+        FileInputStream(propFile).use {
+            load(it)
+        }
+    }
+    prop.forEach {
+        ext.set(it.key as String, it.value as String)
+    }
+} else {
+    ext.set("SIGN_KEY_ALIAS", System.getenv("SIGN_KEY_ALIAS"))
+    ext.set("SIGN_KEY_PASSWORD", System.getenv("SIGN_KEY_PASSWORD"))
+    ext.set("SIGN_KEY_STORE_PATH", System.getenv("SIGN_KEY_STORE_PATH"))
+    ext.set("SIGN_STORE_PASSWORD", System.getenv("SIGN_STORE_PASSWORD"))
 }
 
 android {
@@ -26,10 +39,10 @@ android {
     }
     signingConfigs {
         create("release") {
-            keyAlias = prop.getProperty("keyAlias")
-            keyPassword = prop.getProperty("keyPassword")
-            storeFile = file(prop.getProperty("storeFile"))
-            storePassword = prop.getProperty("storePassword")
+            keyAlias = project.ext.get("SIGN_KEY_ALIAS") as String
+            keyPassword = project.ext.get("SIGN_KEY_PASSWORD") as String
+            storeFile = file(project.ext.get("SIGN_KEY_STORE_PATH") as String)
+            storePassword = project.ext.get("SIGN_STORE_PASSWORD") as String
         }
     }
     buildTypes {
