@@ -15,6 +15,9 @@ if (propFile.exists()) {
     FileInputStream(propFile).use {
         prop.load(it)
     }
+    prop.forEach {
+        ext.set(it.key as String, it.value as String)
+    }
 }
 
 android {
