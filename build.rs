@@ -1,5 +1,4 @@
 fn main() {
-    println!("process proto files");
     protobuf_codegen::Codegen::new()
         // Use `protoc` parser, optional.
         .protoc()
