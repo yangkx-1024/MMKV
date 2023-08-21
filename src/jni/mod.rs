@@ -2,8 +2,6 @@
 #[cfg(target_os = "android")]
 #[allow(non_snake_case)]
 pub mod android {
-    extern crate jni;
-
     use jni::objects::{
         GlobalRef, JByteArray, JClass, JDoubleArray, JFloatArray, JIntArray, JLongArray, JString,
         JValue,
