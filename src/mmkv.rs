@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicPtr, Ordering};
 use crate::core::buffer::Buffer;
 use crate::core::mmkv_impl::MmkvImpl;
 use crate::log::logger;
-use crate::Result;
+use crate::{LogLevel, Result};
 
 const LOG_TAG: &str = "MMKV";
 const DEFAULT_FILE_NAME: &str = "mini_mmkv";
@@ -241,16 +241,16 @@ impl MMKV {
     /**
     Set log level to mmkv:
 
-    - 0: log off,
-    - 1: corresponds to the Error log level,
-    - 2: corresponds to the Warn log level,
-    - 3: corresponds to the Info log level,
-    - 4: corresponds to the Debug log level,
-    - 5: corresponds to the Trace log level.
+    - [LogLevel::Off], no log,
+    - [LogLevel::Error]: only display Error logs,
+    - [LogLevel::Warn]: display Error and Warn,
+    - [LogLevel::Info]: display Error, Warn and Info,
+    - [LogLevel::Debug]: display Error, Warn, Info and Debug,
+    - [LogLevel::Debug]: display all logs.
 
-    The default log level is 5.
+    The default log level is [LogLevel::Debug].
     */
-    pub fn set_log_level(level: i32) {
+    pub fn set_log_level(level: LogLevel) {
         logger::set_log_level(level);
     }
 }
