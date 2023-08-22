@@ -38,7 +38,6 @@ macro_rules! log {
     }}
 }
 
-#[allow(unused_macros)]
 macro_rules! error {
     ($tag:expr, $($arg:tt)+) => {{
         log!(crate::LogLevel::Error, $tag, $($arg)+)
