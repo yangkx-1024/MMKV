@@ -18,6 +18,10 @@ pub mod android {
 
     const LOG_TAG: &str = "MMKV:Android";
 
+    static ANDROID_LOGGER_CLASS_NAME: &str = "net/yangkx/mmkv/log/LoggerWrapper";
+    static ANDROID_NATIVE_EXCEPTION: &str = "net/yangkx/mmkv/NativeException";
+    static ANDROID_KEY_NOT_FOUND_EXCEPTION: &str = "net/yangkx/mmkv/KeyNotFoundException";
+
     #[inline]
     fn env_str(env: &mut JNIEnv, name: JString) -> String {
         env.get_string(&name).unwrap().into()
@@ -148,7 +152,7 @@ pub mod android {
                             $log_type, key, e
                         );
                         error!(LOG_TAG, "{}", &log_str);
-                        env.throw_new("net/yangkx/mmkv/NativeException", log_str)
+                        env.throw_new(ANDROID_NATIVE_EXCEPTION, log_str)
                             .expect("throw");
                     }
                     Ok(()) => {
@@ -179,7 +183,7 @@ pub mod android {
                             $log_type, key, e
                         );
                         error!(LOG_TAG, "{}", &log_str);
-                        env.throw_new("net/yangkx/mmkv/KeyNotFoundException", log_str)
+                        env.throw_new(ANDROID_KEY_NOT_FOUND_EXCEPTION, log_str)
                             .expect("throw");
                         $default
                     }
@@ -192,7 +196,6 @@ pub mod android {
         jvm: JavaVM,
         clz: GlobalRef,
     }
-    static ANDROID_LOGGER_CLASS_NAME: &str = "net/yangkx/mmkv/log/LoggerWrapper";
 
     impl AndroidLogger {
         fn new(jvm: JavaVM) -> Self {
@@ -362,11 +365,19 @@ pub mod android {
 
     #[no_mangle]
     pub unsafe extern "C" fn Java_net_yangkx_mmkv_MMKV_setLogLevel(
-        _: JNIEnv,
+        mut env: JNIEnv,
         _: JClass,
         level: jint,
     ) {
-        MMKV::set_log_level(level);
+        if let Ok(level) = level.try_into() {
+            MMKV::set_log_level(level);
+        } else {
+            env.throw_new(
+                ANDROID_NATIVE_EXCEPTION,
+                format!("invalid log level '{}'", level),
+            )
+            .expect("throw");
+        }
     }
 
     #[no_mangle]
