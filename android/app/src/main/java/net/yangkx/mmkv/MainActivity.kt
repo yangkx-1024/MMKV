@@ -50,7 +50,7 @@ class MainActivity : AppCompatActivity() {
         binding.log.movementMethod = ScrollingMovementMethod.getInstance()
         appendLog("Test logs:")
         MMKV.setLogger(logger)
-        MMKV.setLogLevel(LogLevel.VERBOSE)
+        MMKV.setLogLevel(LogLevel.DEBUG)
         binding.string.setOnClickListener {
             val value = MMKV.getString("str_key", "string value") + "1"
             MMKV.putString("str_key", value)
