@@ -246,9 +246,9 @@ impl MMKV {
     - [LogLevel::Warn]: display Error and Warn,
     - [LogLevel::Info]: display Error, Warn and Info,
     - [LogLevel::Debug]: display Error, Warn, Info and Debug,
-    - [LogLevel::Debug]: display all logs.
+    - [LogLevel::Verbose]: display all logs.
 
-    The default log level is [LogLevel::Debug].
+    The default log level is [LogLevel::Verbose].
     */
     pub fn set_log_level(level: LogLevel) {
         logger::set_log_level(level);
