@@ -1,6 +1,6 @@
 [package]
 name = "mmkv"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2021"
 authors = ["Kexuan Yang <kexuan.yang@gmail.com>"]
 description = "Rust version of MMKV"
@@ -12,15 +12,15 @@ exclude = ["android", "tests", "build_android.sh", "build_android_debug.sh"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-protobuf = "3.2.0"
-memmap2 = "0.7.1"
+protobuf = "3.3.0"
+memmap2 = "0.8.0"
 crc = "3.0.1"
 eax = { version = "0.5.0", features = ["stream"], optional = true }
 aes = { version = "0.8.3", optional = true }
 hex = {version = "0.4.3", optional = true }
 
 [build-dependencies]
-protobuf-codegen = "3.2.0"
+protobuf-codegen = "3.3.0"
 protoc-bin-vendored = "3.0.0"
 
 [features]
