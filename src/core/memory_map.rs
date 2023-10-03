@@ -3,7 +3,7 @@ use std::ops::Range;
 
 use memmap2::{Advice, MmapMut};
 
-pub const _LEN_OFFSET: usize = 8;
+pub const LEN_OFFSET: usize = 8;
 
 #[derive(Debug)]
 pub struct MemoryMap(MmapMut);
@@ -18,25 +18,25 @@ impl MemoryMap {
     pub fn append(&mut self, value: Vec<u8>) -> std::io::Result<()> {
         let data_len = value.len();
         let start = self.len();
-        let content_len = start - _LEN_OFFSET;
+        let content_len = start - LEN_OFFSET;
         let end = data_len + start;
         let new_content_len = data_len + content_len;
-        self.0[0.._LEN_OFFSET].copy_from_slice(new_content_len.to_be_bytes().as_slice());
+        self.0[0..LEN_OFFSET].copy_from_slice(new_content_len.to_be_bytes().as_slice());
         self.0[start..end].copy_from_slice(value.as_slice());
         self.0.flush()
     }
 
     pub fn write_all(&mut self, value: Vec<u8>) -> std::io::Result<()> {
         let data_len = value.len();
-        let start = _LEN_OFFSET;
+        let start = LEN_OFFSET;
         let end = start + data_len;
-        self.0[0.._LEN_OFFSET].copy_from_slice(data_len.to_be_bytes().as_slice());
+        self.0[0..LEN_OFFSET].copy_from_slice(data_len.to_be_bytes().as_slice());
         self.0[start..end].copy_from_slice(value.as_slice());
         self.0.flush()
     }
 
     pub fn len(&self) -> usize {
-        usize::from_be_bytes(self.0[0.._LEN_OFFSET].try_into().unwrap()) + _LEN_OFFSET
+        usize::from_be_bytes(self.0[0..LEN_OFFSET].try_into().unwrap()) + LEN_OFFSET
     }
 
     pub fn read(&self, range: Range<usize>) -> &[u8] {
