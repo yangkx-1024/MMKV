@@ -1,5 +1,5 @@
 use crate::core::buffer::{Buffer, Decoder, Take};
-use crate::core::memory_map::{MemoryMap, _LEN_OFFSET};
+use crate::core::memory_map::{MemoryMap, LEN_OFFSET};
 
 const LOG_TAG: &str = "MMKV:MemoryMap";
 
@@ -20,7 +20,7 @@ impl MemoryMap {
         T: Decoder + Take,
         F: Fn() -> T,
     {
-        let start = _LEN_OFFSET;
+        let start = LEN_OFFSET;
         let end = self.len();
         Iter {
             mm: self,
