@@ -11,7 +11,7 @@ pub struct MemoryMap(MmapMut);
 impl MemoryMap {
     pub fn new(file: &File) -> Self {
         let raw_mmap = unsafe { MmapMut::map_mut(file) }.unwrap();
-        raw_mmap.advise(Advice::WillNeed).unwrap();
+        raw_mmap.advise(Advice::will_need()).unwrap();
         MemoryMap(raw_mmap)
     }
 
