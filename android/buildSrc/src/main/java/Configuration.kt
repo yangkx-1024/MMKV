@@ -1,10 +1,10 @@
 object Configuration {
-//    const val libVersion = "0.2.3-SNAPSHOT"
-    const val libVersion = "0.2.3"
+//    const val libVersion = "0.2.4-SNAPSHOT"
+    const val libVersion = "0.2.4"
     const val groupId = "net.yangkx"
     const val description = "Library uses file-based mmap to store key-values"
-    const val releasesRepoUrl = "https://s01.oss.sonatype.org/content/repositories/releases/"
-    const val snapshotsRepoUrl = "https://s01.oss.sonatype.org/content/repositories/snapshots/"
+    private const val releasesRepoUrl = "https://s01.oss.sonatype.org/content/repositories/releases/"
+    private const val snapshotsRepoUrl = "https://s01.oss.sonatype.org/content/repositories/snapshots/"
     val publishUrl = if (libVersion.endsWith("-SNAPSHOT")) {
         snapshotsRepoUrl
     } else {
