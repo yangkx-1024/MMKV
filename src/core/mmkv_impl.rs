@@ -229,7 +229,6 @@ impl Display for MmkvImpl {
 mod tests {
     use std::path::Path;
     use std::sync::OnceLock;
-    use std::thread::{spawn, JoinHandle};
     use std::{fs, thread};
 
     use crate::core::buffer::Buffer;
@@ -320,13 +319,11 @@ mod tests {
                         .unwrap();
                 }
             };
-            let mut threads = Vec::<JoinHandle<()>>::new();
-            for _ in 0..4 {
-                threads.push(spawn(action));
-            }
-            for handle in threads {
-                handle.join().unwrap()
-            }
+            thread::scope(|s| {
+                for _ in 0..4 {
+                    s.spawn(action);
+                }
+            });
             if cfg!(feature = "encryption") {
                 #[cfg(feature = "encryption")]
                 {
