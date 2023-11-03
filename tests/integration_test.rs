@@ -1,5 +1,6 @@
+use std::thread;
+
 use mmkv::MMKV;
-use std::thread::{spawn, JoinHandle};
 
 fn test_api() {
     MMKV::put_i32("first", 1).unwrap();
@@ -26,25 +27,21 @@ fn test_multi_thread() {
     MMKV::initialize(
         ".",
         #[cfg(feature = "encryption")]
-        "88C51C536176AD8A8EE4A06F62EE897E",
+            "88C51C536176AD8A8EE4A06F62EE897E",
     );
-    let handle = spawn(|| {
-        test_api();
+    thread::scope(|s| {
+        s.spawn(|| {
+            test_api();
+        });
+        for i in 0..4 {
+            s.spawn(move || {
+                for j in (i * 1000)..(i + 1) * 1000 {
+                    let key = format!("key_{j}");
+                    MMKV::put_str(&key, &key).unwrap();
+                }
+            });
+        }
     });
-    let mut handles = Vec::<JoinHandle<()>>::new();
-
-    for i in 0..4 {
-        handles.push(spawn(move || {
-            for j in (i * 1000)..(i + 1) * 1000 {
-                let key = format!("key_{j}");
-                MMKV::put_str(&key, &key).unwrap();
-            }
-        }));
-    }
-    for handle in handles {
-        handle.join().unwrap();
-    }
-    handle.join().unwrap();
     for i in 0..4000 {
         let key = format!("key_{i}");
         assert_eq!(MMKV::get_str(&key).unwrap(), &key)
