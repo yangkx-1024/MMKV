@@ -98,7 +98,7 @@ pub mod android {
             MMKV::get_i32(&$key)
         }};
         ($env:expr, $key:expr, jboolean) => {{
-            MMKV::get_bool(&$key).map(|value| if (value) { 1u8 } else { 0u8 })
+            MMKV::get_bool(&$key).map(|value| if value { 1u8 } else { 0u8 })
         }};
         ($env:expr, $key:expr, jlong) => {{
             MMKV::get_i64(&$key)
