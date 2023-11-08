@@ -72,5 +72,7 @@ macro_rules! verbose {
 mod core;
 #[cfg(target_os = "android")]
 mod jni;
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+mod clib;
 mod log;
 mod mmkv;
