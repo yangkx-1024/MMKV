@@ -1,5 +1,6 @@
 #!/bin/bash
 
+cargo install cargo-expand
 # Build static libs
 for TARGET in \
         aarch64-apple-ios x86_64-apple-ios aarch64-apple-ios-sim \
@@ -12,15 +13,17 @@ done
 
 HEADER="include"
 mkdir $HEADER
-cbindgen src/clib/mod.rs -l c > $HEADER/mmkv.h
+cargo expand clib > $HEADER/mod.rs
+cbindgen $HEADER/mod.rs -l c > $HEADER/rust_mmkv.h
+rm $HEADER/mod.rs
 touch $HEADER/module.modulemap
-echo "module MMKV {
-  header \"mmkv.h\"
+echo "module RustMMKV {
+  header \"rust_mmkv.h\"
   export *
 }" > $HEADER/module.modulemap
 
 # Create XCFramework
-FRAMEWORK="ios/MMKV/Sources/MMKV.xcframework"
+FRAMEWORK="ios/MMKV/Sources/RustMMKV.xcframework"
 rm -rf $FRAMEWORK
 LIBNAME=libmmkv.a
 mkdir mac-lipo ios-sim-lipo
