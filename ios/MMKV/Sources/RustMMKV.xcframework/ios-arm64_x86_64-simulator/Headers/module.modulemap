@@ -1,0 +1,4 @@
+module RustMMKV {
+  header "rust_mmkv.h"
+  export *
+}

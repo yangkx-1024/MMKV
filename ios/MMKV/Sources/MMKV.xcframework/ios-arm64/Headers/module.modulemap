@@ -1,4 +1,0 @@
-module MMKV {
-  header "mmkv.h"
-  export *
-}
