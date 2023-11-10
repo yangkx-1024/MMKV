@@ -76,7 +76,7 @@ impl MMKV {
         mut_mmkv!().put(key, Buffer::from_str(key, value))
     }
 
-    pub fn get_str(key: &str) -> Result<&str> {
+    pub fn get_str(key: &str) -> Result<String> {
         mmkv!().get(key)?.decode_str()
     }
 
@@ -212,23 +212,23 @@ impl MMKV {
     struct DefaultLogger;
 
     impl Logger for DefaultLogger {
-        fn verbose(&self, log_str: &str) {
+        fn verbose(&self, log_str: String) {
             println!("{log_str}");
         }
 
-        fn info(&self, log_str: &str) {
+        fn info(&self, log_str: String) {
             println!("{log_str}");
         }
 
-        fn debug(&self, log_str: &str) {
+        fn debug(&self, log_str: String) {
             println!("{log_str}");
         }
 
-        fn warn(&self, log_str: &str) {
+        fn warn(&self, log_str: String) {
             println!("{log_str}");
         }
 
-        fn error(&self, log_str: &str) {
+        fn error(&self, log_str: String) {
             println!("{log_str}");
         }
     }
@@ -284,10 +284,10 @@ mod tests {
         MMKV::put_i32("third", 3).unwrap();
         assert_eq!(MMKV::get_i32("third"), Ok(3));
         MMKV::put_str("fourth", "four").unwrap();
-        assert_eq!(MMKV::get_str("fourth"), Ok("four"));
+        assert_eq!(MMKV::get_str("fourth"), Ok("four".to_string()));
         MMKV::put_str("first", "one").unwrap();
         assert_eq!(MMKV::get_i32("first").is_err(), true);
-        assert_eq!(MMKV::get_str("first"), Ok("one"));
+        assert_eq!(MMKV::get_str("first"), Ok("one".to_string()));
         MMKV::put_bool("second", false).unwrap();
         assert_eq!(MMKV::get_str("second").is_err(), true);
         assert_eq!(MMKV::get_bool("second"), Ok(false));
@@ -323,7 +323,7 @@ mod tests {
             #[cfg(feature = "encryption")]
             "88C51C536176AD8A8EE4A06F62EE897E",
         );
-        assert_eq!(MMKV::get_str("first"), Ok("one"));
+        assert_eq!(MMKV::get_str("first"), Ok("one".to_string()));
         MMKV::clear_data();
         assert_eq!(Path::new("./mini_mmkv").exists(), false);
         assert_eq!(Path::new("./mini_mmkv.meta").exists(), false);

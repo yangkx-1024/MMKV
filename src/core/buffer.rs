@@ -153,9 +153,9 @@ impl Buffer {
 
     impl_decode_number!(decode_f64, f64, Types::F64);
 
-    pub fn decode_str(&self) -> Result<&str> {
+    pub fn decode_str(&self) -> Result<String> {
         self.check_buffer_type(Types::STR)?;
-        if let Ok(str) = str::from_utf8(self.0.value.as_slice()) {
+        if let Ok(str) = String::from_utf8(self.0.value.to_vec()) {
             Ok(str)
         } else {
             Err(DataInvalid)
