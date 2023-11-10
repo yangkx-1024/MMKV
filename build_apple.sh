@@ -7,14 +7,13 @@ for TARGET in \
         x86_64-apple-darwin aarch64-apple-darwin
 do
     rustup target add $TARGET
-    # Apple's App Sandbox disallows SysV semaphores; use POSIX semaphores instead
     cargo build -r --target=$TARGET
 done
 
 HEADER="include"
 mkdir $HEADER
 cargo expand clib > $HEADER/mod.rs
-cbindgen $HEADER/mod.rs -l c > $HEADER/rust_mmkv.h
+cbindgen $HEADER/mod.rs -l C -s tag > $HEADER/rust_mmkv.h
 rm $HEADER/mod.rs
 touch $HEADER/module.modulemap
 echo "module RustMMKV {
