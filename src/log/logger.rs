@@ -9,23 +9,23 @@ const LOG_TAG: &str = "MMKV:LOG";
 struct DefaultLogger;
 
 impl Logger for DefaultLogger {
-    fn verbose(&self, log_str: &str) {
+    fn verbose(&self, log_str: String) {
         println!("V - {log_str}");
     }
 
-    fn info(&self, log_str: &str) {
+    fn info(&self, log_str: String) {
         println!("I - {log_str}");
     }
 
-    fn debug(&self, log_str: &str) {
+    fn debug(&self, log_str: String) {
         println!("D - {log_str}");
     }
 
-    fn warn(&self, log_str: &str) {
+    fn warn(&self, log_str: String) {
         println!("W - {log_str}");
     }
 
-    fn error(&self, log_str: &str) {
+    fn error(&self, log_str: String) {
         println!("E - {log_str}");
     }
 }
@@ -48,11 +48,11 @@ pub fn log(level: LogLevel, tag: &str, args: Arguments) {
         return;
     }
     match level {
-        LogLevel::Error => inner_logger().error(&format!("{tag} - {}", args)),
-        LogLevel::Warn => inner_logger().warn(&format!("{tag} - {}", args)),
-        LogLevel::Info => inner_logger().info(&format!("{tag} - {}", args)),
-        LogLevel::Debug => inner_logger().debug(&format!("{tag} - {}", args)),
-        LogLevel::Verbose => inner_logger().verbose(&format!("{tag} - {}", args)),
+        LogLevel::Error => inner_logger().error(format!("{tag} - {}", args)),
+        LogLevel::Warn => inner_logger().warn(format!("{tag} - {}", args)),
+        LogLevel::Info => inner_logger().info(format!("{tag} - {}", args)),
+        LogLevel::Debug => inner_logger().debug(format!("{tag} - {}", args)),
+        LogLevel::Verbose => inner_logger().verbose(format!("{tag} - {}", args)),
         _ => {}
     }
 }
