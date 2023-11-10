@@ -33,40 +33,40 @@ pub use crate::log::Logger;
 pub use crate::log::LogLevel;
 
 macro_rules! log {
-    ($level:expr, $tag:expr, $($arg:tt)+) => {{
+    ($level:expr, $tag:expr, $($arg:tt)+) => {
         crate::log::logger::log($level, $tag, format_args!($($arg)+))
-    }}
+    }
 }
 
 macro_rules! error {
-    ($tag:expr, $($arg:tt)+) => {{
+    ($tag:expr, $($arg:tt)+) => {
         log!(crate::LogLevel::Error, $tag, $($arg)+)
-    }}
+    }
 }
 
 #[allow(unused_macros)]
 macro_rules! warn {
-    ($tag:expr, $($arg:tt)+) => {{
+    ($tag:expr, $($arg:tt)+) => {
         log!(crate::LogLevel::Warn, $tag, $($arg)+)
-    }}
+    }
 }
 
 macro_rules! info {
-    ($tag:expr, $($arg:tt)+) => {{
+    ($tag:expr, $($arg:tt)+) => {
         log!(crate::LogLevel::Info, $tag, $($arg)+)
-    }}
+    }
 }
 
 macro_rules! debug {
-    ($tag:expr, $($arg:tt)+) => {{
+    ($tag:expr, $($arg:tt)+) => {
         log!(crate::LogLevel::Debug, $tag, $($arg)+)
-    }}
+    }
 }
 
 macro_rules! verbose {
-    ($tag:expr, $($arg:tt)+) => {{
+    ($tag:expr, $($arg:tt)+) => {
         log!(crate::LogLevel::Verbose, $tag, $($arg)+)
-    }}
+    }
 }
 
 mod core;

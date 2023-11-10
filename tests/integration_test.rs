@@ -13,10 +13,10 @@ fn test_api() {
     MMKV::put_i32("third", 3).unwrap();
     assert_eq!(MMKV::get_i32("third"), Ok(3));
     MMKV::put_str("fourth", "four").unwrap();
-    assert_eq!(MMKV::get_str("fourth"), Ok("four"));
+    assert_eq!(MMKV::get_str("fourth"), Ok("four".to_string()));
     MMKV::put_str("first", "one").unwrap();
     assert_eq!(MMKV::get_i32("first").is_err(), true);
-    assert_eq!(MMKV::get_str("first"), Ok("one"));
+    assert_eq!(MMKV::get_str("first"), Ok("one".to_string()));
     MMKV::put_bool("second", false).unwrap();
     assert_eq!(MMKV::get_str("second").is_err(), true);
     assert_eq!(MMKV::get_bool("second"), Ok(false));
@@ -44,7 +44,7 @@ fn test_multi_thread() {
     });
     for i in 0..4000 {
         let key = format!("key_{i}");
-        assert_eq!(MMKV::get_str(&key).unwrap(), &key)
+        assert_eq!(MMKV::get_str(&key).unwrap(), key)
     }
     MMKV::clear_data();
 }
