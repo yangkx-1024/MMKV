@@ -63,9 +63,9 @@ and will also increase the file size, use at your own risk!
 Add lib dependency to gradle:
 ```kotlin
 dependencies {
-    implementation("net.yangkx:mmkv:0.1.9.1")
+    implementation("net.yangkx:mmkv:0.2.4")
     // Or another one with encryption feature
-    // implementation("net.yangkx:mmkv-encrypt:0.1.9.1")
+    // implementation("net.yangkx:mmkv-encrypt:0.2.4")
 }
 ```
 Use the kotlin API:
