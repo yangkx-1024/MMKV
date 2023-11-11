@@ -1,0 +1,2 @@
+libmmkv.so filter=lfs diff=lfs merge=lfs -text
+libmmkv.a filter=lfs diff=lfs merge=lfs -text
