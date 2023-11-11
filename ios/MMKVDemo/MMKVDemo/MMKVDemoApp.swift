@@ -25,5 +25,5 @@ func initMMKV() {
             print(error.localizedDescription)
         }
     }
-    MMKV.initialize(dataPath.path)
+    MMKV.initialize(dir: dataPath.path)
 }
