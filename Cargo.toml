@@ -7,7 +7,10 @@ description = "Rust version of MMKV"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/yangkx1024/MMKV"
 keywords = ["key-value", "mmkv"]
-exclude = ["android", "ios", "tests", "build_android.sh", "build_android_debug.sh", "build_apple.sh"]
+exclude = [
+    "android", "ios", "build_android.sh", "build_android_debug.sh",
+    "build_apple.sh", "Package.swift", "Package.resolved"
+]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
