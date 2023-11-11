@@ -27,7 +27,7 @@ fn test_multi_thread() {
     MMKV::initialize(
         ".",
         #[cfg(feature = "encryption")]
-            "88C51C536176AD8A8EE4A06F62EE897E",
+        "88C51C536176AD8A8EE4A06F62EE897E",
     );
     thread::scope(|s| {
         s.spawn(|| {
