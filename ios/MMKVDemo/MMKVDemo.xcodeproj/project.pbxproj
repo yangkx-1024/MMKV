@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 60;
+	objectVersion = 56;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -11,7 +11,6 @@
 		2B237B5A2AFBC699006CA835 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B237B592AFBC699006CA835 /* ContentView.swift */; };
 		2B237B5C2AFBC69B006CA835 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2B237B5B2AFBC69B006CA835 /* Assets.xcassets */; };
 		2B237B5F2AFBC69B006CA835 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2B237B5E2AFBC69B006CA835 /* Preview Assets.xcassets */; };
-		2B237B692AFBC79E006CA835 /* MMKV in Frameworks */ = {isa = PBXBuildFile; productRef = 2B237B682AFBC79E006CA835 /* MMKV */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -27,7 +26,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				2B237B692AFBC79E006CA835 /* MMKV in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -86,7 +84,6 @@
 			);
 			name = MMKVDemo;
 			packageProductDependencies = (
-				2B237B682AFBC79E006CA835 /* MMKV */,
 			);
 			productName = MMKVDemo;
 			productReference = 2B237B542AFBC699006CA835 /* MMKVDemo.app */;
@@ -117,7 +114,6 @@
 			);
 			mainGroup = 2B237B4B2AFBC699006CA835;
 			packageReferences = (
-				2B237B652AFBC6D5006CA835 /* XCLocalSwiftPackageReference "../MMKV" */,
 			);
 			productRefGroup = 2B237B552AFBC699006CA835 /* Products */;
 			projectDirPath = "";
@@ -352,20 +348,6 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
-
-/* Begin XCLocalSwiftPackageReference section */
-		2B237B652AFBC6D5006CA835 /* XCLocalSwiftPackageReference "../MMKV" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = ../MMKV;
-		};
-/* End XCLocalSwiftPackageReference section */
-
-/* Begin XCSwiftPackageProductDependency section */
-		2B237B682AFBC79E006CA835 /* MMKV */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = MMKV;
-		};
-/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 2B237B4C2AFBC699006CA835 /* Project object */;
 }
