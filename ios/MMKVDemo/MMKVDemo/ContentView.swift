@@ -10,9 +10,9 @@ struct ContentView: View {
                 .foregroundStyle(.tint)
             Text(textContent)
                 .onTapGesture {
-                    let value = MMKV.get_i32("key")
-                    MMKV.put_i32("key", value + 1)
-                    textContent = MMKV.get_i32("key").formatted()
+                    let value = MMKV.getInt32(key: "int_key").unwrap(defalutValue: 0)
+                    MMKV.putInt32(key: "int_key", value: value + 1).unwrap(defalutValue: ())
+                    textContent = MMKV.getInt32(key: "int_key").unwrap(defalutValue: 0).formatted()
                 }
         }
         .padding()
