@@ -1,7 +1,7 @@
 #[cfg(any(target_os = "ios", target_os = "macos"))]
 #[cfg(not(feature = "encryption"))]
 #[allow(non_snake_case)]
-pub mod clib {
+pub mod ffi {
     use std::any::Any;
     use std::ffi::{c_void, CStr};
     use std::fmt::Debug;

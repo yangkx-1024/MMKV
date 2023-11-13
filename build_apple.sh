@@ -12,7 +12,7 @@ done
 
 HEADER="include"
 mkdir $HEADER
-cargo expand clib > $HEADER/mod.rs
+cargo expand ffi > $HEADER/mod.rs
 cbindgen $HEADER/mod.rs -l C -s tag > $HEADER/rust_mmkv.h
 rm $HEADER/mod.rs
 touch $HEADER/module.modulemap
