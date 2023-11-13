@@ -73,6 +73,6 @@ mod core;
 #[cfg(target_os = "android")]
 mod jni;
 #[cfg(any(target_os = "ios", target_os = "macos"))]
-mod clib;
+mod ffi;
 mod log;
 mod mmkv;

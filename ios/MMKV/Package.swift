@@ -9,7 +9,8 @@ let package = Package(
         // Products define the executables and libraries a package produces, making them visible to other packages.
         .library(
             name: "MMKV",
-            targets: ["MMKV"]),
+            targets: ["MMKV"]
+        ),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-log.git", from: "1.0.0"),
@@ -17,16 +18,11 @@ let package = Package(
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
         // Targets can depend on other targets in this package and products from dependencies.
-        .binaryTarget(name: "RustMMKV", path: "ios/MMKV/Sources/RustMMKV.xcframework"),
+        .binaryTarget(name: "RustMMKV", path: "Sources/RustMMKV.xcframework"),
         .target(
             name: "MMKV",
-            dependencies: ["RustMMKV", .product(name: "Logging", package: "swift-log")],
-            path: "ios/MMKV/Sources/MMKV"
+            dependencies: ["RustMMKV", .product(name: "Logging", package: "swift-log")]
         ),
-        .testTarget(
-            name: "MMKVTests",
-            dependencies: ["MMKV"],
-            path: "ios/MMKV/tests/MMKVTests"
-        ),
+        .testTarget(name: "MMKVTests", dependencies: ["MMKV"]),
     ]
 )
