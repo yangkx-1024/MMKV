@@ -55,6 +55,9 @@ private extension UnsafeRawPointer {
     }
 }
 
+/**
+ A wrapper of result of MMKV API call.
+ */
 public class ResultWrapper<T> {
     private let rawBuffer: UnsafePointer<RawBuffer>
     
@@ -66,6 +69,11 @@ public class ResultWrapper<T> {
         RustMMKV.free_buffer(rawBuffer)
     }
     
+    /**
+     Transform MMKV result into standard `Result`
+     
+     - returns: If failed, see ``MMKVError``.
+     */
     public func unwrapResult() -> Result<T, MMKVError> {
         if rawBuffer.pointee.err != nil {
             return Result.failure(rawBuffer.pointee.err.asMMKVError())
@@ -103,6 +111,9 @@ public class ResultWrapper<T> {
         return Result.success(data as! T)
     }
     
+    /**
+     Unwrap the result, if failed, ignore the error and return a defalut value.
+     */
     public func unwrap(defalutValue: T) -> T {
         switch unwrapResult() {
         case .success(let value):
@@ -112,6 +123,10 @@ public class ResultWrapper<T> {
         }
     }
     
+    /**
+     Unwrap the result, if failed, throw the error.
+     - throws: ``MMKVError``.
+     */
     public func unwrap() throws -> T {
         switch unwrapResult() {
         case .failure(let e):
@@ -128,7 +143,22 @@ private extension UnsafePointer<RawBuffer> {
     }
 }
 
+/**
+ MMKV error.
+ */
 public enum MMKVError: Error, Equatable {
+    /**
+     - Parameter code: MMKV error code.
+     - Parameter reason: human readable reason.
+     
+     Error code list:
+     - 0: key not found.
+     - 1: decode failed.
+     - 2: value type missmatch.
+     - 3: data invalid.
+     - 4: instance closed.
+     - 5: encode failed.
+     */
     case native(code: Int32, reason: String?)
 }
 
@@ -173,14 +203,34 @@ public class MMKV {
     private static let logger = Logger(label: "net.yangkx.MMKV")
     private static let logwrapper = LogWrapper(logger: logger)
     
+    /**
+     Initialize the MMKV instance.
+     
+     All API calls before initialization will cause error.
+     
+     Calling ``initialize(dir:)`` multiple times is allowed,
+     the old instance will be closed (see ``close()``), the last call will take over.
+     
+     - Parameter dir: a writeable directory
+     */
     public static func initialize(dir: String) {
         RustMMKV.initialize(dir, logwrapper.toNativeLogger())
     }
     
+    /**
+     Close the instance to allow MMKV to initialize with different config.
+     
+     If you want to continue using the API, need to ``initialize(dir:)`` again.
+     */
     public static func close() {
         RustMMKV.close_instance()
     }
     
+    /**
+     Clear all data and ``close()`` the instance.
+     
+     If you want to continue using the API, need to ``initialize(dir:)`` again.
+     */
     public static func clearData() {
         RustMMKV.clear_data()
     }

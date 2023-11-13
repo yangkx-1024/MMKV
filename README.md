@@ -95,3 +95,55 @@ class MainActivity : AppCompatActivity() {
 }
 ```
 Check the [android](https://github.com/yangkx1024/MMKV/tree/main/android) demo for more detail.
+
+# Use in iOS project
+Since this repo is using git-lfs, and SwiftPM doesn't support git-lfs(check this [issue](https://github.com/git-lfs/git-lfs/issues/3587)), 
+You need to clone this repo to your machine, and add `path-to-this-repo/ios/MMKV` as a Swift package to your project.
+Then add code to your `App.swift`:
+```swift
+import SwiftUI
+import MMKV
+
+@main
+struct MMKVDemoApp: App {
+    init() {
+        initMMKV()
+    }
+    var body: some Scene {
+        ...
+    }
+}
+
+func initMMKV() {
+    let paths = NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true)
+    let documentsDirectory = paths[0]
+    let docURL = URL(string: documentsDirectory)!
+    let dataPath = docURL.appendingPathComponent("mmkv")
+    if !FileManager.default.fileExists(atPath: dataPath.path) {
+        do {
+            try FileManager.default.createDirectory(atPath: dataPath.path, withIntermediateDirectories: true, attributes: nil)
+        } catch {
+            print(error.localizedDescription)
+        }
+    }
+    MMKV.initialize(dir: dataPath.path)
+}
+```
+And then you can use MMKV API directly:
+```swift
+import SwiftUI
+import MMKV
+
+struct ContentView: View {
+    @State var textContent: String = "Hello, world!"
+    var body: some View {
+        Text(textContent)
+            .onTapGesture {
+                let value = MMKV.getInt32(key: "int_key").unwrap(defalutValue: 0)
+                MMKV.putInt32(key: "int_key", value: value + 1).unwrap(defalutValue: ())
+                textContent = MMKV.getInt32(key: "int_key").unwrap(defalutValue: 0).formatted()
+            }
+    }
+}
+```
+Check the [ios](https://github.com/yangkx1024/MMKV/tree/main/ios) demo for more detail.

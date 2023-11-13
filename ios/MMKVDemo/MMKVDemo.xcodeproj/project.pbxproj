@@ -11,6 +11,7 @@
 		2B237B5A2AFBC699006CA835 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B237B592AFBC699006CA835 /* ContentView.swift */; };
 		2B237B5C2AFBC69B006CA835 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2B237B5B2AFBC69B006CA835 /* Assets.xcassets */; };
 		2B237B5F2AFBC69B006CA835 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2B237B5E2AFBC69B006CA835 /* Preview Assets.xcassets */; };
+		2B58A9452B027CE400AE3A9D /* MMKV in Frameworks */ = {isa = PBXBuildFile; productRef = 2B58A9442B027CE400AE3A9D /* MMKV */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -19,6 +20,7 @@
 		2B237B592AFBC699006CA835 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		2B237B5B2AFBC69B006CA835 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		2B237B5E2AFBC69B006CA835 /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
+		2B58A9432B027BA200AE3A9D /* MMKV */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = MMKV; path = ../MMKV; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -26,6 +28,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				2B58A9452B027CE400AE3A9D /* MMKV in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -37,6 +40,7 @@
 			children = (
 				2B237B562AFBC699006CA835 /* MMKVDemo */,
 				2B237B552AFBC699006CA835 /* Products */,
+				2B58A9422B027BA200AE3A9D /* Frameworks */,
 			);
 			sourceTree = "<group>";
 		};
@@ -67,6 +71,14 @@
 			path = "Preview Content";
 			sourceTree = "<group>";
 		};
+		2B58A9422B027BA200AE3A9D /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				2B58A9432B027BA200AE3A9D /* MMKV */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -84,6 +96,7 @@
 			);
 			name = MMKVDemo;
 			packageProductDependencies = (
+				2B58A9442B027CE400AE3A9D /* MMKV */,
 			);
 			productName = MMKVDemo;
 			productReference = 2B237B542AFBC699006CA835 /* MMKVDemo.app */;
@@ -275,7 +288,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_ASSET_PATHS = "\"MMKVDemo/Preview Content\"";
+				DEVELOPMENT_ASSET_PATHS = "";
 				DEVELOPMENT_TEAM = U2858ENVTH;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -304,7 +317,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_ASSET_PATHS = "\"MMKVDemo/Preview Content\"";
+				DEVELOPMENT_ASSET_PATHS = "";
 				DEVELOPMENT_TEAM = U2858ENVTH;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -348,6 +361,13 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		2B58A9442B027CE400AE3A9D /* MMKV */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = MMKV;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 2B237B4C2AFBC699006CA835 /* Project object */;
 }
