@@ -31,6 +31,7 @@ struct ByteSlice {
 struct NativeLogger {
   void *obj;
   void (*callback)(void *obj, int32_t level, const struct ByteSlice *content);
+  void (*destroy)(void *obj);
 };
 
 struct InternalError {
@@ -58,7 +59,9 @@ typedef const double *CF64Array;
 
 void __use_typed_array(struct RawTypedArray typed_array);
 
-void initialize(const char *dir, struct NativeLogger logger);
+void initialize(const char *dir);
+
+void set_logger(struct NativeLogger logger);
 
 void free_buffer(const void *ptr);
 

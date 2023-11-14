@@ -1,7 +1,8 @@
-use crate::log::{LogLevel, Logger};
 use std::fmt::{Arguments, Debug};
 use std::sync::atomic::{AtomicI32, AtomicPtr, Ordering};
 use std::sync::OnceLock;
+
+use crate::log::{Logger, LogLevel};
 
 const LOG_TAG: &str = "MMKV:LOG";
 
@@ -43,10 +44,6 @@ fn inner_logger() -> &'static Box<dyn Logger> {
 }
 
 pub fn log(level: LogLevel, tag: &str, args: Arguments) {
-    let level_int = LOG_LEVEL.load(Ordering::Acquire);
-    if level as i32 > level_int {
-        return;
-    }
     match level {
         LogLevel::Error => inner_logger().error(format!("{tag} - {}", args)),
         LogLevel::Warn => inner_logger().warn(format!("{tag} - {}", args)),
@@ -65,6 +62,10 @@ pub fn set_log_level(level: LogLevel) {
     if old_level != level {
         debug!(LOG_TAG, "update log level from {} to {}", old_level, level)
     }
+}
+
+pub fn get_log_level() -> i32 {
+    return LOG_LEVEL.load(Ordering::Acquire);
 }
 
 pub fn set_logger(log_impl: Box<dyn Logger>) {
