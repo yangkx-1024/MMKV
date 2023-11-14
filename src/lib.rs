@@ -11,6 +11,8 @@
 //! MMKV::clear_data();
 //! ```
 //! For detailed API doc, see [MMKV]
+pub use crate::log::Logger;
+pub use crate::log::LogLevel;
 pub use crate::mmkv::MMKV;
 
 #[derive(Debug, PartialEq)]
@@ -26,11 +28,8 @@ pub enum Error {
     #[cfg(feature = "encryption")]
     EncryptFailed(String),
 }
+
 pub type Result<T> = std::result::Result<T, Error>;
-
-pub use crate::log::Logger;
-
-pub use crate::log::LogLevel;
 
 macro_rules! log {
     ($level:expr, $tag:expr, $($arg:tt)+) => {
@@ -40,32 +39,42 @@ macro_rules! log {
 
 macro_rules! error {
     ($tag:expr, $($arg:tt)+) => {
-        log!(crate::LogLevel::Error, $tag, $($arg)+)
+        if crate::log::logger::get_log_level() >= crate::log::LogLevel::Error as i32 {
+            log!(crate::LogLevel::Error, $tag, $($arg)+)
+        }
     }
 }
 
 #[allow(unused_macros)]
 macro_rules! warn {
     ($tag:expr, $($arg:tt)+) => {
-        log!(crate::LogLevel::Warn, $tag, $($arg)+)
+        if crate::log::logger::get_log_level() >= crate::log::LogLevel::Warn as i32 {
+            log!(crate::LogLevel::Warn, $tag, $($arg)+)
+        }
     }
 }
 
 macro_rules! info {
     ($tag:expr, $($arg:tt)+) => {
-        log!(crate::LogLevel::Info, $tag, $($arg)+)
+        if crate::log::logger::get_log_level() >= crate::log::LogLevel::Info as i32 {
+            log!(crate::LogLevel::Info, $tag, $($arg)+)
+        }
     }
 }
 
 macro_rules! debug {
     ($tag:expr, $($arg:tt)+) => {
-        log!(crate::LogLevel::Debug, $tag, $($arg)+)
+        if crate::log::logger::get_log_level() >= crate::log::LogLevel::Debug as i32 {
+            log!(crate::LogLevel::Debug, $tag, $($arg)+)
+        }
     }
 }
 
 macro_rules! verbose {
     ($tag:expr, $($arg:tt)+) => {
-        log!(crate::LogLevel::Verbose, $tag, $($arg)+)
+        if crate::log::logger::get_log_level() >= crate::log::LogLevel::Verbose as i32 {
+            log!(crate::LogLevel::Verbose, $tag, $($arg)+)
+        }
     }
 }
 

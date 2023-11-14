@@ -21,8 +21,11 @@ let package = Package(
         .binaryTarget(name: "RustMMKV", path: "Sources/RustMMKV.xcframework"),
         .target(
             name: "MMKV",
-            dependencies: ["RustMMKV", .product(name: "Logging", package: "swift-log")]
+            dependencies: ["RustMMKV"]
         ),
-        .testTarget(name: "MMKVTests", dependencies: ["MMKV"]),
+        .testTarget(
+            name: "MMKVTests",
+            dependencies: ["MMKV",.product(name: "Logging", package: "swift-log")]
+        ),
     ]
 )
