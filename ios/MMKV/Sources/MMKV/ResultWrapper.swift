@@ -60,7 +60,7 @@ public class ResultWrapper<T> {
     /**
      Unwrap the result, if failed, ignore the error and return a defalut value.
      */
-    public func unwrap(defalutValue: T) -> T {
+    public func unwrap(_ defalutValue: T) -> T {
         switch unwrapResult() {
         case .success(let value):
             return value
