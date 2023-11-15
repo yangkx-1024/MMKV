@@ -1,6 +1,5 @@
 import SwiftUI
 import MMKV
-
 @main
 struct MMKVDemoApp: App {
     init() {
@@ -25,5 +24,5 @@ func initMMKV() {
             print(error.localizedDescription)
         }
     }
-    MMKV.shared.initialize(dir: dataPath.path)
+    MMKV.shared.initialize(dataPath.path)
 }

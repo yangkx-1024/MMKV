@@ -63,6 +63,8 @@ void initialize(const char *dir);
 
 void set_logger(struct NativeLogger logger);
 
+void set_log_level(int32_t log_level);
+
 void free_buffer(const void *ptr);
 
 void close_instance(void);
