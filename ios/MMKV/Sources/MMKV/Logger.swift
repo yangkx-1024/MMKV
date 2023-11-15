@@ -9,6 +9,10 @@ public protocol MMKVLogger {
     func error(_ message: String)
 }
 
+public enum LogLevel {
+    case off, error, warn, info, debug, trace
+}
+
 package class LogWrapper {
     
     private let logger: MMKVLogger

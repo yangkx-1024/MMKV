@@ -274,6 +274,11 @@ pub mod ffi {
     }
 
     #[no_mangle]
+    pub extern fn set_log_level(log_level: i32) {
+        MMKV::set_log_level(log_level.try_into().unwrap())
+    }
+
+    #[no_mangle]
     pub unsafe extern fn free_buffer(ptr: *const c_void) {
         let _ = RawBuffer::from_raw(ptr as *mut RawBuffer);
     }
