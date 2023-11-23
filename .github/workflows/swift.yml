@@ -16,5 +16,6 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build
         run: cd ios/MMKV; swift build
-      - name: Run tests
-        run: cd ios/MMKV; swift test
+# Can't run test on GitHub's macOS machine
+#      - name: Run tests
+#        run: cd ios/MMKV; swift test
