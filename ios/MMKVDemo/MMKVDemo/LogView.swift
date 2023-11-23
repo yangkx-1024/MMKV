@@ -40,13 +40,14 @@ struct LogView: View {
 }
 
 #Preview {
-    LogView(CustomLogger(LogLevel.trace))
+    LogView(CustomLogger(LogLevel.trace, ""))
 }
 
 class CustomLogger: MMKVLogger, ObservableObject {
-    @Published var logStr: String = ""
+    @Published var logStr: String
     
-    init(_ logLevel: LogLevel) {
+    init(_ logLevel: LogLevel, _ content: String) {
+        logStr = content
         MMKV.shared.setLogLevel(logLevel)
         MMKV.shared.setLogger(self)
     }
