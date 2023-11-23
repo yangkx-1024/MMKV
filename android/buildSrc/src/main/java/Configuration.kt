@@ -1,6 +1,6 @@
 object Configuration {
-//    const val libVersion = "0.2.6-SNAPSHOT"
-    const val libVersion = "0.2.6"
+//    const val libVersion = "0.2.7.1-SNAPSHOT"
+    const val libVersion = "0.2.7.1"
     const val groupId = "net.yangkx"
     const val description = "Library uses file-based mmap to store key-values"
     private const val releasesRepoUrl = "https://s01.oss.sonatype.org/content/repositories/releases/"
