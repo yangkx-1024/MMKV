@@ -1,3 +1,5 @@
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+#[cfg(not(feature = "encryption"))]
 mod ffi_buffer;
 
 #[cfg(any(target_os = "ios", target_os = "macos"))]

@@ -163,14 +163,14 @@ impl MmkvImpl {
                 *self.encrypt.borrow_mut() =
                     MmkvImpl::init_encrypt(&self.meta_file_path, key.as_slice());
             }
-            let mut vec: Vec<u8> = vec![];
-            for buffer in self.kv_map.values() {
-                let buffer = transform(buffer.clone());
-                vec.extend_from_slice(buffer.encode_to_bytes()?.as_slice());
-            }
+            let original_len = mm.len();
             // rewrite the entire map
-            mm.write_all(vec).map_err(|e| EncodeFailed(e.to_string()))?;
-            info!(LOG_TAG, "trimmed, current len: {}", mm.len());
+            mm.reset().map_err(|e| EncodeFailed(e.to_string()))?;
+            for buffer in self.kv_map.values() {
+                let bytes = transform(buffer.clone()).encode_to_bytes()?;
+                mm.append(bytes).map_err(|e| EncodeFailed(e.to_string()))?;
+            }
+            info!(LOG_TAG, "trimmed, len from {} to {}", original_len, mm.len());
             // the encrypt has been reset, need encode it with new encrypt
             if cfg!(feature = "encryption") {
                 data = buffer.encode_to_bytes()?;
@@ -239,7 +239,7 @@ mod tests {
     use crate::Error::{InstanceClosed, KeyNotFound, TypeMissMatch};
 
     #[test]
-    fn test_mmkv_impl() {
+    fn test_trim_and_expand() {
         let _ = fs::remove_file("test_mmkv_impl");
         let _ = fs::remove_file("test_mmkv_impl.meta");
         test_mmkv(|| {
@@ -260,14 +260,32 @@ mod tests {
     {
         let mut mmkv = f();
         mmkv.put("key1", Buffer::from_i32("key1", 1)).unwrap();
+        #[cfg(feature = "encryption")]
+        assert_eq!(mmkv.mm.read().unwrap().len(), 32);
+        #[cfg(not(feature = "encryption"))]
+        assert_eq!(mmkv.mm.read().unwrap().len(), 25);
         assert_eq!(mmkv.get("key1").unwrap().decode_i32().unwrap(), 1);
-        assert_eq!(mmkv.get("key2").is_err(), true);
         mmkv.put("key2", Buffer::from_i32("key2", 2)).unwrap();
+        #[cfg(feature = "encryption")]
+        assert_eq!(mmkv.mm.read().unwrap().len(), 56);
+        #[cfg(not(feature = "encryption"))]
+        assert_eq!(mmkv.mm.read().unwrap().len(), 42);
         assert_eq!(mmkv.get("key2").unwrap().decode_i32().unwrap(), 2);
         mmkv.put("key3", Buffer::from_i32("key3", 3)).unwrap();
+        #[cfg(feature = "encryption")]
+        assert_eq!(mmkv.mm.read().unwrap().len(), 80);
+        #[cfg(not(feature = "encryption"))]
+        assert_eq!(mmkv.mm.read().unwrap().len(), 59);
         assert_eq!(mmkv.get("key3").unwrap().decode_i32().unwrap(), 3);
-
         mmkv.put("key1", Buffer::from_str("key1", "4")).unwrap();
+        #[cfg(feature = "encryption")]
+        // put str "4", which len 23, current file size 100, trim here, no duplicate item, expand
+        // file to 200
+        assert_eq!(mmkv.mm.read().unwrap().len(), 103);
+        #[cfg(feature = "encryption")]
+        assert_eq!(mmkv.file_size, 200);
+        #[cfg(not(feature = "encryption"))]
+        assert_eq!(mmkv.mm.read().unwrap().len(), 75);
         assert_eq!(mmkv.get("key1").unwrap().decode_i32(), Err(TypeMissMatch));
         assert_eq!(mmkv.get("key1").unwrap().decode_str().unwrap(), "4");
 
@@ -279,11 +297,43 @@ mod tests {
         assert_eq!(mmkv.get("key3").unwrap().decode_i32().unwrap(), 3);
 
         mmkv.put("key4", Buffer::from_i32("key4", 4)).unwrap();
+        #[cfg(feature = "encryption")]
+        assert_eq!(mmkv.mm.read().unwrap().len(), 127);
+        #[cfg(not(feature = "encryption"))]
+        assert_eq!(mmkv.mm.read().unwrap().len(), 92);
         mmkv.put("key5", Buffer::from_i32("key5", 5)).unwrap();
+        #[cfg(feature = "encryption")]
+        assert_eq!(mmkv.mm.read().unwrap().len(), 151);
+        #[cfg(not(feature = "encryption"))]
+        // trim here, drop one item
+        assert_eq!(mmkv.mm.read().unwrap().len(), 92);
         mmkv.put("key6", Buffer::from_i32("key6", 6)).unwrap();
+        #[cfg(feature = "encryption")]
+        assert_eq!(mmkv.mm.read().unwrap().len(), 175);
+        #[cfg(not(feature = "encryption"))]
+        // trim here, no duplicate item, expand file to 200
+        assert_eq!(mmkv.mm.read().unwrap().len(), 109);
+        #[cfg(not(feature = "encryption"))]
+        assert_eq!(mmkv.file_size, 200);
         mmkv.put("key7", Buffer::from_i32("key7", 7)).unwrap();
+        #[cfg(feature = "encryption")]
+        assert_eq!(mmkv.mm.read().unwrap().len(), 199);
+        #[cfg(not(feature = "encryption"))]
+        assert_eq!(mmkv.mm.read().unwrap().len(), 126);
         mmkv.put("key8", Buffer::from_i32("key8", 8)).unwrap();
+        #[cfg(feature = "encryption")]
+        // put 8, which len 24, trim here, drop one duplicate item, new len is 175
+        assert_eq!(mmkv.mm.read().unwrap().len(), 199);
+        #[cfg(not(feature = "encryption"))]
+        assert_eq!(mmkv.mm.read().unwrap().len(), 143);
         mmkv.put("key9", Buffer::from_i32("key9", 9)).unwrap();
+        #[cfg(feature = "encryption")]
+        // put 9, trim here, no duplicate item, expand file to 300
+        assert_eq!(mmkv.mm.read().unwrap().len(), 223);
+        #[cfg(feature = "encryption")]
+        assert_eq!(mmkv.file_size, 300);
+        #[cfg(not(feature = "encryption"))]
+        assert_eq!(mmkv.mm.read().unwrap().len(), 160);
         assert_eq!(mmkv.get("key9").unwrap().decode_i32().unwrap(), 9);
         mmkv.clear_data();
         assert_eq!(mmkv.get("key9"), Err(KeyNotFound));

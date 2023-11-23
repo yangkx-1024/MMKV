@@ -26,12 +26,9 @@ impl MemoryMap {
         self.0.flush()
     }
 
-    pub fn write_all(&mut self, value: Vec<u8>) -> std::io::Result<()> {
-        let data_len = value.len();
-        let start = LEN_OFFSET;
-        let end = start + data_len;
-        self.0[0..LEN_OFFSET].copy_from_slice(data_len.to_be_bytes().as_slice());
-        self.0[start..end].copy_from_slice(value.as_slice());
+    pub fn reset(&mut self) -> std::io::Result<()> {
+        let len = 0usize;
+        self.0[0..LEN_OFFSET].copy_from_slice(len.to_be_bytes().as_slice());
         self.0.flush()
     }
 
@@ -54,12 +51,7 @@ mod tests {
     #[test]
     fn test_mmap() {
         let _ = fs::remove_file("test_mmap");
-        let file = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .read(true)
-            .open("test_mmap")
-            .unwrap();
+        let file = OpenOptions::new().create(true).write(true).read(true).open("test_mmap").unwrap();
         file.set_len(1024).unwrap();
         let mut mm = MemoryMap::new(&file);
         assert_eq!(mm.len(), 8);
@@ -74,7 +66,8 @@ mod tests {
         let read = mm.read(mm.len() - 1..mm.len());
         assert_eq!(read[0], 4);
 
-        mm.write_all(vec![5, 4, 3, 2, 1]).unwrap();
+        mm.reset().unwrap();
+        mm.append(vec![5, 4, 3, 2, 1]).unwrap();
         assert_eq!(mm.len(), 13);
         let read = mm.read(8..9);
         assert_eq!(read[0], 5);
