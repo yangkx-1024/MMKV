@@ -1,8 +1,8 @@
 use std::any::Any;
 use std::fmt::Debug;
 
-use crate::Error;
 use crate::ffi::ffi::*;
+use crate::Error;
 
 pub(super) trait Releasable {
     unsafe fn release(&mut self);
@@ -14,19 +14,14 @@ impl ByteSlice {
         let ptr = boxed.as_ptr();
         let len = boxed.len();
         std::mem::forget(boxed);
-        ByteSlice {
-            bytes: ptr,
-            len,
-        }
+        ByteSlice { bytes: ptr, len }
     }
 }
 
 impl Releasable for ByteSlice {
     unsafe fn release(&mut self) {
         unsafe {
-            let _ = String::from_raw_parts(
-                self.bytes as *mut u8, self.len, self.len,
-            );
+            let _ = String::from_raw_parts(self.bytes as *mut u8, self.len, self.len);
         };
     }
 }
@@ -51,42 +46,24 @@ impl Releasable for RawTypedArray {
         verbose!(LOG_TAG, "release {:?}", self);
         verbose!(LOG_TAG, "release array {:?}", self.array);
         let _: Box<dyn Any> = match self.type_token {
-            Types::ByteArray => {
-                Box::from_raw(
-                    std::slice::from_raw_parts_mut(
-                        self.array as *mut u8, self.len,
-                    ).as_mut_ptr()
-                )
+            Types::ByteArray => Box::from_raw(
+                std::slice::from_raw_parts_mut(self.array as *mut u8, self.len).as_mut_ptr(),
+            ),
+            Types::I32Array => Box::from_raw(
+                std::slice::from_raw_parts_mut(self.array as *mut i32, self.len).as_mut_ptr(),
+            ),
+            Types::I64Array => Box::from_raw(
+                std::slice::from_raw_parts_mut(self.array as *mut i64, self.len).as_mut_ptr(),
+            ),
+            Types::F32Array => Box::from_raw(
+                std::slice::from_raw_parts_mut(self.array as *mut f32, self.len).as_mut_ptr(),
+            ),
+            Types::F64Array => Box::from_raw(
+                std::slice::from_raw_parts_mut(self.array as *mut f64, self.len).as_mut_ptr(),
+            ),
+            _ => {
+                panic!("can't match type of array")
             }
-            Types::I32Array => {
-                Box::from_raw(
-                    std::slice::from_raw_parts_mut(
-                        self.array as *mut i32, self.len,
-                    ).as_mut_ptr()
-                )
-            }
-            Types::I64Array => {
-                Box::from_raw(
-                    std::slice::from_raw_parts_mut(
-                        self.array as *mut i64, self.len,
-                    ).as_mut_ptr()
-                )
-            }
-            Types::F32Array => {
-                Box::from_raw(
-                    std::slice::from_raw_parts_mut(
-                        self.array as *mut f32, self.len,
-                    ).as_mut_ptr()
-                )
-            }
-            Types::F64Array => {
-                Box::from_raw(
-                    std::slice::from_raw_parts_mut(
-                        self.array as *mut f64, self.len,
-                    ).as_mut_ptr()
-                )
-            }
-            _ => { panic!("can't match type of array") }
         };
     }
 }
@@ -100,7 +77,10 @@ impl RawBuffer {
         }
     }
 
-    pub(super) fn set_data<T>(&mut self, data: T) where T: Sized + Debug {
+    pub(super) fn set_data<T>(&mut self, data: T)
+    where
+        T: Sized + Debug,
+    {
         let log = format!("{:?}", data);
         let ptr = Box::into_raw(Box::new(data)) as *const _;
         verbose!(LOG_TAG, "leak data {log} {:?}", ptr);
@@ -113,27 +93,17 @@ impl RawBuffer {
         }
         verbose!(LOG_TAG, "release data {:?}", self.rawData);
         let _: Box<dyn Any> = match self.typeToken {
-            Types::I32 => {
-                Box::from_raw(self.rawData as *mut i32)
-            }
-            Types::Str => {
-                Box::from_raw(self.rawData as *mut ByteSlice)
-            }
-            Types::Bool => {
-                Box::from_raw(self.rawData as *mut bool)
-            }
-            Types::I64 => {
-                Box::from_raw(self.rawData as *mut i64)
-            }
-            Types::F32 => {
-                Box::from_raw(self.rawData as *mut f32)
-            }
-            Types::F64 => {
-                Box::from_raw(self.rawData as *mut f64)
-            }
-            Types::ByteArray | Types::I32Array | Types::I64Array | Types::F32Array | Types::F64Array => {
-                Box::from_raw(self.rawData as *mut RawTypedArray)
-            }
+            Types::I32 => Box::from_raw(self.rawData as *mut i32),
+            Types::Str => Box::from_raw(self.rawData as *mut ByteSlice),
+            Types::Bool => Box::from_raw(self.rawData as *mut bool),
+            Types::I64 => Box::from_raw(self.rawData as *mut i64),
+            Types::F32 => Box::from_raw(self.rawData as *mut f32),
+            Types::F64 => Box::from_raw(self.rawData as *mut f64),
+            Types::ByteArray
+            | Types::I32Array
+            | Types::I64Array
+            | Types::F32Array
+            | Types::F64Array => Box::from_raw(self.rawData as *mut RawTypedArray),
         };
     }
 
@@ -158,9 +128,7 @@ impl RawBuffer {
     }
 
     pub(super) fn from_raw(ptr: *mut RawBuffer) -> Self {
-        *unsafe {
-            Box::from_raw(ptr)
-        }
+        *unsafe { Box::from_raw(ptr) }
     }
 }
 
@@ -175,21 +143,16 @@ impl Releasable for RawBuffer {
 impl InternalError {
     pub(super) fn new(code: i32, reason: Option<String>) -> Self {
         match reason {
-            None => {
-                InternalError {
-                    code,
-                    reason: std::ptr::null(),
-                }
-            }
+            None => InternalError {
+                code,
+                reason: std::ptr::null(),
+            },
             Some(str) => {
                 let byte_slice = ByteSlice::new(str);
                 let log = format!("{:?}", byte_slice);
                 let reason = Box::into_raw(Box::new(byte_slice));
                 verbose!(LOG_TAG, "leak {log} {:?}", reason);
-                InternalError {
-                    code,
-                    reason,
-                }
+                InternalError { code, reason }
             }
         }
     }
@@ -207,7 +170,7 @@ impl TryFrom<Error> for InternalError {
             Error::DataInvalid => Ok(InternalError::new(3, None)),
             Error::InstanceClosed => Ok(InternalError::new(4, None)),
             Error::EncodeFailed(descr) => Ok(InternalError::new(5, Some(descr))),
-            _ => Err(())
+            _ => Err(()),
         }
     }
 }
