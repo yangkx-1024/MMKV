@@ -170,7 +170,12 @@ impl MmkvImpl {
                 let bytes = transform(buffer.clone()).encode_to_bytes()?;
                 mm.append(bytes).map_err(|e| EncodeFailed(e.to_string()))?;
             }
-            info!(LOG_TAG, "trimmed, len from {} to {}", original_len, mm.len());
+            info!(
+                LOG_TAG,
+                "trimmed, len from {} to {}",
+                original_len,
+                mm.len()
+            );
             // the encrypt has been reset, need encode it with new encrypt
             if cfg!(feature = "encryption") {
                 data = buffer.encode_to_bytes()?;
@@ -228,13 +233,10 @@ impl Display for MmkvImpl {
 #[cfg(test)]
 mod tests {
     use std::path::Path;
-    use std::sync::OnceLock;
+    use std::sync::atomic::{AtomicPtr, Ordering};
     use std::{fs, thread};
 
     use crate::core::buffer::Buffer;
-    use crate::core::crc::CrcBuffer;
-    #[cfg(feature = "encryption")]
-    use crate::core::encrypt::EncryptBuffer;
     use crate::core::mmkv_impl::MmkvImpl;
     use crate::Error::{InstanceClosed, KeyNotFound, TypeMissMatch};
 
@@ -349,56 +351,41 @@ mod tests {
     fn test_multi_thread_mmkv() {
         let _ = fs::remove_file("test_multi_thread_mmkv");
         let _ = fs::remove_file("test_multi_thread_mmkv.meta");
-        static mut MMKV: OnceLock<MmkvImpl> = OnceLock::new();
+        let mmkv_impl = MmkvImpl::new(
+            Path::new("test_multi_thread_mmkv"),
+            4096,
+            #[cfg(feature = "encryption")]
+            "88C51C536176AD8A8EE4A06F62EE897E",
+        );
+        let mmkv_ptr = Box::into_raw(Box::new(mmkv_impl));
+        let mmkv = AtomicPtr::new(std::ptr::null_mut());
+        mmkv.store(mmkv_ptr, Ordering::Release);
+        let action = |thread_id: &str| {
+            for i in 0..1000 {
+                let key = &format!("{thread_id}_key_{i}");
+                let mmkv = unsafe { mmkv.load(Ordering::Acquire).as_mut().unwrap() };
+                mmkv.put(key, Buffer::from_i32(key, i)).unwrap();
+            }
+        };
+        thread::scope(|s| {
+            for i in 0..4 {
+                s.spawn(move || action(format!("thread_{i}").as_ref()));
+            }
+        });
+        unsafe {
+            let _ = Box::from_raw(mmkv.swap(std::ptr::null_mut(), Ordering::Release));
+        }
         let mmkv = MmkvImpl::new(
             Path::new("test_multi_thread_mmkv"),
             4096,
             #[cfg(feature = "encryption")]
             "88C51C536176AD8A8EE4A06F62EE897E",
         );
-        unsafe {
-            MMKV.set(mmkv).unwrap();
-            let action = || {
-                let current_thread = thread::current();
-                let thread_id = current_thread.id();
-                for i in 0..500 {
-                    let key = &format!("{:?}_key_{i}", thread_id);
-                    MMKV.get_mut()
-                        .unwrap()
-                        .put(key, Buffer::from_i32(key, i))
-                        .unwrap();
-                }
-            };
-            thread::scope(|s| {
-                for _ in 0..4 {
-                    s.spawn(action);
-                }
-            });
-            if cfg!(feature = "encryption") {
-                #[cfg(feature = "encryption")]
-                {
-                    let encrypt = MMKV.get().unwrap().encrypt.clone();
-                    let count = MMKV
-                        .get()
-                        .unwrap()
-                        .mm
-                        .read()
-                        .unwrap()
-                        .iter(|| EncryptBuffer::new(encrypt.clone()))
-                        .count();
-                    assert_eq!(count, 2000);
-                }
-            } else {
-                let count = MMKV
-                    .get()
-                    .unwrap()
-                    .mm
-                    .read()
-                    .unwrap()
-                    .iter(|| CrcBuffer::new())
-                    .count();
-                assert_eq!(count, 2000);
-            };
+        for i in 0..4 {
+            for j in 0..1000 {
+                let key = &format!("thread_{i}_key_{j}");
+                assert_eq!(mmkv.get(key).unwrap().decode_i32().unwrap(), j)
+            }
         }
         let _ = fs::remove_file("test_multi_thread_mmkv");
         let _ = fs::remove_file("test_multi_thread_mmkv.meta");
