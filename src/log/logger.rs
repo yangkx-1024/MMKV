@@ -2,7 +2,7 @@ use std::fmt::{Arguments, Debug};
 use std::sync::atomic::{AtomicI32, AtomicPtr, Ordering};
 use std::sync::OnceLock;
 
-use crate::log::{Logger, LogLevel};
+use crate::log::{LogLevel, Logger};
 
 const LOG_TAG: &str = "MMKV:LOG";
 

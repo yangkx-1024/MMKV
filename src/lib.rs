@@ -11,8 +11,8 @@
 //! MMKV::clear_data();
 //! ```
 //! For detailed API doc, see [MMKV]
-pub use crate::log::Logger;
 pub use crate::log::LogLevel;
+pub use crate::log::Logger;
 pub use crate::mmkv::MMKV;
 
 #[derive(Debug, PartialEq)]
@@ -79,9 +79,9 @@ macro_rules! verbose {
 }
 
 mod core;
-#[cfg(target_os = "android")]
-mod jni;
 #[cfg(any(target_os = "ios", target_os = "macos"))]
 mod ffi;
+#[cfg(target_os = "android")]
+mod jni;
 mod log;
 mod mmkv;

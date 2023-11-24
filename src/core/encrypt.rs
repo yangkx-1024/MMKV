@@ -4,10 +4,10 @@ use std::ops::Deref;
 use std::rc::Rc;
 
 use aes::Aes128;
-use eax::aead::{generic_array::GenericArray, KeyInit, OsRng, Payload};
 use eax::aead::consts::U8;
 use eax::aead::rand_core::RngCore;
 use eax::aead::stream::{NewStream, StreamBE32, StreamPrimitive};
+use eax::aead::{generic_array::GenericArray, KeyInit, OsRng, Payload};
 use eax::Eax;
 
 use crate::core::buffer::{Buffer, Decoder, Encoder, Take};
@@ -67,9 +67,10 @@ impl Encrypt {
             return Err(EncryptFailed(String::from("counter overflow")));
         }
 
-        let result = self.stream.encrypt(
-            self.position, false, Payload::from(bytes.as_slice()),
-        ).map_err(|e| EncryptFailed(e.to_string()))?;
+        let result = self
+            .stream
+            .encrypt(self.position, false, Payload::from(bytes.as_slice()))
+            .map_err(|e| EncryptFailed(e.to_string()))?;
 
         self.position += Stream::COUNTER_INCR;
         Ok(result)
@@ -80,9 +81,10 @@ impl Encrypt {
             return Err(DecryptFailed(String::from("counter overflow")));
         }
 
-        let result = self.stream.decrypt(
-            self.position, false, Payload::from(bytes.as_slice()),
-        ).map_err(|e| DecryptFailed(e.to_string()))?;
+        let result = self
+            .stream
+            .decrypt(self.position, false, Payload::from(bytes.as_slice()))
+            .map_err(|e| DecryptFailed(e.to_string()))?;
 
         self.position += Stream::COUNTER_INCR;
         Ok(result)
@@ -147,7 +149,9 @@ impl Debug for EncryptBuffer {
 
 impl Debug for Encrypt {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Encrypt").field("nonce", &hex::encode(self.nonce.to_vec())).finish()
+        f.debug_struct("Encrypt")
+            .field("nonce", &hex::encode(self.nonce.to_vec()))
+            .finish()
     }
 }
 
@@ -163,20 +167,14 @@ mod tests {
 
     #[test]
     fn test_crypt_buffer() {
-        let encryptor = Rc::new(
-            RefCell::new(
-                Encrypt::new(hex::decode(TEST_KEY).unwrap().try_into().unwrap())
-            )
-        );
+        let encryptor = Rc::new(RefCell::new(Encrypt::new(
+            hex::decode(TEST_KEY).unwrap().try_into().unwrap(),
+        )));
         let nonce = encryptor.borrow_mut().nonce;
-        let decryptor = Rc::new(
-            RefCell::new(
-                Encrypt::new_with_nonce(
-                    hex::decode(TEST_KEY).unwrap().try_into().unwrap(),
-                    &nonce,
-                )
-            )
-        );
+        let decryptor = Rc::new(RefCell::new(Encrypt::new_with_nonce(
+            hex::decode(TEST_KEY).unwrap().try_into().unwrap(),
+            &nonce,
+        )));
         let buffer = Buffer::from_i32("key1", 1);
         let buffer = EncryptBuffer::new_with_buffer(buffer, encryptor.clone());
         let bytes = buffer.encode_to_bytes().unwrap();
