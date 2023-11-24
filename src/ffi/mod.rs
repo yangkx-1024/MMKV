@@ -6,12 +6,12 @@ mod ffi_buffer;
 #[cfg(not(feature = "encryption"))]
 #[allow(non_snake_case)]
 pub mod ffi {
+    use mmkv_proc_macro_lib::AutoRelease;
     use std::ffi::{c_void, CStr};
     use std::fmt::Debug;
     use std::os::raw::c_char;
-    use mmkv_proc_macro_lib::AutoRelease;
 
-    use crate::{Error, Logger, LogLevel, MMKV};
+    use crate::{Error, LogLevel, Logger, MMKV};
 
     pub(super) const LOG_TAG: &str = "MMKV:FFI";
 
@@ -54,7 +54,7 @@ pub mod ffi {
     }
 
     #[no_mangle]
-    pub extern fn __use_typed_array(typed_array: RawTypedArray) {
+    pub extern "C" fn __use_typed_array(typed_array: RawTypedArray) {
         error!(LOG_TAG, "{:?}", typed_array)
     }
 
@@ -62,8 +62,8 @@ pub mod ffi {
     #[derive(Debug)]
     pub struct NativeLogger {
         obj: *mut c_void,
-        callback: extern fn(obj: *mut c_void, level: i32, content: *const ByteSlice),
-        destroy: extern fn(obj: *mut c_void),
+        callback: extern "C" fn(obj: *mut c_void, level: i32, content: *const ByteSlice),
+        destroy: extern "C" fn(obj: *mut c_void),
     }
 
     unsafe impl Send for NativeLogger {}
@@ -80,9 +80,7 @@ pub mod ffi {
     impl NativeLogger {
         fn call_target(&self, log_level: LogLevel, log_str: String) {
             let ptr = Box::into_raw(Box::new(ByteSlice::new(log_str)));
-            (self.callback)(
-                self.obj, log_level as i32, ptr,
-            );
+            (self.callback)(self.obj, log_level as i32, ptr);
             unsafe {
                 let _ = Box::from_raw(ptr);
             }
@@ -202,58 +200,60 @@ pub mod ffi {
     }
 
     fn map_error(key: &str, e: Error, log: &str) -> InternalError {
-        error!(LOG_TAG, "{}", format!("failed to {} for key {}, reason {:?}", log, key, e));
+        error!(
+            LOG_TAG,
+            "{}",
+            format!("failed to {} for key {}, reason {:?}", log, key, e)
+        );
         return e.try_into().unwrap();
     }
 
     macro_rules! impl_put {
         ($name:ident, $value_type:tt, $type_token:expr, $log:literal) => {
             #[no_mangle]
-            pub extern fn $name(key: RawCStr, value: $value_type) -> *const RawBuffer {
+            pub extern "C" fn $name(key: RawCStr, value: $value_type) -> *const RawBuffer {
                 let key_str = unsafe { CStr::from_ptr(key) }.to_str().unwrap();
                 let mut result = RawBuffer::new($type_token);
                 match mmkv_put!(key_str, value, $value_type) {
-                    Err(e) => {
-                        result.set_error(map_error(key_str, e, $log))
-                    }
+                    Err(e) => result.set_error(map_error(key_str, e, $log)),
                     Ok(()) => {
                         verbose!(LOG_TAG, "{} for key '{}' success", $log, key_str);
                     }
                 }
                 return result.leak();
             }
-        }
+        };
     }
 
     macro_rules! impl_put_typed_array {
         ($name:ident, $value_type:tt, $type_token:expr, $log:literal) => {
             #[no_mangle]
-            pub extern fn $name(key: RawCStr, value: $value_type, len: usize) -> *const RawBuffer {
+            pub extern "C" fn $name(
+                key: RawCStr,
+                value: $value_type,
+                len: usize,
+            ) -> *const RawBuffer {
                 let key_str = unsafe { CStr::from_ptr(key) }.to_str().unwrap();
                 let mut result = Box::new(RawBuffer::new($type_token));
                 match mmkv_put!(key_str, value, len, $value_type) {
-                    Err(e) => {
-                        result.set_error(map_error(key_str, e, $log))
-                    }
+                    Err(e) => result.set_error(map_error(key_str, e, $log)),
                     Ok(()) => {
                         verbose!(LOG_TAG, "{} for key '{}' success", $log, key_str);
                     }
                 }
                 return result.leak();
             }
-        }
+        };
     }
 
     macro_rules! impl_get {
         ($name:ident, $value_type:tt, $type_token:expr, $log:literal) => {
             #[no_mangle]
-            pub extern fn $name(key: RawCStr) -> *const RawBuffer {
+            pub extern "C" fn $name(key: RawCStr) -> *const RawBuffer {
                 let key_str = unsafe { CStr::from_ptr(key) }.to_str().unwrap();
                 let mut result = RawBuffer::new($type_token);
                 match mmkv_get!(key_str, $value_type) {
-                    Err(e) => {
-                        result.set_error(map_error(key_str, e, $log))
-                    }
+                    Err(e) => result.set_error(map_error(key_str, e, $log)),
                     Ok(value) => {
                         verbose!(LOG_TAG, "{} for key '{}' success", $log, key_str);
                         result.set_data(value);
@@ -261,37 +261,37 @@ pub mod ffi {
                 }
                 return result.leak();
             }
-        }
+        };
     }
 
     #[no_mangle]
-    pub extern fn initialize(dir: *const c_char) {
+    pub extern "C" fn initialize(dir: *const c_char) {
         let dir_str = unsafe { CStr::from_ptr(dir) }.to_str().unwrap();
         MMKV::initialize(dir_str)
     }
 
     #[no_mangle]
-    pub extern fn set_logger(logger: NativeLogger) {
+    pub extern "C" fn set_logger(logger: NativeLogger) {
         MMKV::set_logger(Box::new(logger));
     }
 
     #[no_mangle]
-    pub extern fn set_log_level(log_level: i32) {
+    pub extern "C" fn set_log_level(log_level: i32) {
         MMKV::set_log_level(log_level.try_into().unwrap())
     }
 
     #[no_mangle]
-    pub unsafe extern fn free_buffer(ptr: *const c_void) {
+    pub unsafe extern "C" fn free_buffer(ptr: *const c_void) {
         let _ = RawBuffer::from_raw(ptr as *mut RawBuffer);
     }
 
     #[no_mangle]
-    pub extern fn close_instance() {
+    pub extern "C" fn close_instance() {
         MMKV::close()
     }
 
     #[no_mangle]
-    pub extern fn clear_data() {
+    pub extern "C" fn clear_data() {
         MMKV::clear_data()
     }
 
@@ -319,9 +319,19 @@ pub mod ffi {
 
     impl_get!(get_f64, f64, Types::F64, "get f64");
 
-    impl_put_typed_array!(put_byte_array, CByteArray, Types::ByteArray, "put byte array");
+    impl_put_typed_array!(
+        put_byte_array,
+        CByteArray,
+        Types::ByteArray,
+        "put byte array"
+    );
 
-    impl_get!(get_byte_array, CByteArray, Types::ByteArray, "get byte array");
+    impl_get!(
+        get_byte_array,
+        CByteArray,
+        Types::ByteArray,
+        "get byte array"
+    );
 
     impl_put_typed_array!(put_i32_array, CI32Array, Types::I32Array, "put i32 array");
 

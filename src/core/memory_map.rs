@@ -51,7 +51,12 @@ mod tests {
     #[test]
     fn test_mmap() {
         let _ = fs::remove_file("test_mmap");
-        let file = OpenOptions::new().create(true).write(true).read(true).open("test_mmap").unwrap();
+        let file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .read(true)
+            .open("test_mmap")
+            .unwrap();
         file.set_len(1024).unwrap();
         let mut mm = MemoryMap::new(&file);
         assert_eq!(mm.len(), 8);
