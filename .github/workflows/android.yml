@@ -31,7 +31,7 @@ jobs:
         cd ./android
         chmod +x gradlew
         ./gradlew clean
-        ./gradlew --info assembleDebug
+        ./gradlew assembleDebug
       env:
         SIGN_KEY_STORE_PATH: keystore.jks
         SIGN_KEY_ALIAS: ${{ secrets.SIGN_KEY_ALIAS }}
