@@ -59,12 +59,11 @@ dependencies {
 
 publishing {
     val artifactId = "mmkv"
-    val version = Configuration.libVersion
     publications {
         register<MavenPublication>("release") {
             groupId = Configuration.groupId
             this.artifactId = artifactId
-            this.version = version
+            this.version = Configuration.libVersion
 
             afterEvaluate {
                 from(components["release"])

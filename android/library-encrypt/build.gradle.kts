@@ -61,7 +61,7 @@ publishing {
     val artifactId = "mmkv-encrypt"
     publications {
         register<MavenPublication>("release") {
-            groupId = "net.yangkx"
+            groupId = Configuration.groupId
             this.artifactId = artifactId
             this.version = Configuration.libVersion
 
