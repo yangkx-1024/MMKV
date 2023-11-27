@@ -30,4 +30,4 @@ jobs:
           echo signing.keyId=${signingKeyId} >> local.properties
           echo signing.secretKeyRingFile=secret.gpg >> local.properties
           chmod +x gradlew
-          ./gradlew --info publish
+          ./gradlew publish
