@@ -23,17 +23,21 @@ jobs:
 
     - name: Decode Keystore
       env:
-        ENCODED_STRING: ${{ secrets.KEYSTORE }}
-      run: echo $ENCODED_STRING | base64 -di > ./android/app/keystore.jks
+        ENCODED_KEYSTORE: ${{ secrets.KEYSTORE }}
+      run: echo ${ENCODED_KEYSTORE} | base64 -di > ./android/app/keystore.jks
 
     - name: Build with Gradle
+      env:
+        SIGN_KEY_STORE_PATH: keystore.jks
+        SIGN_STORE_PASSWORD: ${{ secrets.SIGN_STORE_PASSWORD }}
+        SIGN_KEY_ALIAS: ${{ secrets.SIGN_KEY_ALIAS }}
+        SIGN_KEY_PASSWORD: ${{ secrets.SIGN_KEY_PASSWORD }}
       run: |
         cd ./android
+        echo SIGN_KEY_STORE_PATH=keystore.jks >> local.properties
+        echo SIGN_STORE_PASSWORD=${SIGN_STORE_PASSWORD} >> local.properties
+        echo SIGN_KEY_ALIAS=${SIGN_KEY_ALIAS} >> local.properties
+        echo SIGN_KEY_PASSWORD=${SIGN_KEY_PASSWORD} >> local.properties
         chmod +x gradlew
         ./gradlew clean
         ./gradlew assembleDebug
-      env:
-        SIGN_KEY_STORE_PATH: keystore.jks
-        SIGN_KEY_ALIAS: ${{ secrets.SIGN_KEY_ALIAS }}
-        SIGN_KEY_PASSWORD: ${{ secrets.SIGN_KEY_PASSWORD }}
-        SIGN_STORE_PASSWORD: ${{ secrets.SIGN_STORE_PASSWORD }}

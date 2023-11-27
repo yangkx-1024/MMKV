@@ -17,11 +17,6 @@ if (propFile.exists()) {
     prop.forEach {
         ext.set(it.key as String, it.value as String)
     }
-} else {
-    ext.set("SIGN_KEY_ALIAS", System.getenv("SIGN_KEY_ALIAS"))
-    ext.set("SIGN_KEY_PASSWORD", System.getenv("SIGN_KEY_PASSWORD"))
-    ext.set("SIGN_KEY_STORE_PATH", System.getenv("SIGN_KEY_STORE_PATH"))
-    ext.set("SIGN_STORE_PASSWORD", System.getenv("SIGN_STORE_PASSWORD"))
 }
 
 android {
