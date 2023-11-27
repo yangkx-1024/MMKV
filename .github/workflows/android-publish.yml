@@ -1,4 +1,4 @@
-name: Publish package
+name: Publish Android package
 on:
   release:
     types: [published]
@@ -12,8 +12,7 @@ jobs:
         env:
           signingSecret: ${{ secrets.GPG_SECRET }}
         run: |
-          echo ${signingSecret} | gpg --import
-          echo ${signingSecret} | gpg --dearmor > ./android/secret.gpg
+          echo ${signingSecret} | base64 -di | gpg --dearmor > ./android/secret.gpg
       - name: Android publish
         env:
           sonatypeUsername: ${{ secrets.SONATYPEUSERNAME }}
