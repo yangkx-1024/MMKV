@@ -5,7 +5,7 @@ import android.os.Bundle
 import android.text.method.ScrollingMovementMethod
 import android.util.Log
 import androidx.appcompat.app.AppCompatActivity
-import net.yangkx.mmkv.databinding.ActivityMainBinding
+import net.yangkx.mmkv.demo.databinding.ActivityMainBinding
 import net.yangkx.mmkv.log.LogLevel
 import net.yangkx.mmkv.log.Logger
 import kotlin.random.Random

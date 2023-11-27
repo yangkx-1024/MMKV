@@ -25,11 +25,11 @@ if (propFile.exists()) {
 }
 
 android {
-    namespace = "net.yangkx.mmkv"
+    namespace = "net.yangkx.mmkv.demo"
     compileSdk = 33
 
     defaultConfig {
-        applicationId = "net.yangkx.mmkv"
+        applicationId = "net.yangkx.mmkv.demo"
         minSdk = 21
         targetSdk = 33
         versionCode = 1
@@ -47,6 +47,14 @@ android {
     }
     buildTypes {
         release {
+            isMinifyEnabled = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+            signingConfig = signingConfigs.getByName("release")
+        }
+        create("staging") {
             isMinifyEnabled = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -81,6 +89,8 @@ android {
 
 val defaultDebugImplementation: Configuration by configurations.creating
 val encryptionDebugImplementation: Configuration by configurations.creating
+val defaultStagingImplementation: Configuration by configurations.creating
+val encryptionStagingImplementation: Configuration by configurations.creating
 val defaultReleaseImplementation: Configuration by configurations.creating
 val encryptionReleaseImplementation: Configuration by configurations.creating
 
@@ -89,6 +99,8 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.6.1")
     defaultDebugImplementation(project(":library"))
     encryptionDebugImplementation(project(":library-encrypt"))
+    defaultStagingImplementation(Deps.mmkv_snapshot)
+    encryptionStagingImplementation(Deps.mmkv_encrypt_snapshot)
     defaultReleaseImplementation(Deps.mmkv)
     encryptionReleaseImplementation(Deps.mmkv_encrypt)
 }
