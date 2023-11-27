@@ -3,31 +3,29 @@ on:
   release:
     types: [published]
 
-env:
-  CARGO_TERM_COLOR: always
-
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - name: Cargo publish
-        run: cargo publish --token ${CARGO_REGISTRY_TOKEN}
+      - name: Import GPG
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          signingSecret: ${{ secrets.GPG_SECRET }}
+        run: |
+          echo ${signingSecret} | gpg --import
+          echo ${signingSecret} | gpg --dearmor > ./android/secret.gpg
       - name: Android publish
         env:
           sonatypeUsername: ${{ secrets.SONATYPEUSERNAME }}
           sonatypePassword: ${{ secrets.SONATYPEPASSWORD }}
           signingKeyId: ${{ secrets.GPG_KEY_ID }}
           signingPwd: ${{ secrets.GPG_PWD }}
-          signingSecret: ${{ secrets.GPG_SECRET }}
         run: |
           cd ./android
-          echo ${signingSecret} | gpg --dearmor > secret.gpg
           echo sonatypeUsername=${sonatypeUsername} >> local.properties
           echo sonatypePassword=${sonatypePassword} >> local.properties
           echo signing.keyId=${signingKeyId} >> local.properties
+          echo signing.password=${signingPwd} >> local.properties
           echo signing.secretKeyRingFile=secret.gpg >> local.properties
           chmod +x gradlew
           ./gradlew publish
