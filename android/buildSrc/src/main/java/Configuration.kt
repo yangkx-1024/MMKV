@@ -19,7 +19,7 @@ object Configuration {
     val licenceApache = "The Apache License, Version 2.0" to "http://www.apache.org/licenses/LICENSE-2.0.txt"
     val licenceMit = "The MIT License" to "https://opensource.org/licenses/MIT"
     val developer = "Kexuan Yang" to "kexuan.yang@gmail.com"
-    const val scmUrl = "https://github.com/yangkx1024/MMKV"
+    const val scmUrl = "https://github.com/yangkx-1024/MMKV"
 }
 
 object Deps {
