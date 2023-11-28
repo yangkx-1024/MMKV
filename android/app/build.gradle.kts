@@ -70,6 +70,10 @@ android {
     }
     buildFeatures {
         viewBinding = true
+        compose = true
+    }
+    composeOptions {
+        kotlinCompilerExtensionVersion = "1.4.3"
     }
     flavorDimensions += "feature"
     productFlavors {
@@ -91,6 +95,14 @@ val encryptionReleaseImplementation: Configuration by configurations.creating
 
 dependencies {
     implementation(Deps.kotlin)
+
+    val composeBom = platform("androidx.compose:compose-bom:2023.01.00")
+    implementation(composeBom)
+    androidTestImplementation(composeBom)
+    implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.ui:ui-tooling-preview")
+    debugImplementation("androidx.compose.ui:ui-tooling")
+
     implementation("androidx.appcompat:appcompat:1.6.1")
     defaultDebugImplementation(project(":library"))
     encryptionDebugImplementation(project(":library-encrypt"))

@@ -16,41 +16,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     private lateinit var binding: ActivityMainBinding
-    private val logger = object : Logger {
-        override fun verbose(log: String) {
-            Log.v(TAG, log)
-            appendLog("V - $log")
-        }
-
-        override fun info(log: String) {
-            Log.i(TAG, log)
-            appendLog("I - $log")
-        }
-
-        override fun debug(log: String) {
-            Log.d(TAG, log)
-            appendLog("D - $log")
-        }
-
-        override fun warn(log: String) {
-            Log.w(TAG, log)
-            appendLog("W - $log")
-        }
-
-        override fun error(log: String) {
-            Log.e(TAG, log)
-            appendLog("E - $log")
-        }
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
-        binding.log.movementMethod = ScrollingMovementMethod.getInstance()
-        appendLog("Test logs:")
-        MMKV.setLogger(logger)
-        MMKV.setLogLevel(LogLevel.DEBUG)
+        binding.logView.setContent {
+            LogView(leadText = "MMKV Log:", logLevel = LogLevel.VERBOSE)
+        }
         binding.string.setOnClickListener {
             val value = MMKV.getString("str_key", "string value") + "1"
             MMKV.putString("str_key", value)
@@ -122,28 +95,11 @@ class MainActivity : AppCompatActivity() {
         binding.clearData.setOnClickListener {
             MMKV.clearData()
             MMKVInitializer.init(this@MainActivity)
-            MMKV.setLogger(logger)
-            MMKV.setLogLevel(LogLevel.VERBOSE)
         }
         try {
             MMKV.getString("not_exists_key")
         } catch (e: KeyNotFoundException) {
             Log.d(TAG, e.message ?: "")
-        }
-    }
-
-    @SuppressLint("SetTextI18n")
-    private fun appendLog(log: String) {
-        binding.log.append(log + "\n")
-        with(binding.log) {
-            post {
-                val scrollY = layout.getLineTop(lineCount) - height
-                if (scrollY > 0) {
-                    scrollTo(0, scrollY)
-                } else {
-                    scrollTo(0, 0)
-                }
-            }
         }
     }
 }

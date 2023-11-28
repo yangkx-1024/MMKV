@@ -1,12 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:gravity="center"
-    tools:context=".MainActivity">
+    android:gravity="center">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -100,17 +98,12 @@
             tools:ignore="HardcodedText" />
     </LinearLayout>
 
-    <TextView
-        android:id="@+id/log"
+    <androidx.compose.ui.platform.ComposeView
+        android:id="@+id/log_view"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
         android:background="@color/black"
-        android:padding="8dp"
-        android:textColor="@android:color/holo_green_light"
-        android:textSize="12sp"
-        android:scrollbars="vertical"
-        android:lineSpacingMultiplier="1.2"
-        tools:text="Test Test Test Test Test\nTest Test"/>
+        tools:composableName="net.yangkx.mmkv.LogViewKt.LogViewPreview"/>
 
 </LinearLayout>
