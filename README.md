@@ -2,6 +2,9 @@
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/yangkx1024/MMKV/pulls)
 [![Crates.io](https://img.shields.io/crates/v/MMKV)](https://crates.io/crates/mmkv)
 [![Crates.io](https://img.shields.io/crates/d/MMKV)](https://crates.io/crates/mmkv)
+[![Cargo Test](https://github.com/yangkx-1024/MMKV/actions/workflows/rust.yml/badge.svg)](https://github.com/yangkx-1024/MMKV/actions/workflows/rust.yml)
+[![Android Build Check](https://github.com/yangkx-1024/MMKV/actions/workflows/android.yml/badge.svg)](https://github.com/yangkx-1024/MMKV/actions/workflows/android.yml)
+[![Swift Test](https://github.com/yangkx-1024/MMKV/actions/workflows/swift.yml/badge.svg)](https://github.com/yangkx-1024/MMKV/actions/workflows/swift.yml)
 
 # Library uses file-based mmap to store key-values
 
