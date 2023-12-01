@@ -97,8 +97,8 @@ class MainActivity : AppCompatActivity() {
 Check the [android](https://github.com/yangkx1024/MMKV/tree/main/android) demo for more detail.
 
 # Use in iOS project
-Since this repo is using git-lfs, and SwiftPM doesn't support git-lfs(check this [issue](https://github.com/git-lfs/git-lfs/issues/3587)), 
-You need to clone this repo to your machine, and add `path-to-this-repo/ios/MMKV` as a Swift package to your project.
+Add this repo as swift package dependency to your Xcode project.
+
 Then add code to your `App.swift`:
 ```swift
 import SwiftUI

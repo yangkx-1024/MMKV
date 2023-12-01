@@ -11,7 +11,7 @@
 		2B237B5A2AFBC699006CA835 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B237B592AFBC699006CA835 /* ContentView.swift */; };
 		2B237B5C2AFBC69B006CA835 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2B237B5B2AFBC69B006CA835 /* Assets.xcassets */; };
 		2B237B5F2AFBC69B006CA835 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2B237B5E2AFBC69B006CA835 /* Preview Assets.xcassets */; };
-		2B8088C02B1A1EA200E6DFB9 /* MMKV in Frameworks */ = {isa = PBXBuildFile; productRef = 2B8088BF2B1A1EA200E6DFB9 /* MMKV */; };
+		2B888AE92B1A2DFB00E38DFA /* MMKV in Frameworks */ = {isa = PBXBuildFile; productRef = 2B888AE82B1A2DFB00E38DFA /* MMKV */; };
 		2BB59D092B049877006ED8BF /* LogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BB59D082B049877006ED8BF /* LogView.swift */; };
 /* End PBXBuildFile section */
 
@@ -29,7 +29,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				2B8088C02B1A1EA200E6DFB9 /* MMKV in Frameworks */,
+				2B888AE92B1A2DFB00E38DFA /* MMKV in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -41,7 +41,6 @@
 			children = (
 				2B237B562AFBC699006CA835 /* MMKVDemo */,
 				2B237B552AFBC699006CA835 /* Products */,
-				2B58A9422B027BA200AE3A9D /* Frameworks */,
 			);
 			sourceTree = "<group>";
 		};
@@ -90,7 +89,7 @@
 			);
 			name = MMKVDemo;
 			packageProductDependencies = (
-				2B8088BF2B1A1EA200E6DFB9 /* MMKV */,
+				2B888AE82B1A2DFB00E38DFA /* MMKV */,
 			);
 			productName = MMKVDemo;
 			productReference = 2B237B542AFBC699006CA835 /* MMKVDemo.app */;
@@ -121,7 +120,7 @@
 			);
 			mainGroup = 2B237B4B2AFBC699006CA835;
 			packageReferences = (
-				2B8088BE2B1A1EA200E6DFB9 /* XCRemoteSwiftPackageReference "MMKV" */,
+				2B888AE72B1A2DFB00E38DFA /* XCRemoteSwiftPackageReference "MMKV" */,
 			);
 			productRefGroup = 2B237B552AFBC699006CA835 /* Products */;
 			projectDirPath = "";
@@ -359,20 +358,20 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		2B8088BE2B1A1EA200E6DFB9 /* XCRemoteSwiftPackageReference "MMKV" */ = {
+		2B888AE72B1A2DFB00E38DFA /* XCRemoteSwiftPackageReference "MMKV" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/yangkx1024/MMKV.git";
+			repositoryURL = "https://github.com/yangkx-1024/MMKV";
 			requirement = {
-				branch = develop;
-				kind = branch;
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.3.3;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		2B8088BF2B1A1EA200E6DFB9 /* MMKV */ = {
+		2B888AE82B1A2DFB00E38DFA /* MMKV */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 2B8088BE2B1A1EA200E6DFB9 /* XCRemoteSwiftPackageReference "MMKV" */;
+			package = 2B888AE72B1A2DFB00E38DFA /* XCRemoteSwiftPackageReference "MMKV" */;
 			productName = MMKV;
 		};
 /* End XCSwiftPackageProductDependency section */
