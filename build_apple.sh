@@ -41,6 +41,10 @@ xcodebuild -create-xcframework \
         -library target/aarch64-apple-ios/release/$LIBNAME -headers $HEADER \
         -output $FRAMEWORK
 
+pushd ios/MMKV/Sources/ || exit 1;
+zip -rm9 RustMMKV.xcframework.zip RustMMKV.xcframework
+popd || exit 1;
+
 # Cleanup
 rm -rf ios-sim-lipo mac-lipo $HEADER
 
