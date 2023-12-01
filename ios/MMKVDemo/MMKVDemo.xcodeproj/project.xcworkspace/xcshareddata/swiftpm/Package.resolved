@@ -1,0 +1,14 @@
+{
+  "pins" : [
+    {
+      "identity" : "mmkv",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/yangkx1024/MMKV.git",
+      "state" : {
+        "branch" : "develop",
+        "revision" : "48d7d722f8e30c4c71f5a391ded997ff94a08767"
+      }
+    }
+  ],
+  "version" : 2
+}

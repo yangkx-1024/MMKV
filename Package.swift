@@ -15,14 +15,16 @@ let package = Package(
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
         // Targets can depend on other targets in this package and products from dependencies.
-        .binaryTarget(name: "RustMMKV", path: "Sources/RustMMKV.xcframework.zip"),
+        .binaryTarget(name: "RustMMKV", path: "ios/MMKV/Sources/RustMMKV.xcframework.zip"),
         .target(
             name: "MMKV",
-            dependencies: ["RustMMKV"]
+            dependencies: ["RustMMKV"],
+            path: "ios/MMKV/Sources/MMKV"
         ),
         .testTarget(
             name: "MMKVTests",
-            dependencies: ["MMKV"]
+            dependencies: ["MMKV"],
+            path: "ios/MMKV/Tests/MMKVTests"
         ),
     ]
 )

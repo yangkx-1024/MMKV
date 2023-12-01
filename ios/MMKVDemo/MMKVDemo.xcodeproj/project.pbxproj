@@ -11,7 +11,7 @@
 		2B237B5A2AFBC699006CA835 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B237B592AFBC699006CA835 /* ContentView.swift */; };
 		2B237B5C2AFBC69B006CA835 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2B237B5B2AFBC69B006CA835 /* Assets.xcassets */; };
 		2B237B5F2AFBC69B006CA835 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2B237B5E2AFBC69B006CA835 /* Preview Assets.xcassets */; };
-		2B58A9452B027CE400AE3A9D /* MMKV in Frameworks */ = {isa = PBXBuildFile; productRef = 2B58A9442B027CE400AE3A9D /* MMKV */; };
+		2B8088C02B1A1EA200E6DFB9 /* MMKV in Frameworks */ = {isa = PBXBuildFile; productRef = 2B8088BF2B1A1EA200E6DFB9 /* MMKV */; };
 		2BB59D092B049877006ED8BF /* LogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BB59D082B049877006ED8BF /* LogView.swift */; };
 /* End PBXBuildFile section */
 
@@ -21,7 +21,6 @@
 		2B237B592AFBC699006CA835 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		2B237B5B2AFBC69B006CA835 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		2B237B5E2AFBC69B006CA835 /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
-		2B58A9432B027BA200AE3A9D /* MMKV */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = MMKV; path = ../MMKV; sourceTree = "<group>"; };
 		2BB59D082B049877006ED8BF /* LogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -30,7 +29,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				2B58A9452B027CE400AE3A9D /* MMKV in Frameworks */,
+				2B8088C02B1A1EA200E6DFB9 /* MMKV in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -74,14 +73,6 @@
 			path = "Preview Content";
 			sourceTree = "<group>";
 		};
-		2B58A9422B027BA200AE3A9D /* Frameworks */ = {
-			isa = PBXGroup;
-			children = (
-				2B58A9432B027BA200AE3A9D /* MMKV */,
-			);
-			name = Frameworks;
-			sourceTree = "<group>";
-		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -99,7 +90,7 @@
 			);
 			name = MMKVDemo;
 			packageProductDependencies = (
-				2B58A9442B027CE400AE3A9D /* MMKV */,
+				2B8088BF2B1A1EA200E6DFB9 /* MMKV */,
 			);
 			productName = MMKVDemo;
 			productReference = 2B237B542AFBC699006CA835 /* MMKVDemo.app */;
@@ -130,6 +121,7 @@
 			);
 			mainGroup = 2B237B4B2AFBC699006CA835;
 			packageReferences = (
+				2B8088BE2B1A1EA200E6DFB9 /* XCRemoteSwiftPackageReference "MMKV" */,
 			);
 			productRefGroup = 2B237B552AFBC699006CA835 /* Products */;
 			projectDirPath = "";
@@ -366,9 +358,21 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		2B8088BE2B1A1EA200E6DFB9 /* XCRemoteSwiftPackageReference "MMKV" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/yangkx1024/MMKV.git";
+			requirement = {
+				branch = develop;
+				kind = branch;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
-		2B58A9442B027CE400AE3A9D /* MMKV */ = {
+		2B8088BF2B1A1EA200E6DFB9 /* MMKV */ = {
 			isa = XCSwiftPackageProductDependency;
+			package = 2B8088BE2B1A1EA200E6DFB9 /* XCRemoteSwiftPackageReference "MMKV" */;
 			productName = MMKV;
 		};
 /* End XCSwiftPackageProductDependency section */
