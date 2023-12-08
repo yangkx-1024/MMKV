@@ -9,7 +9,7 @@ on:
 jobs:
   build:
 
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
 
     steps:
     - uses: actions/checkout@v4
@@ -24,7 +24,7 @@ jobs:
     - name: Decode Keystore
       env:
         ENCODED_KEYSTORE: ${{ secrets.KEYSTORE }}
-      run: echo ${ENCODED_KEYSTORE} | base64 -di > ./android/app/keystore.jks
+      run: echo ${ENCODED_KEYSTORE} | base64 -d > ./android/app/keystore.jks
 
     - name: Build with Gradle
       env:
@@ -41,3 +41,11 @@ jobs:
         chmod +x gradlew
         ./gradlew clean
         ./gradlew assembleDebug
+
+    - name: Android test
+      uses: reactivecircus/android-emulator-runner@v2
+      with:
+        api-level: 34
+        target: google_apis_playstore
+        arch: x86_64
+        script: cd ./android; ./gradlew connectedAndroidTest
