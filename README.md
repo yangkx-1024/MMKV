@@ -1,3 +1,5 @@
+# Library uses file-based mmap to store key-values
+
 [![Crates.io](https://img.shields.io/crates/l/MMKV)](https://crates.io/crates/mmkv)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/yangkx1024/MMKV/pulls)
 [![Crates.io](https://img.shields.io/crates/v/MMKV)](https://crates.io/crates/mmkv)
@@ -6,24 +8,22 @@
 [![Android Build Check](https://github.com/yangkx-1024/MMKV/actions/workflows/android.yml/badge.svg)](https://github.com/yangkx-1024/MMKV/actions/workflows/android.yml)
 [![Swift Test](https://github.com/yangkx-1024/MMKV/actions/workflows/swift.yml/badge.svg)](https://github.com/yangkx-1024/MMKV/actions/workflows/swift.yml)
 
-# Library uses file-based mmap to store key-values
-
 This is a Rust version of [MMKV](https://github.com/Tencent/MMKV).
 
 By default, this lib uses [CRC8](https://github.com/mrhooray/crc-rs) to check data integrity.
 
-If include feature `encryption`, this lib will encrypt 
-the data with [AES-EAX](https://github.com/RustCrypto/AEADs/tree/master/eax). 
+If include feature `encryption`, this lib will encrypt the data with [AES-EAX](https://github.com/RustCrypto/AEADs/tree/master/eax).
 
-MMKV is thread-safe but cannot guarantee cross-process data consistency (still under development). 
-If you want to use it in a cross-process scenario, please ensure that there is no competing write.
+MMKV is thread-safe but cannot guarantee cross-process data consistency (still under development). If you want to use it in a cross-process scenario, please ensure that there is no competing write.
 
-### How to use
+## How to use
+
 Add dependency:
 
 `cargo add mmkv`
 
 And use `MMKV` directly:
+
 ```rust
 use mmkv::MMKV;
 
@@ -50,7 +50,8 @@ fn main() {
 }
 ```
 
-### Use with encryption feature
+## Use with encryption feature
+
 Add dependency:
 
 `cargo add mmkv --features encryption`
@@ -59,11 +60,12 @@ Then init `MMKV` with an encryption credential:
 
 `MMKV::initialize(".", "88C51C536176AD8A8EE4A06F62EE897E")`
 
-Encryption will greatly reduce the efficiency of reading and writing, 
-and will also increase the file size, use at your own risk!
+Encryption will greatly reduce the efficiency of reading and writing, and will also increase the file size, use at your own risk!
 
-# Use in Android projects
+## Use in Android projects
+
 Add lib dependency to gradle:
+
 ```kotlin
 dependencies {
     implementation("net.yangkx:mmkv:0.2.4")
@@ -71,7 +73,9 @@ dependencies {
     // implementation("net.yangkx:mmkv-encrypt:0.2.4")
 }
 ```
+
 Use the kotlin API:
+
 ```kotlin
 class MyApplication : Application() {
     override fun onCreate() {
@@ -97,56 +101,62 @@ class MainActivity : AppCompatActivity() {
     }
 }
 ```
+
 Check the [android](https://github.com/yangkx1024/MMKV/tree/main/android) demo for more detail.
 
-# Use in iOS project
-Add this repo as swift package dependency to your Xcode project.
+## Use in iOS project
 
-Then add code to your `App.swift`:
-```swift
-import SwiftUI
-import MMKV
+1. Add this repo as swift package dependency to your Xcode project.
 
-@main
-struct MMKVDemoApp: App {
-    init() {
-        initMMKV()
-    }
-    var body: some Scene {
-        ...
-    }
-}
+2. Init MMKV instance before use the API, for example:
 
-func initMMKV() {
-    let paths = NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true)
-    let documentsDirectory = paths[0]
-    let docURL = URL(string: documentsDirectory)!
-    let dataPath = docURL.appendingPathComponent("mmkv")
-    if !FileManager.default.fileExists(atPath: dataPath.path) {
-        do {
-            try FileManager.default.createDirectory(atPath: dataPath.path, withIntermediateDirectories: true, attributes: nil)
-        } catch {
-            print(error.localizedDescription)
+    ```swift
+    import SwiftUI
+    import MMKV
+
+    @main
+    struct MMKVDemoApp: App {
+        init() {
+            initMMKV()
+        }
+        var body: some Scene {
+            ...
         }
     }
-    MMKV.shared.initialize(dir: dataPath.path)
-}
-```
-And then you can use MMKV API directly:
-```swift
-import SwiftUI
-import MMKV
 
-struct ContentView: View {
-    @State var textContent: String = "Hello, world!"
-    var body: some View {
-        Text(textContent)
-            .onTapGesture {
-                let value = MMKV.shared.getInt32(key: "int_key").unwrap(defalutValue: 0)
-                MMKV.shared.putInt32(key: "int_key", value: value + 1).unwrap(defalutValue: ())
-                textContent = MMKV.shared.getInt32(key: "int_key").unwrap(defalutValue: 0).formatted()
+    func initMMKV() {
+        let paths = NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true)
+        let documentsDirectory = paths[0]
+        let docURL = URL(string: documentsDirectory)!
+        let dataPath = docURL.appendingPathComponent("mmkv")
+        if !FileManager.default.fileExists(atPath: dataPath.path) {
+            do {
+                try FileManager.default.createDirectory(atPath: dataPath.path, withIntermediateDirectories: true, attributes: nil)
+            } catch {
+                print(error.localizedDescription)
             }
+        }
+        MMKV.shared.initialize(dir: dataPath.path)
     }
-}
-```
+    ```
+
+3. Use `MMKV.shared` to access API directly:
+
+    ```swift
+    import SwiftUI
+    import MMKV
+
+    struct ContentView: View {
+        @State var textContent: String = "Hello, world!"
+        var body: some View {
+            Text(textContent)
+                .onTapGesture {
+                    let value = MMKV.shared.getInt32(key: "int_key").unwrap(defalutValue: 0)
+                    MMKV.shared.putInt32(key: "int_key", value: value + 1).unwrap(defalutValue: ())
+                    textContent = MMKV.shared.getInt32(key: "int_key").unwrap(defalutValue: 0).formatted()
+                }
+        }
+    }
+    ```
+
 Check the [ios](https://github.com/yangkx1024/MMKV/tree/main/ios) demo for more detail.

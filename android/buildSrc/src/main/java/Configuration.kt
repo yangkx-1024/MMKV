@@ -1,8 +1,8 @@
 object Configuration {
-    val snapshotVersion = version + "-SNAPSHOT"
-    val releaseVersion = version
+    const val snapshotVersion = "$version-SNAPSHOT"
+    const val releaseVersion = version
     val libVersion: String
-        get() = if (System.getenv("CI")?.toBoolean() ?: false){
+        get() = if (System.getenv("CI")?.toBoolean() == true){
             releaseVersion
         } else {
             snapshotVersion
@@ -11,7 +11,7 @@ object Configuration {
     const val description = "Library uses file-based mmap to store key-values"
     private const val releasesRepoUrl = "https://s01.oss.sonatype.org/content/repositories/releases/"
     private const val snapshotsRepoUrl = "https://s01.oss.sonatype.org/content/repositories/snapshots/"
-    val publishUrl = if (System.getenv("CI")?.toBoolean() ?: false) {
+    val publishUrl = if (System.getenv("CI")?.toBoolean() == true) {
         releasesRepoUrl
     } else {
         snapshotsRepoUrl
@@ -23,9 +23,9 @@ object Configuration {
 }
 
 object Deps {
-    val kotlin = "androidx.core:core-ktx:1.10.1"
-    val mmkv_snapshot = "net.yangkx:mmkv:${Configuration.snapshotVersion}"
-    val mmkv_encrypt_snapshot = "net.yangkx:mmkv-encrypt:${Configuration.snapshotVersion}"
-    val mmkv = "net.yangkx:mmkv:${Configuration.releaseVersion}"
-    val mmkv_encrypt = "net.yangkx:mmkv-encrypt:${Configuration.releaseVersion}"
+    const val kotlin = "androidx.core:core-ktx:1.10.1"
+    const val mmkv_snapshot = "net.yangkx:mmkv:${Configuration.snapshotVersion}"
+    const val mmkv_encrypt_snapshot = "net.yangkx:mmkv-encrypt:${Configuration.snapshotVersion}"
+    const val mmkv = "net.yangkx:mmkv:${Configuration.releaseVersion}"
+    const val mmkv_encrypt = "net.yangkx:mmkv-encrypt:${Configuration.releaseVersion}"
 }

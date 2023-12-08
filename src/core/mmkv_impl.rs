@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 #[cfg(feature = "encryption")]
 use std::rc::Rc;
 use std::sync::RwLock;
+use std::time::Instant;
 
 const LOG_TAG: &str = "MMKV:Core";
 
@@ -164,17 +165,20 @@ impl MmkvImpl {
                     MmkvImpl::init_encrypt(&self.meta_file_path, key.as_slice());
             }
             let original_len = mm.len();
+            let time_start = Instant::now();
             // rewrite the entire map
             mm.reset().map_err(|e| EncodeFailed(e.to_string()))?;
             for buffer in self.kv_map.values() {
                 let bytes = transform(buffer.clone()).encode_to_bytes()?;
                 mm.append(bytes).map_err(|e| EncodeFailed(e.to_string()))?;
             }
+            let time_end = Instant::now();
             info!(
                 LOG_TAG,
-                "trimmed, len from {} to {}",
+                "trimmed, len from {} to {}, cost {:?}",
                 original_len,
-                mm.len()
+                mm.len(),
+                time_end.duration_since(time_start)
             );
             // the encrypt has been reset, need encode it with new encrypt
             if cfg!(feature = "encryption") {

@@ -21,8 +21,8 @@ jobs:
         ENCODED_KEYSTORE: ${{ secrets.KEYSTORE }}
         GPG_SECRET: ${{ secrets.GPG_SECRET }}
       run: |
-        echo ${ENCODED_KEYSTORE} | base64 -di > ./android/app/keystore.jks
-        echo ${GPG_SECRET} | base64 -di | gpg --dearmor > ./android/secret.gpg
+        echo ${ENCODED_KEYSTORE} | base64 -d > ./android/app/keystore.jks
+        echo ${GPG_SECRET} | base64 -d | gpg --dearmor > ./android/secret.gpg
 
     - name: Android publish
       env:

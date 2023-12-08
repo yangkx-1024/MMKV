@@ -7,7 +7,26 @@ import XCTest
 // https://developer.apple.com/documentation/xctest/defining_test_cases_and_test_methods
 final class MMKVTests: XCTestCase {
     
+    
+    func cleanEnv() {
+        MMKV.shared.initialize(".")
+        MMKV.shared.clearData()
+    }
+
+    override func setUp() {
+        cleanEnv()
+    }
+    
+    override func tearDown() {
+        cleanEnv()
+    }
+    
+    override func tearDownWithError() throws {
+        cleanEnv()
+    }
+    
     func testInitAndClose() throws {
+        cleanEnv()
         MMKV.shared.initialize(".")
         MMKV.shared.setLogLevel(LogLevel.error)
         try MMKV.shared.putInt32("init_i32", 111).unwrap()
@@ -27,6 +46,7 @@ final class MMKVTests: XCTestCase {
     }
     
     func testPutAndGetString() throws {
+        cleanEnv()
         MMKV.shared.initialize(".")
         try MMKV.shared.putString("key", "test_value").unwrap()
         let str = MMKV.shared.getString("key").unwrap("")
@@ -34,6 +54,7 @@ final class MMKVTests: XCTestCase {
     }
     
     func testPutAndGetBool() throws {
+        cleanEnv()
         MMKV.shared.initialize(".")
         try MMKV.shared.putBool("bool_key", true).unwrap()
         let value = MMKV.shared.getBool("bool_key").unwrap(false)
@@ -41,6 +62,7 @@ final class MMKVTests: XCTestCase {
     }
     
     func testPutAndGetInt32() throws {
+        cleanEnv()
         MMKV.shared.initialize(".")
         try MMKV.shared.putInt32("key", 12).unwrap()
         XCTAssertEqual(MMKV.shared.getInt32("key").unwrap(0), 12)
@@ -51,6 +73,7 @@ final class MMKVTests: XCTestCase {
     }
     
     func testPutAndGetInt64() throws {
+        cleanEnv()
         MMKV.shared.initialize(".")
         try MMKV.shared.putInt64("key", 1231).unwrap()
         XCTAssertEqual(MMKV.shared.getInt64("key").unwrap(0), 1231)
@@ -61,6 +84,7 @@ final class MMKVTests: XCTestCase {
     }
     
     func testPutAndGetF32() throws {
+        cleanEnv()
         MMKV.shared.initialize(".")
         try MMKV.shared.putFloat32("key", 1.23).unwrap()
         XCTAssertEqual(MMKV.shared.getFloat32("key").unwrap(0), 1.23)
@@ -71,6 +95,7 @@ final class MMKVTests: XCTestCase {
     }
     
     func testPutAndGetF64() throws {
+        cleanEnv()
         MMKV.shared.initialize(".")
         try MMKV.shared.putFloat64("key", 1.2323).unwrap()
         XCTAssertEqual(MMKV.shared.getFloat64("key").unwrap(0), 1.2323)
@@ -81,6 +106,7 @@ final class MMKVTests: XCTestCase {
     }
     
     func testPutAndGetByteArray() throws {
+        cleanEnv()
         MMKV.shared.initialize(".")
         let array: [UInt8] = [UInt8.min, 2, 3, 4, UInt8.max]
         try MMKV.shared.putByteArray("key", array).unwrap()
@@ -89,6 +115,7 @@ final class MMKVTests: XCTestCase {
     }
     
     func testPutAndGetInt32Array() throws {
+        cleanEnv()
         MMKV.shared.initialize(".")
         let array: [Int32] = [Int32.min, 2, 3, 4, Int32.max]
         try MMKV.shared.putInt32Array("key", array).unwrap()
@@ -97,6 +124,7 @@ final class MMKVTests: XCTestCase {
     }
     
     func testPutAndGetInt64Array() throws {
+        cleanEnv()
         MMKV.shared.initialize(".")
         let array: [Int64] = [Int64.min, 2, 3, 4, Int64.max]
         try MMKV.shared.putInt64Array("key", array).unwrap()
@@ -105,6 +133,7 @@ final class MMKVTests: XCTestCase {
     }
     
     func testPutAndGetFloat32Array() throws {
+        cleanEnv()
         MMKV.shared.initialize(".")
         let array: [Float32] = [-Float32.greatestFiniteMagnitude, 2.1, 3.2, Float32.pi, Float32.greatestFiniteMagnitude]
         try MMKV.shared.putFloat32Array("key", array).unwrap()
@@ -113,6 +142,7 @@ final class MMKVTests: XCTestCase {
     }
     
     func testPutAndGetFloat64Array() throws {
+        cleanEnv()
         MMKV.shared.initialize(".")
         let array: [Float64] = [-Float64.greatestFiniteMagnitude, 2.1, 3.2, Float64.pi, Float64.greatestFiniteMagnitude]
         try MMKV.shared.putFloat64Array("key", array).unwrap()
@@ -125,5 +155,40 @@ final class MMKVTests: XCTestCase {
         case MMKVError.native(let code, _):
             XCTAssertEqual(code, exceptCode)
         }
+    }
+
+    func testMultiThread() throws {
+        cleanEnv()
+        MMKV.shared.initialize(".")
+        MMKV.shared.setLogLevel(LogLevel.info)
+        let dispatchGroup = DispatchGroup()
+        DispatchQueue.global().async(group: dispatchGroup) {
+            let key = "test_multi_thread_repeat_write_key"
+            var originalValue = ""
+            for i in 0...500 {
+                originalValue += String(i)
+                MMKV.shared.putString(key, originalValue).unwrap(())
+            }
+        }
+        for i in 0...2 {
+            DispatchQueue.global().async(group: dispatchGroup) {
+                for j : Int32 in 0...500 {
+                    MMKV.shared.putInt32("task_\(i)_key_\(j)", j).unwrap(())
+                }
+            }
+        }
+        dispatchGroup.wait()
+        MMKV.shared.close()
+        MMKV.shared.initialize(".")
+        MMKV.shared.setLogLevel(LogLevel.info)
+        for i in 0...2 {
+            DispatchQueue.global().async(group: dispatchGroup) {
+                for j : Int32 in 0...500 {
+                    let value = MMKV.shared.getInt32("task_\(i)_key_\(j)").unwrap(0)
+                    XCTAssertEqual(value, j)
+                }
+            }
+        }
+        dispatchGroup.wait()
     }
 }
