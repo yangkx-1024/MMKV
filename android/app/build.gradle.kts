@@ -1,23 +1,12 @@
+import BuildUtil.loadProperities
 import org.gradle.api.artifacts.Configuration
-import java.io.FileInputStream
-import java.util.Properties
 
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
 
-val propFile = File(rootProject.rootDir, "local.properties")
-if (propFile.exists()) {
-    val prop = Properties().apply {
-        FileInputStream(propFile).use {
-            load(it)
-        }
-    }
-    prop.forEach {
-        ext.set(it.key as String, it.value as String)
-    }
-}
+project.loadProperities()
 
 android {
     namespace = "net.yangkx.mmkv.demo"

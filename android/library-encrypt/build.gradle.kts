@@ -1,6 +1,5 @@
-import java.io.FileInputStream
+import BuildUtil.loadProperities
 import java.net.URI
-import java.util.Properties
 
 plugins {
     id("com.android.library")
@@ -9,16 +8,7 @@ plugins {
     id("signing")
 }
 
-val propFile = File(rootProject.rootDir, "local.properties")
-val prop = Properties()
-if (propFile.exists()) {
-    FileInputStream(propFile).use {
-        prop.load(it)
-    }
-    prop.forEach {
-        ext.set(it.key as String, it.value as String)
-    }
-}
+project.loadProperities()
 
 android {
     namespace = "net.yangkx.mmkv"
@@ -99,8 +89,8 @@ publishing {
                 Configuration.publishUrl
             )
             credentials {
-                username = prop["sonatypeUsername"] as String?
-                password = prop["sonatypePassword"] as String?
+                username = project.ext.get("sonatypeUsername") as String?
+                password = project.ext.get("sonatypePassword") as String?
             }
         }
     }

@@ -1,0 +1,70 @@
+{
+    "configurations": [
+        {
+            "type": "cargo",
+            "name": "Cargo test",
+            "cargoArgs": [
+                "test"
+            ],
+        },
+        {
+            "type": "cargo",
+            "name": "Cargo test feature encryption",
+            "cargoArgs": [
+                "test"
+            ],
+            "cargoExtraArgs": [
+                "--features",
+                "encryption"
+            ],
+        },
+        {
+            "type": "command",
+            "name": "Build All",
+            "program": "./build.sh",
+        },
+        {
+            "type": "command",
+            "name": "Build Android",
+            "program": "./build_android.sh",
+        },
+        {
+            "type": "command",
+            "name": "Build Apple",
+            "program": "./build_apple.sh",
+        },
+        {
+            "type": "gradle",
+            "workingDir": "./android/",
+            "name": "Gradle Build",
+            "tasks": [
+                "assembleDebug"
+            ],
+        },
+        {
+            "type": "gradle",
+            "workingDir": "./android/",
+            "name": "Gradle Connected Android Test",
+            "tasks": [
+                "connectedAndroidTest"
+            ],
+        },
+        {
+            "type": "gradle",
+            "workingDir": "./android/",
+            "name": "Gradle Publish",
+            "tasks": [
+                "publish"
+            ],
+        },
+        {
+            "type": "command",
+            "name": "Swift Test",
+            "workingDir": "./ios/MMKV/",
+            "program": "swift",
+            "args": [
+                "test"
+            ],
+        },
+    ]
+}
