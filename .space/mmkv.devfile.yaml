@@ -1,0 +1,57 @@
+schemaVersion: 2.2.0
+metadata: 
+  name: 'MMKV dev env configuration'
+attributes: 
+  space: 
+    # regular, large, xlarge
+    instanceType: large
+    # a default IDE for the project
+    editor: 
+      # (Required) IDE type: Idea, WebStorm, PyCharm,
+      # RubyMine, CLion, Fleet, GoLand, PhpStorm
+      type: Fleet
+      # Space uses JetBrains Toolbox App to install IDEs to a dev environment.
+      # updateChannel defines IDE version release stage: Release, EAP
+      updateChannel: EAP
+      # JVM configuration (appends to the default .vmoptions file)
+      vmoptions: 
+        - '-Xms2048m'
+        - '-Xmx4096m'
+    # a warm-up snapshot
+    warmup: 
+      # create a snapshot every Sunday (only for main branch)
+      startOn: 
+        - type: schedule
+          cron: '0 2 * * SUN'
+      # run additional warmup script (IDE indexes will be built anyway)
+      script: 
+        ./scripts/warmup.sh
+    requiredSecrets: 
+      - name: ENCODED_ANDROID_KEYSTORE
+        description: 'Encoded Android keystore'
+      - name: SIGN_KEY_ALIAS
+        description: 'Android sign key alias'
+      - name: SIGN_KEY_PASSWORD
+        description: 'Android sign pwd'
+      - name: SIGN_STORE_PASSWORD
+        description: 'Android keystore pwd'
+      - name: GPG_SECRET
+        description: 'Encoded GPG key'
+      - name: GPG_KEY_ID
+        description: 'GPG key id'
+      - name: GPG_PWD
+        description: 'GPG pwd'
+      - name: SONATYPEUSERNAME
+        description: 'sonatype username'
+      - name: SONATYPEPASSWORD
+        description: 'sonatype pwd'
+components: 
+  - name: image-build
+    image: 
+    # (Required)
+      imageName: mmkv-dev-image:latest
+      dockerfile: 
+      # (Required) path to Dockerfile relative to projectRoot
+        uri: .space/Dockerfile
+        args: 
+          - 'android_ndk=false'
