@@ -23,9 +23,14 @@ attributes:
       startOn: 
         - type: schedule
           cron: '0 2 * * SUN'
+        - type: gitPush
+          branchFilter: 
+            include: 
+              - 'refs/heads/main'
       # run additional warmup script (IDE indexes will be built anyway)
       script: 
-        ./scripts/warmup.sh
+        cargo build
+        ./build_android.sh
     requiredSecrets: 
       - name: ENCODED_ANDROID_KEYSTORE
         description: 'Encoded Android keystore'
@@ -54,4 +59,4 @@ components:
       # (Required) path to Dockerfile relative to projectRoot
         uri: .space/Dockerfile
         args: 
-          - 'android_ndk=false'
+          - 'android_ndk=true'

@@ -47,6 +47,7 @@ RUN mkdir -p ${android_home} && \
     rm /tmp/${sdk_version}
 
 ENV ANDROID_HOME=${android_home}
+ENV ANDROID_NDK_TOOLCHAINS_PATH=${android_home}/nkd/${ndk_version}/toolchains/llvm/prebuilt/linux-x86_64/bin
 ENV PATH=${ANDROID_HOME}/emulator:${ANDROID_HOME}/tools:${ANDROID_HOME}/tools/bin:${ANDROID_HOME}/platform-tools:${PATH}
 
 RUN mkdir ~/.android && echo '### User Sources for Android SDK Manager' > ~/.android/repositories.cfg
