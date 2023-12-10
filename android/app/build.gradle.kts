@@ -104,3 +104,25 @@ dependencies {
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
 }
+
+tasks.register("launchEmulator", Exec::class) {
+    workingDir = project.rootDir
+    commandLine = listOf("./start_android_emulator.sh")
+    environment["EMULATOR_NAME"] = "nexus"
+}
+
+if (System.getenv("CI")?.toBoolean() != true) {
+    tasks.register("killEmulator", Exec::class) {
+        workingDir = project.rootDir
+        commandLine = listOf("./kill_android_emulator.sh")
+    }
+
+    afterEvaluate {
+        tasks.findByName("connectedDefaultDebugAndroidTest")?.apply {
+            dependsOn(tasks.findByName("launchEmulator"))
+        }
+        tasks.findByName("connectedAndroidTest")?.apply {
+            finalizedBy(tasks.findByName("killEmulator"))
+        }
+    }
+}

@@ -6,6 +6,7 @@ RED='\033[0;31m'
 YE='\033[1;33m'
 NC='\033[0m' # No Color
 
+# shellcheck disable=SC2153
 emulator_name=${EMULATOR_NAME}
 
 function check_hardware_acceleration() {
@@ -33,15 +34,15 @@ function check_hardware_acceleration() {
 hw_accel_flag=$(check_hardware_acceleration)
 
 function launch_emulator () {
-  adb devices | grep emulator | cut -f1 | xargs -I {} adb -s "{}" emu kill
+  ./kill_android_emulator.sh
   options="@${emulator_name} -no-window -no-snapshot -screen no-touch -noaudio -memory 2048 -no-boot-anim ${hw_accel_flag} -camera-back none"
   if [[ "$OSTYPE" == *linux* ]]; then
     echo "${OSTYPE}: emulator ${options} -gpu off"
-    nohup emulator $options -gpu off &
+    nohup emulator $options -gpu off >/dev/null 2>&1 &
   fi
   if [[ "$OSTYPE" == *darwin* ]] || [[ "$OSTYPE" == *macos* ]]; then
     echo "${OSTYPE}: emulator ${options} -gpu swiftshader_indirect"
-    nohup emulator $options -gpu swiftshader_indirect &
+    nohup emulator $options -gpu swiftshader_indirect >/dev/null 2>&1 &
   fi
 
   if [ $? -ne 0 ]; then
@@ -51,7 +52,7 @@ function launch_emulator () {
 }
 
 function check_emulator_status () {
-  printf "${G}==> ${BL}Checking emulator booting up status 🧐${NC}\n"
+  printf "${G}==> ${BL}Checking emulator booting up status${NC}\n"
   start_time=$(date +%s)
   spinner=( "⠹" "⠺" "⠼" "⠶" "⠦" "⠧" "⠇" "⠏" )
   i=0
@@ -62,24 +63,24 @@ function check_emulator_status () {
     result=$(adb shell getprop sys.boot_completed 2>&1)
 
     if [ "$result" == "1" ]; then
-      printf "\e[K${G}==> \u2713 Emulator is ready : '$result'           ${NC}\n"
+      printf "\e[K${G}==> Emulator is ready!${NC}\n"
       adb devices -l
       adb shell input keyevent 82
       break
     elif [ "$result" == "" ]; then
-      printf "${YE}==> Emulator is partially Booted! 😕 ${spinner[$i]} ${NC}\r"
+      printf "${YE}==> Emulator is partially booted! Please wait... %s ${NC}\r" "${spinner[$i]}"
     else
-      printf "${RED}==> $result, please wait ${spinner[$i]} ${NC}\r"
+      printf "${RED}==> %s, please wait... %s ${NC}\r" "$result" "${spinner[$i]}"
       i=$(( (i+1) % 8 ))
     fi
 
     current_time=$(date +%s)
     elapsed_time=$((current_time - start_time))
-    if [ $elapsed_time -gt $timeout ]; then
-      printf "${RED}==> Timeout after ${timeout} seconds elapsed 🕛.. ${NC}\n"
+    if [ $elapsed_time -gt "$timeout" ]; then
+      printf "${RED}==> Timeout after %s seconds elapsed${NC}\n" "${timeout}"
       break
     fi
-    sleep 4
+    sleep 1
   done
 };
 
@@ -93,11 +94,13 @@ function hidden_policy() {
   adb shell "settings put global hidden_api_policy_pre_p_apps 1;settings put global hidden_api_policy_p_apps 1;settings put global hidden_api_policy 1"
 };
 
+printf "\e[K${G}==> Launch emulator... ${NC}\n"
 launch_emulator
-sleep 2
-check_emulator_status
 sleep 1
+check_emulator_status
+printf "\e[K${G}==> Disable animation... ${NC}\n"
 disable_animation
 sleep 1
+printf "\e[K${G}==> Enable hidden api... ${NC}\n"
 hidden_policy
 sleep 1
