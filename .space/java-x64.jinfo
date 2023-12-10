@@ -1,0 +1,32 @@
+name=java-17-openjdk-x64
+alias=java-17.0.8-openjdk-x64
+priority=30
+section=main
+
+hl java /usr/lib/jvm/java-17-openjdk-x64/bin/java
+hl keytool /usr/lib/jvm/java-17-openjdk-x64/bin/keytool
+hl rmiregistry /usr/lib/jvm/java-17-openjdk-x64/bin/rmiregistry
+hl jexec /usr/lib/jvm/java-17-openjdk-x64/lib/jexec
+jdk jar /usr/lib/jvm/java-17-openjdk-x64/bin/jar
+jdk jarsigner /usr/lib/jvm/java-17-openjdk-x64/bin/jarsigner
+jdk javac /usr/lib/jvm/java-17-openjdk-x64/bin/javac
+jdk javadoc /usr/lib/jvm/java-17-openjdk-x64/bin/javadoc
+jdk javap /usr/lib/jvm/java-17-openjdk-x64/bin/javap
+jdk jcmd /usr/lib/jvm/java-17-openjdk-x64/bin/jcmd
+jdk jconsole /usr/lib/jvm/java-17-openjdk-x64/bin/jconsole
+jdk jdb /usr/lib/jvm/java-17-openjdk-x64/bin/jdb
+jdk jdeprscan /usr/lib/jvm/java-17-openjdk-x64/bin/jdeprscan
+jdk jdeps /usr/lib/jvm/java-17-openjdk-x64/bin/jdeps
+jdk jhsdb /usr/lib/jvm/java-17-openjdk-x64/bin/jhsdb
+jdk jimage /usr/lib/jvm/java-17-openjdk-x64/bin/jimage
+jdk jinfo /usr/lib/jvm/java-17-openjdk-x64/bin/jinfo
+jdk jlink /usr/lib/jvm/java-17-openjdk-x64/bin/jlink
+jdk jmap /usr/lib/jvm/java-17-openjdk-x64/bin/jmap
+jdk jmod /usr/lib/jvm/java-17-openjdk-x64/bin/jmod
+jdk jps /usr/lib/jvm/java-17-openjdk-x64/bin/jps
+jdk jrunscript /usr/lib/jvm/java-17-openjdk-x64/bin/jrunscript
+jdk jshell /usr/lib/jvm/java-17-openjdk-x64/bin/jshell
+jdk jstack /usr/lib/jvm/java-17-openjdk-x64/bin/jstack
+jdk jstat /usr/lib/jvm/java-17-openjdk-x64/bin/jstat
+jdk jstatd /usr/lib/jvm/java-17-openjdk-x64/bin/jstatd
+jdk serialver /usr/lib/jvm/java-17-openjdk-x64/bin/serialver

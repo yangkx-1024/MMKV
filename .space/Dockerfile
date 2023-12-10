@@ -2,31 +2,37 @@ FROM ubuntu:20.04
 
 ENV LANG=C.UTF-8
 
-MAINTAINER Kexuan Yang <kexuan.yang@gmail.com>
-
-# Support various rvm, nvm etc stuff which requires executing profile scripts (-l)
-SHELL ["/bin/bash", "-lc"]
-CMD ["/bin/bash", "-l"]
+LABEL maintainer="Kexuan Yang <kexuan.yang@gmail.com>"
 
 # Set debconf to run non-interactively
 RUN echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
 
-RUN apt-get update && apt-get install -y apt-utils apt-transport-https software-properties-common
+RUN apt-get update && apt-get install -y \
+    apt-utils apt-transport-https software-properties-common \
+    curl unzip wget man-db rsync moreutils vim lsof ssh git gnupg2 gosu build-essential
 
-# Newest git
-RUN apt-add-repository ppa:git-core/ppa -y && apt-get update
+RUN apt-get clean && rm -r /var/lib/apt/lists/*
 
-RUN set -ex -o pipefail && apt-get install -y \
-    # Useful utilities \
-    curl unzip wget socat man-db rsync moreutils vim lsof ssh \
-    git build-essential libssl-dev libreadline-dev libcurl4 \
-    openjdk-17-jdk-headless binutils gnupg2 libc6-dev tzdata \
-    libcurl4-openssl-dev libedit2 libgcc-9-dev libpython3.8 zlib1g-dev \
-    libstdc++-9-dev libsqlite3-0 libxml2-dev libz3-dev pkg-config && \
-    apt-get clean && \
-    rm -r /var/lib/apt/lists/*
-
-ENV JAVA_HOME="/usr/lib/jvm/java-17-openjdk-amd64"
+# Install OpenJDK Java 17 SDK
+ENV JDK_VERSION 17.0.9
+ENV JDK_MAJOR_VERSION 17
+ENV TEMURIN_SUFFIX 9
+ENV JDK_DOWNLOAD http://storage.exoplatform.org/public/java/jdk/openjdk/${JDK_VERSION}/openjdk-${JDK_VERSION}_linux-x64_bin.tar.gz
+ENV JVM_DIR /usr/lib/jvm
+RUN mkdir -p "${JVM_DIR}"
+ENV JVM_DIR /usr/lib/jvm
+RUN mkdir -p "${JVM_DIR}"
+RUN wget -q --no-cookies --no-check-certificate \
+  -O "${DOWNLOAD_DIR}/openjdk-${JDK_VERSION}-linux-x64.tar.gz" "${JDK_DOWNLOAD}" \
+  && cd "${JVM_DIR}" \
+  && tar --no-same-owner -xzf "${DOWNLOAD_DIR}/openjdk-${JDK_VERSION}-linux-x64.tar.gz" \
+  && rm -f "${DOWNLOAD_DIR}/openjdk-${JDK_VERSION}-linux-x64.tar.gz" \
+  && mv "${JVM_DIR}/jdk-${JDK_VERSION}+${TEMURIN_SUFFIX}" "${JVM_DIR}/java-${JDK_VERSION}-openjdk-x64" \
+  && ln -s "${JVM_DIR}/java-${JDK_VERSION}-openjdk-x64" "${JVM_DIR}/java-${JDK_MAJOR_VERSION}-openjdk-x64"
+ADD java-x64.jinfo ${JVM_DIR}/.java-x64.jinfo
+RUN cat "${JVM_DIR}/.java-x64.jinfo" | grep -E '^(jre|jdk|hl)' | awk '{print "/usr/bin/" $2 " " $2 " " $3 " 30 \n"}' | xargs -t -n4 gosu root update-alternatives --install
+ENV JAVA_HOME ${JVM_DIR}/java-${JDK_MAJOR_VERSION}-openjdk-x64
+# END OpenJDK Java 17 SDK
 
 # Android
 ARG sdk_version=commandlinetools-linux-10406996_latest.zip
@@ -38,11 +44,11 @@ ARG cmake=3.22.1
 ARG android_system_image=system-images;${android_api};google_apis_playstore;x86_64
 
 ENV ANDROID_HOME=/opt/android/sdk
-    ANDROID_NDK_ROOT=${ANDROID_HOME}/ndk/${ndk_version}
-    ANDROID_NDK_TOOLCHAINS_PATH=${ANDROID_NDK_ROOT}/toolchains/llvm/prebuilt/linux-x86_64/bin
-    ANDROID_AVD_HOME=/opt/android/avd
-    EMULATOR_NAME=nexus
-    EMULATOR_TIMEOUT=360
+ENV ANDROID_NDK_ROOT=${ANDROID_HOME}/ndk/${ndk_version}
+ENV ANDROID_NDK_TOOLCHAINS_PATH=${ANDROID_NDK_ROOT}/toolchains/llvm/prebuilt/linux-x86_64/bin
+ENV ANDROID_AVD_HOME=/opt/android/avd
+ENV EMULATOR_NAME=nexus
+ENV EMULATOR_TIMEOUT=360
 
 RUN mkdir -p ${ANDROID_HOME} && \
     wget --quiet --output-document=/tmp/${sdk_version} https://dl.google.com/android/repository/${sdk_version} && \
@@ -90,6 +96,4 @@ RUN echo "############################### Versions #############################
     echo "" && \
     cargo --version && \
     rustc --version && \
-    echo "" && \
-    swift --version && \
     echo "############################### Versions #####################################"
