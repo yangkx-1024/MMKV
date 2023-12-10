@@ -36,15 +36,11 @@
         {
             "type": "gradle",
             "workingDir": "./android/",
-            "name": "Gradle Build",
-            "tasks": [
-                "assembleDebug"
-            ],
-        },
-        {
-            "type": "gradle",
-            "workingDir": "./android/",
-            "name": "Gradle Connected Android Test",
+            "name": "Android Test",
+            "environment": {
+                "EMULATOR_NAME": "nexus",
+                "EMULATOR_TIMEOUT": "3600"
+            },
             "tasks": [
                 "connectedAndroidTest"
             ],
