@@ -45,7 +45,7 @@ impl Encrypt {
         let generic_array = GenericArray::from_slice(&key);
         let nonce = GenericArray::from_slice(nonce);
         let cipher = Aes128Eax::new(generic_array);
-        let stream = StreamBE32::from_aead(cipher, &nonce);
+        let stream = StreamBE32::from_aead(cipher, nonce);
         Self {
             stream,
             position: Default::default(),
@@ -150,7 +150,7 @@ impl Debug for EncryptBuffer {
 impl Debug for Encrypt {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Encrypt")
-            .field("nonce", &hex::encode(self.nonce.to_vec()))
+            .field("nonce", &hex::encode(self.nonce))
             .finish()
     }
 }

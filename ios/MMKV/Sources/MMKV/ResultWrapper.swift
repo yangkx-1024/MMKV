@@ -24,33 +24,33 @@ public class ResultWrapper<T> {
         if rawBuffer.pointee.err != nil {
             return Result.failure(rawBuffer.pointee.err.asMMKVError())
         }
-        if rawBuffer.pointee.rawData == nil {
+        if rawBuffer.pointee.raw_data == nil {
             return Result.success(() as! T)
         }
-        let rawData = rawBuffer.pointee.rawData!
-        let data: Any = switch rawBuffer.pointee.typeToken {
+        let raw_data = rawBuffer.pointee.raw_data!
+        let data: Any = switch rawBuffer.pointee.type_token {
         case RustMMKV.I32:
-            Int32(rawData.bindType(type: Int32.self).pointee)
+            Int32(raw_data.bindType(type: Int32.self).pointee)
         case RustMMKV.Str:
-            rawData.bindType(type: ByteSlice.self).asString()!
+            raw_data.bindType(type: ByteSlice.self).asString()!
         case RustMMKV.Bool:
-            Bool(rawData.bindType(type: Bool.self).pointee)
+            Bool(raw_data.bindType(type: Bool.self).pointee)
         case RustMMKV.I64:
-            Int64(rawData.bindType(type: Int64.self).pointee)
+            Int64(raw_data.bindType(type: Int64.self).pointee)
         case RustMMKV.F32:
-            Float32(rawData.bindType(type: Float32.self).pointee)
+            Float32(raw_data.bindType(type: Float32.self).pointee)
         case RustMMKV.F64:
-            Float64(rawData.bindType(type: Float64.self).pointee)
+            Float64(raw_data.bindType(type: Float64.self).pointee)
         case RustMMKV.ByteArray:
-            rawData.bindType(type: RawTypedArray.self).readArray(source: UInt8.self)
+            raw_data.bindType(type: RawTypedArray.self).readArray(source: UInt8.self)
         case RustMMKV.I32Array:
-            rawData.bindType(type: RawTypedArray.self).readArray(source: Int32.self)
+            raw_data.bindType(type: RawTypedArray.self).readArray(source: Int32.self)
         case RustMMKV.I64Array:
-            rawData.bindType(type: RawTypedArray.self).readArray(source: Int64.self)
+            raw_data.bindType(type: RawTypedArray.self).readArray(source: Int64.self)
         case RustMMKV.F32Array:
-            rawData.bindType(type: RawTypedArray.self).readArray(source: Float32.self)
+            raw_data.bindType(type: RawTypedArray.self).readArray(source: Float32.self)
         case RustMMKV.F64Array:
-            rawData.bindType(type: RawTypedArray.self).readArray(source: Float64.self)
+            raw_data.bindType(type: RawTypedArray.self).readArray(source: Float64.self)
         default:
             fatalError("should not happen")
         }

@@ -1,7 +1,7 @@
 use std::any::Any;
 use std::fmt::Debug;
 
-use crate::ffi::ffi::*;
+use crate::ffi::*;
 use crate::Error;
 
 pub(super) trait Releasable {
@@ -71,8 +71,8 @@ impl Releasable for RawTypedArray {
 impl RawBuffer {
     pub(super) fn new(type_token: Types) -> Self {
         RawBuffer {
-            rawData: std::ptr::null(),
-            typeToken: type_token,
+            raw_data: std::ptr::null(),
+            type_token,
             err: std::ptr::null(),
         }
     }
@@ -84,26 +84,26 @@ impl RawBuffer {
         let log = format!("{:?}", data);
         let ptr = Box::into_raw(Box::new(data)) as *const _;
         verbose!(LOG_TAG, "leak data {log} {:?}", ptr);
-        self.rawData = ptr;
+        self.raw_data = ptr;
     }
 
     unsafe fn drop_data(&mut self) {
-        if self.rawData.is_null() {
+        if self.raw_data.is_null() {
             return;
         }
-        verbose!(LOG_TAG, "release data {:?}", self.rawData);
-        let _: Box<dyn Any> = match self.typeToken {
-            Types::I32 => Box::from_raw(self.rawData as *mut i32),
-            Types::Str => Box::from_raw(self.rawData as *mut ByteSlice),
-            Types::Bool => Box::from_raw(self.rawData as *mut bool),
-            Types::I64 => Box::from_raw(self.rawData as *mut i64),
-            Types::F32 => Box::from_raw(self.rawData as *mut f32),
-            Types::F64 => Box::from_raw(self.rawData as *mut f64),
+        verbose!(LOG_TAG, "release data {:?}", self.raw_data);
+        let _: Box<dyn Any> = match self.type_token {
+            Types::I32 => Box::from_raw(self.raw_data as *mut i32),
+            Types::Str => Box::from_raw(self.raw_data as *mut ByteSlice),
+            Types::Bool => Box::from_raw(self.raw_data as *mut bool),
+            Types::I64 => Box::from_raw(self.raw_data as *mut i64),
+            Types::F32 => Box::from_raw(self.raw_data as *mut f32),
+            Types::F64 => Box::from_raw(self.raw_data as *mut f64),
             Types::ByteArray
             | Types::I32Array
             | Types::I64Array
             | Types::F32Array
-            | Types::F64Array => Box::from_raw(self.rawData as *mut RawTypedArray),
+            | Types::F64Array => Box::from_raw(self.raw_data as *mut RawTypedArray),
         };
     }
 
@@ -124,7 +124,7 @@ impl RawBuffer {
         let log = format!("{:?}", self);
         let ptr = Box::into_raw(Box::new(self));
         verbose!(LOG_TAG, "leak {log} {:?}", ptr);
-        return ptr;
+        ptr
     }
 
     pub(super) fn from_raw(ptr: *mut RawBuffer) -> Self {

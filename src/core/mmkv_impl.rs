@@ -97,7 +97,7 @@ impl MmkvImpl {
             mm.iter(|| EncryptBuffer::new(self.encrypt.clone()))
                 .for_each(decode)
         } else {
-            mm.iter(|| CrcBuffer::new()).for_each(decode)
+            mm.iter(CrcBuffer::new).for_each(decode)
         }
     }
 
@@ -346,9 +346,9 @@ mod tests {
         let ret = mmkv.put("key9", Buffer::from_i32("key9", 9));
         assert_eq!(ret, Err(InstanceClosed));
         assert_eq!(mmkv.get("key9"), Err(KeyNotFound));
-        assert_eq!(mmkv.path.exists(), false);
+        assert!(!mmkv.path.exists());
         #[cfg(feature = "encryption")]
-        assert_eq!(mmkv.meta_file_path.exists(), false);
+        assert!(!mmkv.meta_file_path.exists());
     }
 
     #[test]

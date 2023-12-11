@@ -40,8 +40,8 @@ struct InternalError {
 };
 
 struct RawBuffer {
-  const void *rawData;
-  enum Types typeToken;
+  const void *raw_data;
+  enum Types type_token;
   const struct InternalError *err;
 };
 

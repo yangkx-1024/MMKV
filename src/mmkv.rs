@@ -72,7 +72,7 @@ impl MMKV {
         }
         let metadata = path
             .metadata()
-            .expect(format!("failed to get attr of dir {}", dir).as_str());
+            .unwrap_or_else(|_| panic!("failed to get attr of dir {}", dir));
         if metadata.permissions().readonly() {
             panic!("path {}, is readonly", dir);
         }
@@ -189,7 +189,7 @@ impl MMKV {
 
     fn drop_instance() {
         let p = MMKV_IMPL.swap(std::ptr::null_mut(), Ordering::Release);
-        if p != std::ptr::null_mut() {
+        if !p.is_null() {
             unsafe {
                 drop(Box::from_raw(p));
                 verbose!(LOG_TAG, "instance closed");
@@ -284,19 +284,19 @@ mod tests {
         MMKV::put_i32("first", 1).unwrap();
         MMKV::put_i32("second", 2).unwrap();
         assert_eq!(MMKV::get_i32("first"), Ok(1));
-        assert_eq!(MMKV::get_str("first").is_err(), true);
-        assert_eq!(MMKV::get_bool("first").is_err(), true);
+        assert!(MMKV::get_str("first").is_err());
+        assert!(MMKV::get_bool("first").is_err());
         assert_eq!(MMKV::get_i32("second"), Ok(2));
-        assert_eq!(MMKV::get_i32("third").is_err(), true);
+        assert!(MMKV::get_i32("third").is_err());
         MMKV::put_i32("third", 3).unwrap();
         assert_eq!(MMKV::get_i32("third"), Ok(3));
         MMKV::put_str("fourth", "four").unwrap();
         assert_eq!(MMKV::get_str("fourth"), Ok("four".to_string()));
         MMKV::put_str("first", "one").unwrap();
-        assert_eq!(MMKV::get_i32("first").is_err(), true);
+        assert!(MMKV::get_i32("first").is_err());
         assert_eq!(MMKV::get_str("first"), Ok("one".to_string()));
         MMKV::put_bool("second", false).unwrap();
-        assert_eq!(MMKV::get_str("second").is_err(), true);
+        assert!(MMKV::get_str("second").is_err());
         assert_eq!(MMKV::get_bool("second"), Ok(false));
 
         MMKV::put_i64("i64", 2).unwrap();
@@ -332,8 +332,8 @@ mod tests {
         );
         assert_eq!(MMKV::get_str("first"), Ok("one".to_string()));
         MMKV::clear_data();
-        assert_eq!(Path::new("./mini_mmkv").exists(), false);
-        assert_eq!(Path::new("./mini_mmkv.meta").exists(), false);
+        assert!(!Path::new("./mini_mmkv").exists());
+        assert!(!Path::new("./mini_mmkv.meta").exists());
         assert_eq!(MMKV_IMPL.load(Ordering::Acquire), std::ptr::null_mut());
     }
 }

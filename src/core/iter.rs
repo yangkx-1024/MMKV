@@ -84,10 +84,8 @@ mod tests {
             mm.append(buffer.encode_to_bytes().unwrap()).unwrap();
             buffers.push(buffer.take().unwrap());
         }
-        let mut index = 0;
-        for i in mm.iter(|| CrcBuffer::new()) {
+        for (index, i) in mm.iter(CrcBuffer::new).enumerate() {
             assert_eq!(buffers[index], i.unwrap());
-            index += 1;
         }
         let _ = fs::remove_file("test_mmap_iterator");
     }
