@@ -106,10 +106,24 @@ impl MmkvImpl {
         if meta_path.exists() {
             let mut nonce_file = OpenOptions::new().read(true).open(meta_path).unwrap();
             let mut nonce = Vec::<u8>::new();
-            nonce_file
-                .read_to_end(&mut nonce)
-                .expect("failed to read nonce file");
-            Encrypt::new_with_nonce(key.try_into().unwrap(), nonce.as_slice())
+            let error_handle = |reason: String| {
+                error!(LOG_TAG, "filed to read nonce, reason: {:?}", reason);
+                warn!(
+                    LOG_TAG, "delete meta file due to previous reason, which may cause mmkv drop all encrypted data"
+                );
+                let _ = fs::remove_file(meta_path);
+                MmkvImpl::init_encrypt(meta_path, key)
+            };
+            match nonce_file.read_to_end(&mut nonce) {
+                Ok(_) => {
+                    if nonce.len() != crate::core::encrypt::NONCE_LEN {
+                        error_handle("meta file corruption".to_string())
+                    } else {
+                        Encrypt::new_with_nonce(key.try_into().unwrap(), nonce.as_slice())
+                    }
+                }
+                Err(e) => error_handle(format!("{:?}", e)),
+            }
         } else {
             let crypt = Encrypt::new(key.try_into().unwrap());
             let mut nonce_file = OpenOptions::new()

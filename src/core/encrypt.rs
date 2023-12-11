@@ -15,6 +15,7 @@ use crate::Error::{DataInvalid, DecryptFailed, EncryptFailed};
 use crate::Result;
 
 const LOG_TAG: &str = "MMKV:Encrypt";
+pub const NONCE_LEN: usize = 11;
 
 type Aes128Eax = Eax<Aes128, U8>;
 type Stream = StreamBE32<Aes128Eax>;
@@ -23,7 +24,7 @@ pub struct Encrypt {
     stream: Stream,
     position: u32,
     key: [u8; 16],
-    nonce: [u8; 11],
+    nonce: [u8; NONCE_LEN],
 }
 
 impl Encrypt {

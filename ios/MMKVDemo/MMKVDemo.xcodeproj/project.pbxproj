@@ -371,7 +371,7 @@
 			repositoryURL = "https://github.com/yangkx-1024/MMKV";
 			requirement = {
 				kind = upToNextMinorVersion;
-				minimumVersion = 0.3.4;
+				minimumVersion = 0.3.5;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
