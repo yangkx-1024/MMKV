@@ -214,7 +214,7 @@ macro_rules! impl_put {
                     verbose!(LOG_TAG, "{} for key '{}' success", $log, key_str);
                 }
             }
-            return result.leak();
+            result.leak()
         }
     };
 }
@@ -231,7 +231,7 @@ macro_rules! impl_put_typed_array {
                     verbose!(LOG_TAG, "{} for key '{}' success", $log, key_str);
                 }
             }
-            return result.leak();
+            result.leak()
         }
     };
 }

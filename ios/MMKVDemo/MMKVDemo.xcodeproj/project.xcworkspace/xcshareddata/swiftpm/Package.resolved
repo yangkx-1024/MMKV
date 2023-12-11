@@ -5,8 +5,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/yangkx-1024/MMKV",
       "state" : {
-        "revision" : "66a80a9e8fc66fd853cb67b782f2bfdd2cfd5b42",
-        "version" : "0.3.4"
+        "revision" : "de70fd46a37c07b6a365612b8118f8418a5dd00e",
+        "version" : "0.3.5"
       }
     }
   ],

@@ -81,7 +81,6 @@ macro_rules! verbose {
 mod core;
 #[cfg(not(target_os = "android"))]
 #[cfg(not(feature = "encryption"))]
-#[allow(non_snake_case)]
 /// Expose the C API
 mod ffi;
 #[cfg(target_os = "android")]
