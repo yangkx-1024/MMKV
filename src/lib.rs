@@ -79,9 +79,13 @@ macro_rules! verbose {
 }
 
 mod core;
-#[cfg(any(target_os = "ios", target_os = "macos"))]
+#[cfg(not(target_os = "android"))]
+#[cfg(not(feature = "encryption"))]
+#[allow(non_snake_case)]
+/// Expose the C API
 mod ffi;
 #[cfg(target_os = "android")]
+/// Expose the JNI interface for android
 mod jni;
 mod log;
 mod mmkv;
