@@ -1,4 +1,5 @@
 pub mod buffer;
+#[cfg(not(feature = "encryption"))]
 mod crc;
 #[cfg(feature = "encryption")]
 mod encrypt;

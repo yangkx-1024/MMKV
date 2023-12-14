@@ -1,3 +1,4 @@
+#![deny(warnings)]
 //! Rust version of MMKV.
 //! Examples:
 //! ```

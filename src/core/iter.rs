@@ -1,24 +1,22 @@
-use crate::core::buffer::{Buffer, Decoder, Take};
+use crate::core::buffer::{Buffer, DecodeResult};
 use crate::core::memory_map::{MemoryMap, LEN_OFFSET};
 
 const LOG_TAG: &str = "MMKV:MemoryMap";
 
-pub struct Iter<'a, T: Sized, F>
+pub struct Iter<'a, F>
 where
-    T: Decoder + Take,
-    F: Fn() -> T,
+    F: Fn(&[u8]) -> crate::Result<DecodeResult>,
 {
     mm: &'a MemoryMap,
     start: usize,
     end: usize,
-    buffer_allocator: F,
+    decode: F,
 }
 
 impl MemoryMap {
-    pub fn iter<T, F>(&self, buffer_allocator: F) -> Iter<T, F>
+    pub fn iter<F>(&self, decode: F) -> Iter<F>
     where
-        T: Decoder + Take,
-        F: Fn() -> T,
+        F: Fn(&[u8]) -> crate::Result<DecodeResult>,
     {
         let start = LEN_OFFSET;
         let end = self.len();
@@ -26,15 +24,14 @@ impl MemoryMap {
             mm: self,
             start,
             end,
-            buffer_allocator,
+            decode,
         }
     }
 }
 
-impl<'a, T, F> Iterator for Iter<'a, T, F>
+impl<'a, F> Iterator for Iter<'a, F>
 where
-    T: Decoder + Take,
-    F: Fn() -> T,
+    F: Fn(&[u8]) -> crate::Result<DecodeResult>,
 {
     type Item = Option<Buffer>;
 
@@ -42,12 +39,12 @@ where
         if self.start >= self.end {
             return None;
         }
-        let mut buffer = (self.buffer_allocator)();
-        let len = buffer.decode_bytes_into(self.mm.read(self.start..self.end).as_ref());
-        match len {
-            Ok(len) => {
-                self.start += len as usize;
-                Some(buffer.take())
+        let bytes = self.mm.read(self.start..self.end);
+        let decode_result = (self.decode)(bytes);
+        match decode_result {
+            Ok(result) => {
+                self.start += result.len as usize;
+                Some(result.buffer)
             }
             Err(e) => {
                 error!(LOG_TAG, "Failed to iter memory map, reason: {:?}", e);
@@ -61,10 +58,46 @@ where
 mod tests {
     use std::fs;
     use std::fs::OpenOptions;
+    use std::mem::size_of;
 
-    use crate::core::buffer::{Buffer, Encoder, Take};
-    use crate::core::crc::CrcBuffer;
+    use crate::core::buffer::{Buffer, DecodeResult, Decoder, Encoder};
     use crate::core::memory_map::MemoryMap;
+    use crate::Error::DataInvalid;
+    use crate::Result;
+
+    const LOG_TAG: &str = "MMKV:IterTest";
+
+    struct TestEncoderDecoder;
+    impl Encoder for TestEncoderDecoder {
+        fn encode_to_bytes(&self, raw_buffer: &Buffer) -> Result<Vec<u8>> {
+            let bytes_to_write = raw_buffer.to_bytes();
+            let len = bytes_to_write.len() as u32;
+            let mut data = len.to_be_bytes().to_vec();
+            data.extend_from_slice(bytes_to_write.as_slice());
+            Ok(data)
+        }
+    }
+
+    impl Decoder for TestEncoderDecoder {
+        fn decode_bytes(&self, data: &[u8]) -> Result<DecodeResult> {
+            let offset = size_of::<u32>();
+            let item_len = u32::from_be_bytes(data[0..offset].try_into().map_err(|_| DataInvalid)?);
+            let bytes_to_decode = &data[offset..(offset + item_len as usize)];
+            let read_len = offset as u32 + item_len;
+            let result = Buffer::from_encoded_bytes(bytes_to_decode);
+            let buffer = match result {
+                Ok(data) => Some(data),
+                Err(e) => {
+                    error!(LOG_TAG, "Failed to decode data, reason: {:?}", e);
+                    None
+                }
+            };
+            Ok(DecodeResult {
+                buffer,
+                len: read_len,
+            })
+        }
+    }
 
     #[test]
     fn test_mmap_iterator() {
@@ -79,12 +112,15 @@ mod tests {
         file.set_len(1024).unwrap();
         let mut mm = MemoryMap::new(&file);
         let mut buffers: Vec<Buffer> = vec![];
+        let test_encoder = &TestEncoderDecoder;
         for i in 0..10 {
-            let buffer = CrcBuffer::new_with_buffer(Buffer::from_i32(&i.to_string(), i));
-            mm.append(buffer.encode_to_bytes().unwrap()).unwrap();
-            buffers.push(buffer.take().unwrap());
+            let buffer = Buffer::from_i32(&i.to_string(), i);
+            mm.append(test_encoder.encode_to_bytes(&buffer).unwrap())
+                .unwrap();
+            buffers.push(buffer);
         }
-        for (index, i) in mm.iter(CrcBuffer::new).enumerate() {
+        let decoder = &TestEncoderDecoder;
+        for (index, i) in mm.iter(|bytes| decoder.decode_bytes(bytes)).enumerate() {
             assert_eq!(buffers[index], i.unwrap());
         }
         let _ = fs::remove_file("test_mmap_iterator");
