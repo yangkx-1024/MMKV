@@ -1,16 +1,16 @@
-use std::cell::RefCell;
-use std::fmt::{Debug, Formatter};
-use std::ops::Deref;
-use std::rc::Rc;
-
 use aes::Aes128;
 use eax::aead::consts::U8;
 use eax::aead::rand_core::RngCore;
 use eax::aead::stream::{NewStream, StreamBE32, StreamPrimitive};
 use eax::aead::{generic_array::GenericArray, KeyInit, OsRng, Payload};
 use eax::Eax;
+use std::cell::RefCell;
+use std::fmt::{Debug, Formatter};
+use std::mem::size_of;
+use std::ops::Deref;
+use std::rc::Rc;
 
-use crate::core::buffer::{Buffer, Decoder, Encoder, Take};
+use crate::core::buffer::{Buffer, DecodeResult, Decoder, Encoder};
 use crate::Error::{DataInvalid, DecryptFailed, EncryptFailed};
 use crate::Result;
 
@@ -92,22 +92,12 @@ impl Encrypt {
     }
 }
 
-pub struct EncryptBuffer(Option<Buffer>, Rc<RefCell<Encrypt>>);
+pub struct EncryptEncoderDecoder(pub Rc<RefCell<Encrypt>>);
 
-impl EncryptBuffer {
-    pub fn new_with_buffer(buffer: Buffer, crypt: Rc<RefCell<Encrypt>>) -> Self {
-        EncryptBuffer(Some(buffer), crypt)
-    }
-
-    pub fn new(encrypt: Rc<RefCell<Encrypt>>) -> Self {
-        EncryptBuffer(None, encrypt)
-    }
-}
-
-impl Encoder for EncryptBuffer {
-    fn encode_to_bytes(&self) -> Result<Vec<u8>> {
-        let bytes_to_write = self.0.as_ref().unwrap().to_bytes();
-        let crypt_bytes = self.1.borrow_mut().encrypt(bytes_to_write)?;
+impl Encoder for EncryptEncoderDecoder {
+    fn encode_to_bytes(&self, raw_buffer: &Buffer) -> Result<Vec<u8>> {
+        let bytes_to_write = raw_buffer.to_bytes();
+        let crypt_bytes = self.0.borrow_mut().encrypt(bytes_to_write)?;
         let len = crypt_bytes.len() as u32;
         let mut data = len.to_be_bytes().to_vec();
         data.extend_from_slice(crypt_bytes.as_slice());
@@ -115,36 +105,29 @@ impl Encoder for EncryptBuffer {
     }
 }
 
-impl Decoder for EncryptBuffer {
-    fn decode_bytes_into(&mut self, data: &[u8]) -> Result<u32> {
-        let item_len = u32::from_be_bytes(data[0..4].try_into().map_err(|_| DataInvalid)?);
-        let bytes_to_decode = &data[4..(4 + item_len as usize)];
-        match self.1.borrow_mut().decrypt(bytes_to_decode.to_vec()) {
-            Ok(data) => {
-                let buffer = Buffer::from_encoded_bytes(data.as_slice())?;
-                self.0 = Some(buffer)
+impl Decoder for EncryptEncoderDecoder {
+    fn decode_bytes(&self, data: &[u8]) -> Result<DecodeResult> {
+        let data_offset = size_of::<u32>();
+        let item_len =
+            u32::from_be_bytes(data[0..data_offset].try_into().map_err(|_| DataInvalid)?);
+        let bytes_to_decode = &data[data_offset..(data_offset + item_len as usize)];
+        let read_len = data_offset as u32 + item_len;
+        let result = self
+            .0
+            .borrow_mut()
+            .decrypt(bytes_to_decode.to_vec())
+            .and_then(|vec| Buffer::from_encoded_bytes(vec.as_slice()));
+        let buffer = match result {
+            Ok(data) => Some(data),
+            Err(e) => {
+                error!(LOG_TAG, "Failed to decode data, reason: {:?}", e);
+                None
             }
-            Err(e) => error!(LOG_TAG, "Failed to decode data, reason: {:?}", e),
-        }
-        Ok(4 + item_len)
-    }
-}
-
-impl Take for EncryptBuffer {
-    fn take(self) -> Option<Buffer> {
-        self.0
-    }
-}
-
-impl PartialEq for EncryptBuffer {
-    fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
-    }
-}
-
-impl Debug for EncryptBuffer {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("Buffer").field(&self.0).finish()
+        };
+        Ok(DecodeResult {
+            buffer,
+            len: read_len,
+        })
     }
 }
 
@@ -158,35 +141,30 @@ impl Debug for Encrypt {
 
 #[cfg(test)]
 mod tests {
+    use crate::core::buffer::{Buffer, Decoder, Encoder};
+    use crate::core::encrypt::{Encrypt, EncryptEncoderDecoder};
     use std::cell::RefCell;
     use std::rc::Rc;
-
-    use crate::core::buffer::{Buffer, Decoder, Encoder};
-    use crate::core::encrypt::{Encrypt, EncryptBuffer};
 
     const TEST_KEY: &str = "88C51C536176AD8A8EE4A06F62EE897E";
 
     #[test]
     fn test_crypt_buffer() {
-        let encryptor = Rc::new(RefCell::new(Encrypt::new(
-            hex::decode(TEST_KEY).unwrap().try_into().unwrap(),
-        )));
-        let nonce = encryptor.borrow_mut().nonce;
-        let decryptor = Rc::new(RefCell::new(Encrypt::new_with_nonce(
-            hex::decode(TEST_KEY).unwrap().try_into().unwrap(),
-            &nonce,
-        )));
+        let encryptor = Encrypt::new(hex::decode(TEST_KEY).unwrap().try_into().unwrap());
+        let nonce = encryptor.nonce;
+        let encoder = EncryptEncoderDecoder(Rc::new(RefCell::new(encryptor)));
+        let decryptor =
+            Encrypt::new_with_nonce(hex::decode(TEST_KEY).unwrap().try_into().unwrap(), &nonce);
+        let decoder = EncryptEncoderDecoder(Rc::new(RefCell::new(decryptor)));
         let buffer = Buffer::from_i32("key1", 1);
-        let buffer = EncryptBuffer::new_with_buffer(buffer, encryptor.clone());
-        let bytes = buffer.encode_to_bytes().unwrap();
-        let mut copy = EncryptBuffer::new(decryptor.clone());
-        copy.decode_bytes_into(bytes.as_slice()).unwrap();
-        assert_eq!(copy, buffer);
+        let bytes = encoder.encode_to_bytes(&buffer).unwrap();
+        let decode_result = decoder.decode_bytes(bytes.as_slice()).unwrap();
+        assert_eq!(decode_result.len, bytes.len() as u32);
+        assert_eq!(decode_result.buffer, Some(buffer));
         let buffer = Buffer::from_i32("key2", 2);
-        let buffer = EncryptBuffer::new_with_buffer(buffer, encryptor.clone());
-        let bytes = buffer.encode_to_bytes().unwrap();
-        let mut copy = EncryptBuffer::new(decryptor.clone());
-        copy.decode_bytes_into(bytes.as_slice()).unwrap();
-        assert_eq!(copy, buffer);
+        let bytes = encoder.encode_to_bytes(&buffer).unwrap();
+        let decode_result = decoder.decode_bytes(bytes.as_slice()).unwrap();
+        assert_eq!(decode_result.len, bytes.len() as u32);
+        assert_eq!(decode_result.buffer, Some(buffer));
     }
 }

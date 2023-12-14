@@ -13,15 +13,16 @@ include!(concat!(env!("OUT_DIR"), "/protos/mod.rs"));
 pub struct Buffer(KV);
 
 pub trait Encoder {
-    fn encode_to_bytes(&self) -> Result<Vec<u8>>;
+    fn encode_to_bytes(&self, raw_buffer: &Buffer) -> Result<Vec<u8>>;
+}
+
+pub struct DecodeResult {
+    pub buffer: Option<Buffer>,
+    pub len: u32,
 }
 
 pub trait Decoder {
-    fn decode_bytes_into(&mut self, data: &[u8]) -> Result<u32>;
-}
-
-pub trait Take {
-    fn take(self) -> Option<Buffer>;
+    fn decode_bytes(&self, data: &[u8]) -> Result<DecodeResult>;
 }
 
 macro_rules! impl_from_typed_array {

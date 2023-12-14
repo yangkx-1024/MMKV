@@ -1,11 +1,9 @@
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicPtr, Ordering};
-use std::time::Instant;
-
 use crate::core::buffer::Buffer;
 use crate::core::mmkv_impl::MmkvImpl;
 use crate::log::logger;
 use crate::{LogLevel, Result};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicPtr, Ordering};
 
 const LOG_TAG: &str = "MMKV";
 const DEFAULT_FILE_NAME: &str = "mini_mmkv";
@@ -45,7 +43,6 @@ impl MMKV {
     `88C51C536176AD8A8EE4A06F62EE897E`
      */
     pub fn initialize(dir: &str, #[cfg(feature = "encryption")] key: &str) {
-        let time_start = Instant::now();
         MMKV::drop_instance();
         let file_path = MMKV::resolve_file_path(dir);
         let mmkv_impl = MmkvImpl::new(
@@ -56,12 +53,6 @@ impl MMKV {
         );
         let raw_ptr = Box::into_raw(Box::new(mmkv_impl));
         MMKV_IMPL.swap(raw_ptr, Ordering::Release);
-        let time_end = Instant::now();
-        verbose!(
-            LOG_TAG,
-            "instance initialized, cost {:?}",
-            time_end.duration_since(time_start)
-        );
         MMKV::dump();
     }
 
