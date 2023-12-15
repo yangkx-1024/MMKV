@@ -1,4 +1,3 @@
-#![deny(warnings)]
 //! Rust version of MMKV.
 //! Examples:
 //! ```
@@ -24,6 +23,8 @@ pub enum Error {
     DataInvalid,
     InstanceClosed,
     EncodeFailed(String),
+    IOError(String),
+    LockError(String),
     #[cfg(feature = "encryption")]
     DecryptFailed(String),
     #[cfg(feature = "encryption")]
