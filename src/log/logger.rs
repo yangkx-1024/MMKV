@@ -1,7 +1,9 @@
+use chrono::Utc;
 use std::fmt::{Arguments, Debug};
 use std::ops::Deref;
 use std::sync::atomic::{AtomicI32, AtomicPtr, Ordering};
 use std::sync::OnceLock;
+use std::thread;
 
 use crate::log::{LogLevel, Logger};
 
@@ -12,23 +14,23 @@ struct DefaultLogger;
 
 impl Logger for DefaultLogger {
     fn verbose(&self, log_str: String) {
-        println!("V - {log_str}");
+        println!("{log_str}");
     }
 
     fn info(&self, log_str: String) {
-        println!("I - {log_str}");
+        println!("{log_str}");
     }
 
     fn debug(&self, log_str: String) {
-        println!("D - {log_str}");
+        println!("{log_str}");
     }
 
     fn warn(&self, log_str: String) {
-        println!("W - {log_str}");
+        println!("{log_str}");
     }
 
     fn error(&self, log_str: String) {
-        println!("E - {log_str}");
+        println!("{log_str}");
     }
 }
 
@@ -47,12 +49,20 @@ fn inner_logger() -> &'static dyn Logger {
 }
 
 pub fn log(level: LogLevel, tag: &str, args: Arguments) {
+    let thread = thread::current();
+    let str = format!(
+        "{:?}-{:?}-{:?}-{tag}: {}",
+        level,
+        Utc::now().to_rfc3339(),
+        thread.id(),
+        args
+    );
     match level {
-        LogLevel::Error => inner_logger().error(format!("{tag} - {}", args)),
-        LogLevel::Warn => inner_logger().warn(format!("{tag} - {}", args)),
-        LogLevel::Info => inner_logger().info(format!("{tag} - {}", args)),
-        LogLevel::Debug => inner_logger().debug(format!("{tag} - {}", args)),
-        LogLevel::Verbose => inner_logger().verbose(format!("{tag} - {}", args)),
+        LogLevel::Error => inner_logger().error(str),
+        LogLevel::Warn => inner_logger().warn(str),
+        LogLevel::Info => inner_logger().info(str),
+        LogLevel::Debug => inner_logger().debug(str),
+        LogLevel::Verbose => inner_logger().verbose(str),
         _ => {}
     }
 }

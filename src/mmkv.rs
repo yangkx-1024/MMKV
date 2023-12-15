@@ -1,6 +1,8 @@
 use crate::core::buffer::Buffer;
+use crate::core::config::Config;
 use crate::core::mmkv_impl::MmkvImpl;
 use crate::log::logger;
+use crate::Error::InstanceClosed;
 use crate::{LogLevel, Result};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicPtr, Ordering};
@@ -9,23 +11,39 @@ const LOG_TAG: &str = "MMKV";
 const DEFAULT_FILE_NAME: &str = "mini_mmkv";
 const PAGE_SIZE: u64 = 4 * 1024; // 4KB is the default Linux page size
 
-static MMKV_IMPL: AtomicPtr<MmkvImpl> = AtomicPtr::new(std::ptr::null_mut());
-
-macro_rules! mmkv {
-    () => {{
-        let ptr = MMKV_IMPL.load(Ordering::Acquire);
-        unsafe { ptr.as_ref().unwrap() }
-    }};
-}
-
-macro_rules! mut_mmkv {
-    () => {{
-        let ptr = MMKV_IMPL.load(Ordering::Acquire);
-        unsafe { ptr.as_mut().unwrap() }
-    }};
-}
+static MMKV_INSTANCE: AtomicPtr<MmkvImpl> = AtomicPtr::new(std::ptr::null_mut());
 
 pub struct MMKV;
+
+macro_rules! mmkv_get {
+    ($key:expr, $decode:ident) => {
+        match unsafe { MMKV_INSTANCE.load(Ordering::Acquire).as_ref() } {
+            Some(mmkv) => mmkv.get($key)?.$decode(),
+            None => Err(InstanceClosed),
+        }
+    };
+}
+
+macro_rules! mmkv_put {
+    ($key:expr, $value:expr) => {
+        match unsafe { MMKV_INSTANCE.load(Ordering::Acquire).as_mut() } {
+            Some(mmkv) => mmkv.put($key, $value),
+            None => Err(InstanceClosed),
+        }
+    };
+}
+
+macro_rules! mut_mmkv_call {
+    ($op:ident) => {
+        unsafe { MMKV_INSTANCE.load(Ordering::Acquire).as_mut() }.map(|mmkv| mmkv.$op())
+    };
+}
+
+macro_rules! mmkv_call {
+    ($op:ident) => {
+        unsafe { MMKV_INSTANCE.load(Ordering::Acquire).as_ref() }.map(|mmkv| mmkv.$op())
+    };
+}
 
 impl MMKV {
     /**
@@ -43,16 +61,14 @@ impl MMKV {
     `88C51C536176AD8A8EE4A06F62EE897E`
      */
     pub fn initialize(dir: &str, #[cfg(feature = "encryption")] key: &str) {
-        MMKV::drop_instance();
         let file_path = MMKV::resolve_file_path(dir);
-        let mmkv_impl = MmkvImpl::new(
-            file_path.as_path(),
-            PAGE_SIZE,
+        let config = Config::new(file_path.as_path(), PAGE_SIZE);
+        MmkvImpl::init(
+            &MMKV_INSTANCE,
+            config,
             #[cfg(feature = "encryption")]
             key,
         );
-        let raw_ptr = Box::into_raw(Box::new(mmkv_impl));
-        MMKV_IMPL.swap(raw_ptr, Ordering::Release);
         MMKV::dump();
     }
 
@@ -71,91 +87,91 @@ impl MMKV {
     }
 
     pub fn put_str(key: &str, value: &str) -> Result<()> {
-        mut_mmkv!().put(key, Buffer::from_str(key, value))
+        mmkv_put!(key, Buffer::from_str(key, value))
     }
 
     pub fn get_str(key: &str) -> Result<String> {
-        mmkv!().get(key)?.decode_str()
+        mmkv_get!(key, decode_str)
     }
 
     pub fn put_i32(key: &str, value: i32) -> Result<()> {
-        mut_mmkv!().put(key, Buffer::from_i32(key, value))
+        mmkv_put!(key, Buffer::from_i32(key, value))
     }
 
     pub fn get_i32(key: &str) -> Result<i32> {
-        mmkv!().get(key)?.decode_i32()
+        mmkv_get!(key, decode_i32)
     }
 
     pub fn put_bool(key: &str, value: bool) -> Result<()> {
-        mut_mmkv!().put(key, Buffer::from_bool(key, value))
+        mmkv_put!(key, Buffer::from_bool(key, value))
     }
 
     pub fn get_bool(key: &str) -> Result<bool> {
-        mmkv!().get(key)?.decode_bool()
+        mmkv_get!(key, decode_bool)
     }
 
     pub fn put_i64(key: &str, value: i64) -> Result<()> {
-        mut_mmkv!().put(key, Buffer::from_i64(key, value))
+        mmkv_put!(key, Buffer::from_i64(key, value))
     }
 
     pub fn get_i64(key: &str) -> Result<i64> {
-        mmkv!().get(key)?.decode_i64()
+        mmkv_get!(key, decode_i64)
     }
 
     pub fn put_f32(key: &str, value: f32) -> Result<()> {
-        mut_mmkv!().put(key, Buffer::from_f32(key, value))
+        mmkv_put!(key, Buffer::from_f32(key, value))
     }
 
     pub fn get_f32(key: &str) -> Result<f32> {
-        mmkv!().get(key)?.decode_f32()
+        mmkv_get!(key, decode_f32)
     }
 
     pub fn put_f64(key: &str, value: f64) -> Result<()> {
-        mut_mmkv!().put(key, Buffer::from_f64(key, value))
+        mmkv_put!(key, Buffer::from_f64(key, value))
     }
 
     pub fn get_f64(key: &str) -> Result<f64> {
-        mmkv!().get(key)?.decode_f64()
+        mmkv_get!(key, decode_f64)
     }
 
     pub fn put_byte_array(key: &str, value: &[u8]) -> Result<()> {
-        mut_mmkv!().put(key, Buffer::from_byte_array(key, value))
+        mmkv_put!(key, Buffer::from_byte_array(key, value))
     }
 
     pub fn get_byte_array(key: &str) -> Result<Vec<u8>> {
-        mmkv!().get(key)?.decode_byte_array()
+        mmkv_get!(key, decode_byte_array)
     }
 
     pub fn put_i32_array(key: &str, value: &[i32]) -> Result<()> {
-        mut_mmkv!().put(key, Buffer::from_i32_array(key, value))
+        mmkv_put!(key, Buffer::from_i32_array(key, value))
     }
 
     pub fn get_i32_array(key: &str) -> Result<Vec<i32>> {
-        mmkv!().get(key)?.decode_i32_array()
+        mmkv_get!(key, decode_i32_array)
     }
 
     pub fn put_i64_array(key: &str, value: &[i64]) -> Result<()> {
-        mut_mmkv!().put(key, Buffer::from_i64_array(key, value))
+        mmkv_put!(key, Buffer::from_i64_array(key, value))
     }
 
     pub fn get_i64_array(key: &str) -> Result<Vec<i64>> {
-        mmkv!().get(key)?.decode_i64_array()
+        mmkv_get!(key, decode_i64_array)
     }
 
     pub fn put_f32_array(key: &str, value: &[f32]) -> Result<()> {
-        mut_mmkv!().put(key, Buffer::from_f32_array(key, value))
+        mmkv_put!(key, Buffer::from_f32_array(key, value))
     }
 
     pub fn get_f32_array(key: &str) -> Result<Vec<f32>> {
-        mmkv!().get(key)?.decode_f32_array()
+        mmkv_get!(key, decode_f32_array)
     }
 
     pub fn put_f64_array(key: &str, value: &[f64]) -> Result<()> {
-        mut_mmkv!().put(key, Buffer::from_f64_array(key, value))
+        mmkv_put!(key, Buffer::from_f64_array(key, value))
     }
 
     pub fn get_f64_array(key: &str) -> Result<Vec<f64>> {
-        mmkv!().get(key)?.decode_f64_array()
+        mmkv_get!(key, decode_f64_array)
     }
 
     /**
@@ -164,7 +180,7 @@ impl MMKV {
     If you want to continue using the API, need to [initialize](MMKV::initialize) again.
     */
     pub fn clear_data() {
-        mut_mmkv!().clear_data();
+        mut_mmkv_call!(clear_data);
         MMKV::close();
     }
 
@@ -174,18 +190,8 @@ impl MMKV {
     If you want to continue using the API, need to [initialize](MMKV::initialize) again.
     */
     pub fn close() {
-        MMKV::drop_instance();
+        mut_mmkv_call!(close);
         logger::reset();
-    }
-
-    fn drop_instance() {
-        let p = MMKV_IMPL.swap(std::ptr::null_mut(), Ordering::Release);
-        if !p.is_null() {
-            unsafe {
-                drop(Box::from_raw(p));
-                verbose!(LOG_TAG, "instance closed");
-            }
-        }
     }
 
     /**
@@ -194,8 +200,8 @@ impl MMKV {
     `MMKV { file_size: 1024, key_count: 4, content_len: 107 }`
      */
     pub fn dump() -> String {
-        let str = mmkv!().to_string();
-        debug!(LOG_TAG, "dump state {}", &str);
+        let str = mmkv_call!(to_string).unwrap_or_default();
+        debug!(LOG_TAG, "dump state {:?}", &str);
         str
     }
 
@@ -315,7 +321,6 @@ mod tests {
         assert_eq!(MMKV::get_f64_array("f64_array"), Ok(vec![1.1, 2.2, 3.3]));
 
         MMKV::close();
-        assert_eq!(MMKV_IMPL.load(Ordering::Acquire), std::ptr::null_mut());
         MMKV::initialize(
             ".",
             #[cfg(feature = "encryption")]
@@ -325,6 +330,5 @@ mod tests {
         MMKV::clear_data();
         assert!(!Path::new("./mini_mmkv").exists());
         assert!(!Path::new("./mini_mmkv.meta").exists());
-        assert_eq!(MMKV_IMPL.load(Ordering::Acquire), std::ptr::null_mut());
     }
 }
