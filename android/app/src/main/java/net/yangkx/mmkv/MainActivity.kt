@@ -4,7 +4,6 @@ import android.os.Bundle
 import android.util.Log
 import androidx.appcompat.app.AppCompatActivity
 import net.yangkx.mmkv.demo.databinding.ActivityMainBinding
-import net.yangkx.mmkv.log.LogLevel
 import kotlin.random.Random
 
 class MainActivity : AppCompatActivity() {
@@ -19,7 +18,7 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
         binding.logView.setContent {
-            LogView(leadText = "MMKV Log:", logLevel = LogLevel.VERBOSE)
+            LogView(leadText = "MMKV Log:")
         }
         binding.string.setOnClickListener {
             val value = MMKV.getString("str_key", "string value") + "1"

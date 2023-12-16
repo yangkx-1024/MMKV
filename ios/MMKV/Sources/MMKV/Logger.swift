@@ -25,8 +25,7 @@ package class LogWrapper {
         logger.info("deinit logger \(self.logger)")
     }
     
-    func log(level: Int32, content: UnsafePointer<ByteSlice>) {
-        let message = content.pointee.asString()!
+    func log(level: Int32, message: String) {
         switch level {
         case 1:
             logger.error(message)
@@ -46,7 +45,10 @@ package class LogWrapper {
         let callback: (@convention(c) (UnsafeMutableRawPointer?, Int32, UnsafePointer<ByteSlice>?) -> Void) = {
             (obj, level, content) -> Void in
             let swiftObj: LogWrapper = Unmanaged.fromOpaque(obj!).takeUnretainedValue()
-            swiftObj.log(level: level, content: content!)
+            let message = content!.pointee.asString()!
+            DispatchQueue.main.async {
+                swiftObj.log(level: level, message: message)
+            }
         }
         let destroy: (@convention(c) (UnsafeMutableRawPointer?) -> Void) = {
             (obj) -> Void in

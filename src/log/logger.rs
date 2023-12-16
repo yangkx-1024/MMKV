@@ -1,36 +1,52 @@
-use chrono::Utc;
+use chrono::{SecondsFormat, Utc};
 use std::fmt::{Arguments, Debug};
 use std::ops::Deref;
 use std::sync::atomic::{AtomicI32, AtomicPtr, Ordering};
 use std::sync::OnceLock;
-use std::thread;
+use std::{process, thread};
 
 use crate::log::{LogLevel, Logger};
-
-const LOG_TAG: &str = "MMKV:LOG";
 
 #[derive(Debug)]
 struct DefaultLogger;
 
+impl DefaultLogger {
+    fn local_time(&self) -> String {
+        Utc::now().to_rfc3339_opts(SecondsFormat::Millis, false)
+    }
+
+    fn format_log(&self, level: &str, str: String) {
+        let thread = thread::current();
+        println!(
+            "{} {}-{:?} {} {}",
+            self.local_time(),
+            process::id(),
+            thread.id(),
+            level,
+            str
+        )
+    }
+}
+
 impl Logger for DefaultLogger {
     fn verbose(&self, log_str: String) {
-        println!("{log_str}");
+        self.format_log("V", log_str);
     }
 
     fn info(&self, log_str: String) {
-        println!("{log_str}");
+        self.format_log("I", log_str);
     }
 
     fn debug(&self, log_str: String) {
-        println!("{log_str}");
+        self.format_log("D", log_str)
     }
 
     fn warn(&self, log_str: String) {
-        println!("{log_str}");
+        self.format_log("W", log_str)
     }
 
     fn error(&self, log_str: String) {
-        println!("{log_str}");
+        self.format_log("E", log_str)
     }
 }
 
@@ -49,14 +65,10 @@ fn inner_logger() -> &'static dyn Logger {
 }
 
 pub fn log(level: LogLevel, tag: &str, args: Arguments) {
-    let thread = thread::current();
-    let str = format!(
-        "{:?}-{:?}-{:?}-{tag}: {}",
-        level,
-        Utc::now().to_rfc3339(),
-        thread.id(),
-        args
-    );
+    if get_log_level() < level as i32 {
+        return;
+    }
+    let str = format!("[{}] {}", tag, args);
     match level {
         LogLevel::Error => inner_logger().error(str),
         LogLevel::Warn => inner_logger().warn(str),
@@ -70,11 +82,7 @@ pub fn log(level: LogLevel, tag: &str, args: Arguments) {
 static LOG_LEVEL: AtomicI32 = AtomicI32::new(5);
 
 pub fn set_log_level(level: LogLevel) {
-    let level = level as i32;
-    let old_level = LOG_LEVEL.swap(level, Ordering::Release);
-    if old_level != level {
-        debug!(LOG_TAG, "update log level from {} to {}", old_level, level)
-    }
+    LOG_LEVEL.swap(level as i32, Ordering::Release);
 }
 
 pub fn get_log_level() -> i32 {
@@ -82,9 +90,7 @@ pub fn get_log_level() -> i32 {
 }
 
 pub fn set_logger(log_impl: Box<dyn Logger>) {
-    let log_str = format!("set new logger: {:?}", log_impl);
     set_raw_logger(Box::into_raw(Box::new(log_impl)));
-    debug!(LOG_TAG, "{}", log_str);
 }
 
 pub fn reset() {

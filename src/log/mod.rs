@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::Debug;
 
 pub mod logger;
 
@@ -13,7 +13,7 @@ pub trait Logger: Sync + Send + Debug {
     fn error(&self, log_str: String);
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone)]
 pub enum LogLevel {
     Off,
     Error,
@@ -21,20 +21,6 @@ pub enum LogLevel {
     Info,
     Debug,
     Verbose,
-}
-
-impl Display for LogLevel {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let str = match self {
-            LogLevel::Error => "E",
-            LogLevel::Warn => "W",
-            LogLevel::Info => "I",
-            LogLevel::Debug => "D",
-            LogLevel::Verbose => "V",
-            _ => "",
-        };
-        write!(f, "{str}")
-    }
 }
 
 impl TryFrom<i32> for LogLevel {

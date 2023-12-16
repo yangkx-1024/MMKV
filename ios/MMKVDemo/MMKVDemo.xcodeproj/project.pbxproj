@@ -11,7 +11,7 @@
 		2B237B5A2AFBC699006CA835 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B237B592AFBC699006CA835 /* ContentView.swift */; };
 		2B237B5C2AFBC69B006CA835 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2B237B5B2AFBC69B006CA835 /* Assets.xcassets */; };
 		2B237B5F2AFBC69B006CA835 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2B237B5E2AFBC69B006CA835 /* Preview Assets.xcassets */; };
-		2BB1465A2B26F9B100C8CF41 /* MMKV in Frameworks */ = {isa = PBXBuildFile; productRef = 2BB146592B26F9B100C8CF41 /* MMKV */; };
+		2B2DF9AC2B2DF314002D1AEE /* MMKV in Frameworks */ = {isa = PBXBuildFile; productRef = 2B2DF9AB2B2DF314002D1AEE /* MMKV */; };
 		2BB59D092B049877006ED8BF /* LogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BB59D082B049877006ED8BF /* LogView.swift */; };
 /* End PBXBuildFile section */
 
@@ -21,6 +21,7 @@
 		2B237B592AFBC699006CA835 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		2B237B5B2AFBC69B006CA835 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		2B237B5E2AFBC69B006CA835 /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
+		2B2DF9AA2B2DF308002D1AEE /* mmkv */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = mmkv; path = ../..; sourceTree = "<group>"; };
 		2BB59D082B049877006ED8BF /* LogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -29,7 +30,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				2BB1465A2B26F9B100C8CF41 /* MMKV in Frameworks */,
+				2B2DF9AC2B2DF314002D1AEE /* MMKV in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -76,6 +77,7 @@
 		2BB146542B26F90B00C8CF41 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				2B2DF9AA2B2DF308002D1AEE /* mmkv */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -97,7 +99,7 @@
 			);
 			name = MMKVDemo;
 			packageProductDependencies = (
-				2BB146592B26F9B100C8CF41 /* MMKV */,
+				2B2DF9AB2B2DF314002D1AEE /* MMKV */,
 			);
 			productName = MMKVDemo;
 			productReference = 2B237B542AFBC699006CA835 /* MMKVDemo.app */;
@@ -128,7 +130,6 @@
 			);
 			mainGroup = 2B237B4B2AFBC699006CA835;
 			packageReferences = (
-				2BB146582B26F9B100C8CF41 /* XCRemoteSwiftPackageReference "MMKV" */,
 			);
 			productRefGroup = 2B237B552AFBC699006CA835 /* Products */;
 			projectDirPath = "";
@@ -291,6 +292,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "";
 				DEVELOPMENT_TEAM = U2858ENVTH;
 				ENABLE_PREVIEWS = YES;
@@ -320,6 +322,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "";
 				DEVELOPMENT_TEAM = U2858ENVTH;
 				ENABLE_PREVIEWS = YES;
@@ -365,21 +368,9 @@
 		};
 /* End XCConfigurationList section */
 
-/* Begin XCRemoteSwiftPackageReference section */
-		2BB146582B26F9B100C8CF41 /* XCRemoteSwiftPackageReference "MMKV" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/yangkx-1024/MMKV";
-			requirement = {
-				kind = upToNextMinorVersion;
-				minimumVersion = 0.3.5;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
-
 /* Begin XCSwiftPackageProductDependency section */
-		2BB146592B26F9B100C8CF41 /* MMKV */ = {
+		2B2DF9AB2B2DF314002D1AEE /* MMKV */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 2BB146582B26F9B100C8CF41 /* XCRemoteSwiftPackageReference "MMKV" */;
 			productName = MMKV;
 		};
 /* End XCSwiftPackageProductDependency section */

@@ -8,6 +8,7 @@ use jni::sys::{
 };
 use jni::{JNIEnv, JavaVM};
 use std::fmt::{Debug, Formatter};
+use std::sync::RwLock;
 
 use crate::Logger;
 use crate::MMKV;
@@ -182,9 +183,10 @@ macro_rules! impl_java_get {
     };
 }
 
+static JAVA_CLASS: RwLock<Option<GlobalRef>> = RwLock::new(None);
+
 struct AndroidLogger {
     jvm: JavaVM,
-    clz: GlobalRef,
 }
 
 impl AndroidLogger {
@@ -192,19 +194,20 @@ impl AndroidLogger {
         let mut env = jvm.get_env().unwrap();
         let clz = env.find_class(ANDROID_LOGGER_CLASS_NAME).unwrap();
         let global_ref = env.new_global_ref(clz).unwrap();
-
-        AndroidLogger {
-            jvm,
-            clz: global_ref,
-        }
+        JAVA_CLASS.write().unwrap().replace(global_ref);
+        AndroidLogger { jvm }
     }
 
     fn call_java(&self, method: &str, param: String) {
-        let mut env = self.jvm.get_env().unwrap();
-        let clz: JClass = JClass::from(env.new_local_ref(&self.clz).unwrap());
+        let mut env = self.jvm.attach_current_thread_permanently().unwrap();
+        let local_ref = {
+            let lock = JAVA_CLASS.read().unwrap();
+            env.new_local_ref(lock.as_ref().unwrap()).unwrap()
+        };
+        let class = JClass::from(local_ref);
         let param = env.new_string(param).unwrap();
         env.call_static_method(
-            clz,
+            class,
             method,
             "(Ljava/lang/String;)V",
             &[JValue::Object(&param)],

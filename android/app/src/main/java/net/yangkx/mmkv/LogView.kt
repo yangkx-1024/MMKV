@@ -3,7 +3,6 @@ package net.yangkx.mmkv
 import android.util.Log
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -24,12 +23,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
-import net.yangkx.mmkv.log.LogLevel
 import net.yangkx.mmkv.log.Logger
 
 @Composable
-fun LogView(leadText: String, logLevel: LogLevel) {
-    val logState = rememberLogState(leadText, logLevel)
+fun LogView(leadText: String) {
+    val logState = rememberLogState(leadText)
     Text(
         text = logState.logText,
         modifier = Modifier
@@ -47,7 +45,6 @@ fun LogView(leadText: String, logLevel: LogLevel) {
 @Composable
 private fun rememberLogState(
     leadText: String,
-    logLevel: LogLevel
 ): LogState {
     val isPreview = LocalInspectionMode.current
     val scrollState = rememberScrollState()
@@ -55,7 +52,6 @@ private fun rememberLogState(
     return remember {
         LogState(
             leadText,
-            logLevel,
             scrollState,
             coroutineScope,
             isPreview
@@ -66,7 +62,6 @@ private fun rememberLogState(
 @Stable
 private class LogState(
     leadText: String,
-    logLevel: LogLevel,
     val scrollState: ScrollState,
     private val coroutineScope: CoroutineScope,
     isPreview: Boolean = false
@@ -78,7 +73,6 @@ private class LogState(
     init {
         if (!isPreview) {
             MMKV.setLogger(this)
-            MMKV.setLogLevel(logLevel)
         }
     }
     var logText by mutableStateOf(leadText + "\n")
@@ -118,5 +112,5 @@ private class LogState(
 @Preview
 @Composable
 fun LogViewPreview() {
-    LogView("MMKV Log:", LogLevel.VERBOSE)
+    LogView("MMKV Log:")
 }

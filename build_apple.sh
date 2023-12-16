@@ -23,7 +23,7 @@ echo "module RustMMKV {
 }" > $HEADER/module.modulemap
 
 # Create XCFramework
-FRAMEWORK="ios/MMKV/Sources/RustMMKV.xcframework"
+FRAMEWORK="ios/MMKV/RustMMKV.xcframework"
 rm -rf $FRAMEWORK
 LIBNAME=libmmkv.a
 mkdir mac-lipo ios-sim-lipo
@@ -41,7 +41,7 @@ xcodebuild -create-xcframework \
         -library target/aarch64-apple-ios/release/$LIBNAME -headers $HEADER \
         -output $FRAMEWORK
 
-pushd ios/MMKV/Sources/ || exit 1;
+pushd ios/MMKV/ || exit 1;
 zip -rm9 RustMMKV.xcframework.zip RustMMKV.xcframework
 popd || exit 1;
 

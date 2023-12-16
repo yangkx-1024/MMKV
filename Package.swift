@@ -15,7 +15,7 @@ let package = Package(
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
         // Targets can depend on other targets in this package and products from dependencies.
-        .binaryTarget(name: "RustMMKV", path: "ios/MMKV/Sources/RustMMKV.xcframework.zip"),
+        .binaryTarget(name: "RustMMKV", path: "ios/MMKV/RustMMKV.xcframework.zip"),
         .target(
             name: "MMKV",
             dependencies: ["RustMMKV"],
@@ -24,12 +24,20 @@ let package = Package(
                 "android",
                 "proc_macro_lib",
                 "src",
+                "target",
                 "tests",
                 "build_android.sh",
                 "build_apple.sh",
                 "build.rs",
                 "build.sh",
-                "Cargo.toml"
+                "Cargo.lock",
+                "Cargo.toml",
+                "README.md",
+                "LICENSE-APACHE",
+                "ios/MMKVDemo",
+                "ios/MMKV/Tests",
+                "ios/MMKV/RustMMKV.xcframework.zip",
+                "LICENSE-MIT"
             ],
             sources: ["ios/MMKV/Sources/MMKV"]
         ),
