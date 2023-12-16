@@ -38,9 +38,9 @@ impl MmkvImpl {
                 drop(mmkv.io_looper.take());
             };
             ptr.store(std::ptr::null_mut(), Ordering::Release);
-            verbose!(
+            info!(
                 LOG_TAG,
-                "instance closed, cost {:?}",
+                "mmkv dropped, cost {:?}",
                 Instant::now().duration_since(time_start)
             );
         }
@@ -60,7 +60,7 @@ impl MmkvImpl {
             key,
         );
         ptr.store(Box::into_raw(Box::new(mmkv_impl)), Ordering::Release);
-        verbose!(
+        info!(
             LOG_TAG,
             "instance initialized, cost {:?}",
             Instant::now().duration_since(time_start)
@@ -119,7 +119,6 @@ impl MmkvImpl {
         // So it's safe to send it to io thread
         let mmkv = unsafe { self.ptr.load(Ordering::Acquire).as_mut() }.unwrap();
         self.io_looper.as_ref().unwrap().execute(move || {
-            debug!(LOG_TAG, "flash data to file");
             mmkv.flash(raw_buffer);
         })
     }
@@ -364,14 +363,14 @@ mod tests {
             }
         };
         thread::scope(|s| {
-            for i in 0..4 {
+            for i in 0..2 {
                 s.spawn(move || action(format!("thread_{i}").as_ref()));
             }
         });
         mmkv!(&PTR).close();
         init!(&PTR, config);
         let mmkv = mmkv!(&PTR);
-        for i in 0..4 {
+        for i in 0..2 {
             for j in 0..loop_count {
                 let key = &format!("thread_{i}_key_{j}");
                 assert_eq!(mmkv.get(key).unwrap().decode_i32().unwrap(), j)

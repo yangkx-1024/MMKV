@@ -41,42 +41,32 @@ macro_rules! log {
 
 macro_rules! error {
     ($tag:expr, $($arg:tt)+) => {
-        if crate::log::logger::get_log_level() >= crate::log::LogLevel::Error as i32 {
-            log!(crate::LogLevel::Error, $tag, $($arg)+)
-        }
+        log!(crate::LogLevel::Error, $tag, $($arg)+)
     }
 }
 
 #[allow(unused_macros)]
 macro_rules! warn {
     ($tag:expr, $($arg:tt)+) => {
-        if crate::log::logger::get_log_level() >= crate::log::LogLevel::Warn as i32 {
-            log!(crate::LogLevel::Warn, $tag, $($arg)+)
-        }
+        log!(crate::LogLevel::Warn, $tag, $($arg)+)
     }
 }
 
 macro_rules! info {
     ($tag:expr, $($arg:tt)+) => {
-        if crate::log::logger::get_log_level() >= crate::log::LogLevel::Info as i32 {
-            log!(crate::LogLevel::Info, $tag, $($arg)+)
-        }
+        log!(crate::LogLevel::Info, $tag, $($arg)+)
     }
 }
 
 macro_rules! debug {
     ($tag:expr, $($arg:tt)+) => {
-        if crate::log::logger::get_log_level() >= crate::log::LogLevel::Debug as i32 {
-            log!(crate::LogLevel::Debug, $tag, $($arg)+)
-        }
+        log!(crate::LogLevel::Debug, $tag, $($arg)+)
     }
 }
 
 macro_rules! verbose {
     ($tag:expr, $($arg:tt)+) => {
-        if crate::log::logger::get_log_level() >= crate::log::LogLevel::Verbose as i32 {
-            log!(crate::LogLevel::Verbose, $tag, $($arg)+)
-        }
+        log!(crate::LogLevel::Verbose, $tag, $($arg)+)
     }
 }
 

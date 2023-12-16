@@ -7,7 +7,7 @@ use std::thread;
 use std::thread::JoinHandle;
 use std::time::Instant;
 
-const LOG_TAG: &str = "MMKV:IOLooper";
+const LOG_TAG: &str = "MMKV:IO";
 
 type Job = Box<dyn FnOnce() + Send + 'static>;
 
