@@ -5,19 +5,18 @@ use crate::log::logger;
 use crate::Error::InstanceClosed;
 use crate::{LogLevel, Result};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicPtr, Ordering};
+use std::sync::RwLock;
 
-const LOG_TAG: &str = "MMKV";
 const DEFAULT_FILE_NAME: &str = "mini_mmkv";
 const PAGE_SIZE: u64 = 4 * 1024; // 4KB is the default Linux page size
 
-static MMKV_INSTANCE: AtomicPtr<MmkvImpl> = AtomicPtr::new(std::ptr::null_mut());
+static MMKV_INSTANCE: RwLock<Option<MmkvImpl>> = RwLock::new(None);
 
 pub struct MMKV;
 
 macro_rules! mmkv_get {
     ($key:expr, $decode:ident) => {
-        match unsafe { MMKV_INSTANCE.load(Ordering::Acquire).as_ref() } {
+        match MMKV_INSTANCE.read().unwrap().as_ref() {
             Some(mmkv) => mmkv.get($key)?.$decode(),
             None => Err(InstanceClosed),
         }
@@ -26,7 +25,7 @@ macro_rules! mmkv_get {
 
 macro_rules! mmkv_put {
     ($key:expr, $value:expr) => {
-        match unsafe { MMKV_INSTANCE.load(Ordering::Acquire).as_mut() } {
+        match MMKV_INSTANCE.write().unwrap().as_mut() {
             Some(mmkv) => mmkv.put($key, $value),
             None => Err(InstanceClosed),
         }
@@ -35,13 +34,11 @@ macro_rules! mmkv_put {
 
 macro_rules! mut_mmkv_call {
     ($op:ident) => {
-        unsafe { MMKV_INSTANCE.load(Ordering::Acquire).as_mut() }.map(|mmkv| mmkv.$op())
-    };
-}
-
-macro_rules! mmkv_call {
-    ($op:ident) => {
-        unsafe { MMKV_INSTANCE.load(Ordering::Acquire).as_ref() }.map(|mmkv| mmkv.$op())
+        MMKV_INSTANCE
+            .write()
+            .unwrap()
+            .as_mut()
+            .map(|mmkv| mmkv.$op())
     };
 }
 
@@ -61,15 +58,15 @@ impl MMKV {
     `88C51C536176AD8A8EE4A06F62EE897E`
      */
     pub fn initialize(dir: &str, #[cfg(feature = "encryption")] key: &str) {
+        let mut instance = MMKV_INSTANCE.write().unwrap();
+        drop(instance.take());
         let file_path = MMKV::resolve_file_path(dir);
         let config = Config::new(file_path.as_path(), PAGE_SIZE);
-        MmkvImpl::init(
-            &MMKV_INSTANCE,
+        *instance = Some(MmkvImpl::new(
             config,
             #[cfg(feature = "encryption")]
             key,
-        );
-        MMKV::dump();
+        ));
     }
 
     fn resolve_file_path(dir: &str) -> PathBuf {
@@ -192,17 +189,6 @@ impl MMKV {
     pub fn close() {
         mut_mmkv_call!(close);
         logger::reset();
-    }
-
-    /**
-    Dump the current state of MMKV, the result looks like this:
-
-    `MMKV { file_size: 1024, key_count: 4, content_len: 107 }`
-     */
-    pub fn dump() -> String {
-        let str = mmkv_call!(to_string).unwrap_or_default();
-        debug!(LOG_TAG, "dump state {:?}", &str);
-        str
     }
 
     /**
