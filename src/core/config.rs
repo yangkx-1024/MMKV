@@ -24,6 +24,7 @@ impl Config {
             file_len += page_size;
             file.set_len(file_len).unwrap();
         }
+        file.sync_all().unwrap();
         Config {
             page_size,
             path: path.to_path_buf(),

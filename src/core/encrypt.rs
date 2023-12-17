@@ -84,7 +84,7 @@ impl EncryptorImpl {
         let mut nonce_file = OpenOptions::new()
             .create(true)
             .write(true)
-            .open(&meta_file_path)
+            .open(meta_file_path)
             .unwrap();
         nonce_file
             .write_all(nonce.as_slice())
@@ -103,7 +103,7 @@ impl EncryptorImpl {
         let error_handle = |reason: String| {
             error!(LOG_TAG, "filed to read nonce, reason: {:?}", reason);
             warn!(LOG_TAG, "delete meta file due to previous reason, which may cause mmkv drop all encrypted data");
-            let _ = fs::remove_file(&meta_file_path);
+            let _ = fs::remove_file(meta_file_path);
             EncryptorImpl::new(key, meta_file_path)
         };
         match nonce_file.read_to_end(&mut nonce) {

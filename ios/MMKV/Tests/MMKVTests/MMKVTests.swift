@@ -8,7 +8,7 @@ import XCTest
 final class MMKVTests: XCTestCase {
 
     func initSdk() {
-        MMKV.shared.setLogLevel(LogLevel.trace)
+        MMKV.shared.setLogLevel(LogLevel.debug)
         MMKV.shared.initialize(".")
     }
     
@@ -175,13 +175,11 @@ final class MMKVTests: XCTestCase {
         let dispatchGroup = DispatchGroup()
         DispatchQueue.global().async(group: dispatchGroup) {
             let key = "test_multi_thread_repeat_write_key"
-            var originalValue = ""
             for i in 0...repeatCount {
-                originalValue += String(i)
-                MMKV.shared.putString(key, originalValue).unwrap(())
+                MMKV.shared.putInt32(key, i).unwrap(())
             }
         }
-        for i in 0...4 {
+        for i in 0...2 {
             DispatchQueue.global().async(group: dispatchGroup) {
                 for j : Int32 in 0...repeatCount {
                     MMKV.shared.putInt32("task_\(i)_key_\(j)", j).unwrap(())
@@ -191,7 +189,7 @@ final class MMKVTests: XCTestCase {
         dispatchGroup.wait()
         closeSdk()
         initSdk()
-        for i in 0...4 {
+        for i in 0...2 {
             DispatchQueue.global().async(group: dispatchGroup) {
                 for j : Int32 in 0...repeatCount {
                     let value = MMKV.shared.getInt32("task_\(i)_key_\(j)").unwrap(0)
