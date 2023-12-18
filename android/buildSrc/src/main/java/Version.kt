@@ -1,1 +1,1 @@
-const val version = "0.3.6"
+const val version = "0.4.0"

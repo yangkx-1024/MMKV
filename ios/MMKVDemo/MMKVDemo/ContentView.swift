@@ -2,7 +2,7 @@ import SwiftUI
 import MMKV
 
 struct ContentView: View {
-    @State var logger = CustomLogger(LogLevel.debug, "")
+    @State var logger = CustomLogger(LogLevel.trace, "")
     var body: some View {
         VStack(spacing: 10) {
             MMVKView(content: "String value") { key in
@@ -64,7 +64,7 @@ struct ContentView: View {
             Button(action: {
                 MMKV.shared.clearData()
                 initMMKV()
-                logger = CustomLogger(LogLevel.debug, logger.logStr)
+                logger = CustomLogger(LogLevel.debug, "MMKV log:")
             }, label: {
                 Text("Clear Data")
             })

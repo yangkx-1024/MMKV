@@ -1,24 +1,25 @@
 package net.yangkx.mmkv
 
 import android.util.Log
-import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.CoroutineScope
@@ -28,17 +29,23 @@ import net.yangkx.mmkv.log.Logger
 @Composable
 fun LogView(leadText: String) {
     val logState = rememberLogState(leadText)
-    Text(
-        text = logState.logText,
+    LazyColumn(
+        state = logState.listState,
         modifier = Modifier
             .fillMaxWidth()
             .background(Color.Black)
-            .verticalScroll(logState.scrollState, true)
-            .padding(8.dp),
-        color = Color.Green,
-        fontSize = 12.sp,
-        lineHeight = 18.sp
-    )
+            .size(Dp.Infinity, 200.dp)
+            .padding(8.dp)
+    ) {
+        items(logState.logList) {
+            Text(
+                text = it,
+                modifier = Modifier.fillMaxWidth(),
+                color = Color.Green,
+                fontSize = 12.sp,
+            )
+        }
+    }
 }
 
 
@@ -47,14 +54,11 @@ private fun rememberLogState(
     leadText: String,
 ): LogState {
     val isPreview = LocalInspectionMode.current
-    val scrollState = rememberScrollState()
+    val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     return remember {
         LogState(
-            leadText,
-            scrollState,
-            coroutineScope,
-            isPreview
+            leadText, listState, coroutineScope, isPreview
         )
     }
 }
@@ -62,7 +66,7 @@ private fun rememberLogState(
 @Stable
 private class LogState(
     leadText: String,
-    val scrollState: ScrollState,
+    val listState: LazyListState,
     private val coroutineScope: CoroutineScope,
     isPreview: Boolean = false
 ) : Logger {
@@ -75,36 +79,37 @@ private class LogState(
             MMKV.setLogger(this)
         }
     }
-    var logText by mutableStateOf(leadText + "\n")
+
+    var logList = mutableStateListOf(leadText)
     override fun verbose(log: String) {
         Log.v(TAG, log)
-        appendLog("V - $log\n")
+        appendLog("V - $log")
     }
 
     override fun info(log: String) {
         Log.i(TAG, log)
-        appendLog("I - $log\n")
+        appendLog("I - $log")
     }
 
     override fun debug(log: String) {
         Log.d(TAG, log)
-        appendLog("D - $log\n")
+        appendLog("D - $log")
     }
 
     override fun warn(log: String) {
         Log.w(TAG, log)
-        appendLog("W - $log\n")
+        appendLog("W - $log")
     }
 
     override fun error(log: String) {
         Log.e(TAG, log)
-        appendLog("E - $log\n")
+        appendLog("E - $log")
     }
 
     private fun appendLog(text: String) {
-        logText += text
+        logList.add(text)
         coroutineScope.launch {
-            scrollState.animateScrollTo(Int.MAX_VALUE)
+            listState.animateScrollToItem(logList.size - 1)
         }
     }
 }

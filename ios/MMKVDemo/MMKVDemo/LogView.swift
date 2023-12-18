@@ -11,17 +11,20 @@ struct LogView: View {
         HStack {
             ScrollView {
                 ScrollViewReader { value in
-                    VStack {
-                        Text(logger.logStr)
-                            .foregroundColor(.green)
-                            .font(.caption)
-                            .lineLimit(nil)
-                            .padding()
-                        Spacer()
+                    LazyVStack(alignment: .leading) {
+                        ForEach(logger.logs.indices, id: \.self) { index in
+                            Text(logger.logs[index])
+                                .foregroundColor(.green)
+                                .font(.caption)
+                                .lineLimit(nil)
+                                .id(index)
+                        }
+                        Spacer().id(-1)
                     }
-                    .id(1)
-                    .onChange(of: logger.logStr, initial: true) { _, _ in
-                        value.scrollTo(1, anchor: .bottom)
+                    .onChange(of: logger.logs.count, initial: true) { _, _ in
+                        withAnimation {
+                            value.scrollTo(-1, anchor: .bottom)
+                        }
                     }
                 }
             }
@@ -40,46 +43,36 @@ struct LogView: View {
 }
 
 #Preview {
-    LogView(CustomLogger(LogLevel.trace, ""))
+    LogView(CustomLogger(LogLevel.trace, "MMKV Log"))
 }
 
 class CustomLogger: MMKVLogger, ObservableObject {
-    @Published var logStr: String
+    
+    @Published var logs = [String]()
     
     init(_ logLevel: LogLevel, _ content: String) {
-        logStr = content
+        logs.append(content)
         MMKV.shared.setLogLevel(logLevel)
         MMKV.shared.setLogger(self)
     }
     
     func trace(_ message: String) {
-        logStr.append("Trace - ")
-        logStr.append(message)
-        logStr.append("\n")
-        
+        logs.append("Trace \(message)")
     }
     
     func info(_ message: String) {
-        logStr.append("Info - ")
-        logStr.append(message)
-        logStr.append("\n")
+        logs.append("Info \(message)")
     }
     
     func debug(_ message: String) {
-        logStr.append("Debug - ")
-        logStr.append(message)
-        logStr.append("\n")
+        logs.append("Debug \(message)")
     }
     
     func warning(_ message: String) {
-        logStr.append("Warning - ")
-        logStr.append(message)
-        logStr.append("\n")
+        logs.append("Warning \(message)")
     }
     
     func error(_ message: String) {
-        logStr.append("Error - ")
-        logStr.append(message)
-        logStr.append("\n")
+        logs.append("Error \(message)")
     }
 }
