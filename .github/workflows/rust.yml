@@ -1,26 +1,26 @@
 name: Cargo Test
 
-on: 
-  push: 
+on:
+  push:
     branches: [ "main", "develop" ]
-  pull_request: 
+  pull_request:
     branches: [ "main", "develop" ]
 
-env: 
+env:
   CARGO_TERM_COLOR: always
 
-jobs: 
-  build: 
+jobs:
+  build:
 
     runs-on: ubuntu-latest
 
-    steps: 
+    steps:
       - uses: actions/checkout@v4
       - name: Build default
-        run: cargo build --verbose
+        run: cargo build --verbose -r
       - name: Build feature encryption
-        run: cargo build --features encryption --verbose
+        run: cargo build --features encryption --verbose -r
       - name: Run default tests
-        run: cargo test --verbose
+        run: cargo test --verbose -r
       - name: Run feature encryption tests
-        run: cargo test --features encryption --verbose
+        run: cargo test --features encryption --verbose -r

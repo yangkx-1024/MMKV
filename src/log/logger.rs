@@ -1,82 +1,77 @@
+use crate::core::io_looper::{Callback, IOLooper};
 use chrono::{SecondsFormat, Utc};
-use std::fmt::{Arguments, Debug};
-use std::ops::Deref;
-use std::sync::atomic::{AtomicI32, AtomicPtr, Ordering};
-use std::sync::OnceLock;
+use once_cell::sync::Lazy;
+use std::fmt::Arguments;
+use std::sync::atomic::{AtomicI32, Ordering};
+use std::thread::ThreadId;
 use std::{process, thread};
 
 use crate::log::{LogLevel, Logger};
+struct LogWrapper {
+    io_looper: IOLooper,
+}
 
-#[derive(Debug)]
-struct DefaultLogger;
+struct LogWriter {
+    inner_logger: Option<Box<dyn Logger>>,
+}
 
-impl DefaultLogger {
-    fn local_time(&self) -> String {
-        Utc::now().to_rfc3339_opts(SecondsFormat::Millis, false)
+impl LogWriter {
+    fn write(&self, level: LogLevel, time: String, pid: u32, tid: ThreadId, log_str: String) {
+        match &self.inner_logger {
+            Some(_) => self.redirect(level, log_str),
+            None => {
+                println!("{} {}-{:?} {} {}", time, pid, tid, level, log_str)
+            }
+        }
     }
 
-    fn format_log(&self, level: &str, str: String) {
-        let thread = thread::current();
-        println!(
-            "{} {}-{:?} {} {}",
-            self.local_time(),
-            process::id(),
-            thread.id(),
-            level,
-            str
-        )
+    fn redirect(&self, level: LogLevel, log_str: String) {
+        let logger = self.inner_logger.as_ref().unwrap();
+        match level {
+            LogLevel::Error => logger.error(log_str),
+            LogLevel::Warn => logger.warn(log_str),
+            LogLevel::Info => logger.info(log_str),
+            LogLevel::Debug => logger.debug(log_str),
+            LogLevel::Verbose => logger.verbose(log_str),
+            _ => {}
+        }
     }
 }
 
-impl Logger for DefaultLogger {
-    fn verbose(&self, log_str: String) {
-        self.format_log("V", log_str);
+impl Callback for LogWriter {}
+
+impl LogWrapper {
+    fn new() -> Self {
+        let log_writer = LogWriter { inner_logger: None };
+        let io_looper = IOLooper::new(log_writer);
+        LogWrapper { io_looper }
     }
 
-    fn info(&self, log_str: String) {
-        self.format_log("I", log_str);
-    }
-
-    fn debug(&self, log_str: String) {
-        self.format_log("D", log_str)
-    }
-
-    fn warn(&self, log_str: String) {
-        self.format_log("W", log_str)
-    }
-
-    fn error(&self, log_str: String) {
-        self.format_log("E", log_str)
-    }
-}
-
-static DEFAULT_LOG_IMPL: OnceLock<Box<dyn Logger>> = OnceLock::new();
-static LOG_IMPL: AtomicPtr<Box<dyn Logger>> = AtomicPtr::new(std::ptr::null_mut());
-
-fn inner_logger() -> &'static dyn Logger {
-    let p = LOG_IMPL.load(Ordering::Acquire);
-    if !p.is_null() {
-        unsafe { p.as_ref().unwrap() }.deref()
-    } else {
-        DEFAULT_LOG_IMPL
-            .get_or_init(|| Box::new(DefaultLogger))
-            .deref()
+    fn format_log(&self, level: LogLevel, tag: &str, content: Arguments) {
+        let pid = process::id();
+        let tid = thread::current().id();
+        let time = local_time();
+        let log_str = format!("[{}] {}", tag, content);
+        self.io_looper
+            .post(move |callback| {
+                let writer = callback.downcast_ref::<LogWriter>().unwrap();
+                writer.write(level, time, pid, tid, log_str);
+            })
+            .unwrap();
     }
 }
+
+static LOG_WRAPPER: Lazy<LogWrapper> = Lazy::new(LogWrapper::new);
 
 pub fn log(level: LogLevel, tag: &str, args: Arguments) {
     if get_log_level() < level as i32 {
         return;
     }
-    let str = format!("[{}] {}", tag, args);
-    match level {
-        LogLevel::Error => inner_logger().error(str),
-        LogLevel::Warn => inner_logger().warn(str),
-        LogLevel::Info => inner_logger().info(str),
-        LogLevel::Debug => inner_logger().debug(str),
-        LogLevel::Verbose => inner_logger().verbose(str),
-        _ => {}
-    }
+    LOG_WRAPPER.format_log(level, tag, args);
+}
+
+fn local_time() -> String {
+    Utc::now().to_rfc3339_opts(SecondsFormat::Millis, false)
 }
 
 static LOG_LEVEL: AtomicI32 = AtomicI32::new(5);
@@ -89,20 +84,18 @@ pub fn get_log_level() -> i32 {
     LOG_LEVEL.load(Ordering::Acquire)
 }
 
-pub fn set_logger(log_impl: Box<dyn Logger>) {
-    set_raw_logger(Box::into_raw(Box::new(log_impl)));
+pub fn set_logger(log_impl: Option<Box<dyn Logger>>) {
+    LOG_WRAPPER
+        .io_looper
+        .post(|callback| {
+            let writer = callback.downcast_mut::<LogWriter>().unwrap();
+            drop(writer.inner_logger.take());
+            writer.inner_logger = log_impl;
+        })
+        .unwrap();
 }
 
 pub fn reset() {
     set_log_level(LogLevel::Verbose);
-    set_raw_logger(std::ptr::null_mut());
-}
-
-fn set_raw_logger(logger: *mut Box<dyn Logger>) {
-    let old_log_impl = LOG_IMPL.swap(logger, Ordering::Release);
-    if !old_log_impl.is_null() {
-        unsafe {
-            drop(Box::from_raw(old_log_impl));
-        }
-    }
+    set_logger(None);
 }

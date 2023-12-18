@@ -4,7 +4,7 @@ pub mod config;
 mod crc;
 #[cfg(feature = "encryption")]
 mod encrypt;
-mod io_looper;
+pub mod io_looper;
 mod iter;
 mod memory_map;
 pub mod mmkv_impl;

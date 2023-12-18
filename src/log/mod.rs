@@ -1,4 +1,4 @@
-use std::fmt::Debug;
+use std::fmt::{Debug, Display, Formatter};
 
 pub mod logger;
 
@@ -35,6 +35,19 @@ impl TryFrom<i32> for LogLevel {
             v if v == LogLevel::Debug as i32 => Ok(LogLevel::Debug),
             v if v == LogLevel::Verbose as i32 => Ok(LogLevel::Verbose),
             _ => Err(()),
+        }
+    }
+}
+
+impl Display for LogLevel {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self { 
+            LogLevel::Off => write!(f, ""),
+            LogLevel::Error => write!(f, "E"),
+            LogLevel::Warn => write!(f, "W"),
+            LogLevel::Info => write!(f, "I"),
+            LogLevel::Debug => write!(f, "D"),
+            LogLevel::Verbose => write!(f, "V")
         }
     }
 }

@@ -225,7 +225,7 @@ impl MMKV {
     ```
     */
     pub fn set_logger(log_impl: Box<dyn crate::Logger>) {
-        logger::set_logger(log_impl);
+        logger::set_logger(Some(log_impl));
     }
 
     /**

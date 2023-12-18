@@ -5,7 +5,6 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::thread::JoinHandle;
-use std::time::Instant;
 
 const LOG_TAG: &str = "MMKV:IO";
 
@@ -54,7 +53,8 @@ impl IOLooper {
             .unwrap();
         drop(self.sender.take());
         if let Some(handle) = self.executor.join_handle.take() {
-            handle.join().unwrap()
+            handle.join().unwrap();
+            verbose!(LOG_TAG, "io thread finished");
         }
     }
 
@@ -83,7 +83,8 @@ impl Drop for IOLooper {
         drop(self.sender.take());
 
         if let Some(handle) = self.executor.join_handle.take() {
-            handle.join().unwrap()
+            handle.join().unwrap();
+            verbose!(LOG_TAG, "io thread finished");
         }
     }
 }
@@ -93,44 +94,32 @@ impl Executor {
     where
         T: Callback + std::any::Any + 'static,
     {
-        debug!(LOG_TAG, "io thread launched.");
         let queue: Arc<Mutex<VecDeque<Job>>> = Arc::new(Mutex::new(VecDeque::with_capacity(100)));
         let queue_clone = Arc::clone(&queue);
         let handle = thread::spawn(move || loop {
             let callback = &mut callback;
             let signal = receiver.recv();
 
-            verbose!(LOG_TAG, "io thread wake up");
             match signal {
                 Ok(Signal::Kill(job)) => {
                     job(callback);
-                    debug!(LOG_TAG, "io thread killed");
                     break;
                 }
                 Ok(Signal::Normal) => loop {
                     let mut locked_queue = queue.lock().unwrap();
-                    verbose!(LOG_TAG, "remain {} job(s)", locked_queue.len());
                     let job = locked_queue.pop_front();
                     drop(locked_queue);
                     match job {
                         Some(job) => {
-                            let start_time = Instant::now();
                             job(callback);
-                            verbose!(
-                                LOG_TAG,
-                                "job executed, cost {:?}",
-                                Instant::now().duration_since(start_time)
-                            )
                         }
                         None => break,
                     }
                 },
                 Err(_) => {
-                    debug!(LOG_TAG, "shutting down");
                     break;
                 }
             }
-            verbose!(LOG_TAG, "io thread yield");
             thread::yield_now();
         });
         Executor {
@@ -142,7 +131,7 @@ impl Executor {
 
 #[cfg(test)]
 mod tests {
-    use crate::core::io_looper::{Callback, IOLooper, LOG_TAG};
+    use crate::core::io_looper::{Callback, IOLooper};
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
@@ -152,7 +141,7 @@ mod tests {
     impl Callback for SimpleCallback {}
     impl SimpleCallback {
         fn print(&self, str: &str) {
-            info!(LOG_TAG, "{str}")
+            info!("MMKV:IO", "{str}")
         }
     }
 
