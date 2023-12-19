@@ -1,12 +1,78 @@
-use std::any::Any;
+use std::any::TypeId;
 use std::fmt::Debug;
+use std::ops::DerefMut;
 
 use crate::ffi::*;
 use crate::Error;
 
-pub(super) trait Releasable {
+pub(super) trait Releasable: Debug {
     unsafe fn release(&mut self);
 }
+
+pub(super) trait Leakable<T: Releasable>: Debug {
+    fn leak(self) -> *mut T;
+}
+
+impl<T> Leakable<T> for T
+where
+    T: 'static + Releasable,
+{
+    fn leak(self) -> *mut T {
+        let log = format!("{:?}", self);
+        let ptr = Box::into_raw(Box::new(self));
+        if TypeId::of::<T>() != TypeId::of::<ByteSlice>() {
+            verbose!(LOG_TAG, "leak {log}, ptr: {:?}", ptr);
+        }
+        ptr
+    }
+}
+
+impl<T> Releasable for *mut T
+where
+    T: 'static + Debug,
+{
+    unsafe fn release(&mut self) {
+        let ptr = *self;
+        let log = format!("{:?}", ptr);
+        let boxed = Box::from_raw(ptr);
+        if TypeId::of::<T>() != TypeId::of::<ByteSlice>() {
+            verbose!(LOG_TAG, "release {:?}, ptr: {}", boxed, log);
+        }
+        drop(boxed);
+    }
+}
+
+impl<T> Releasable for &mut [T]
+where
+    T: 'static + Debug,
+{
+    unsafe fn release(&mut self) {
+        let ptr = self.deref_mut();
+        let boxed = Box::from_raw(ptr);
+        verbose!(LOG_TAG, "release {:?}, ptr: {:?}", boxed, ptr.as_ptr());
+        drop(boxed);
+    }
+}
+
+macro_rules! impl_release_for_primary {
+    ($ident:ident) => {
+        impl Releasable for $ident {
+            unsafe fn release(&mut self) {
+                // Do nothing, we need nothing to be release inside primary type
+            }
+        }
+    };
+}
+
+impl_release_for_primary!(bool);
+
+impl_release_for_primary!(i32);
+
+impl_release_for_primary!(i64);
+
+impl_release_for_primary!(f32);
+
+impl_release_for_primary!(f64);
 
 impl ByteSlice {
     pub(super) fn new(string: String) -> Self {
@@ -27,11 +93,11 @@ impl Releasable for ByteSlice {
 }
 
 impl RawTypedArray {
-    pub(super) fn new<T: Sized>(array: Vec<T>, type_token: Types) -> Self {
+    pub(super) fn new<T: Debug>(array: Vec<T>, type_token: Types) -> Self {
         let boxed = array.into_boxed_slice();
         let ptr = boxed.as_ptr();
         let len = boxed.len();
-        verbose!(LOG_TAG, "leak array {:?}", ptr);
+        verbose!(LOG_TAG, "leak {:?}, ptr: {:?}", boxed, ptr);
         std::mem::forget(boxed);
         RawTypedArray {
             array: ptr as *mut _,
@@ -41,26 +107,20 @@ impl RawTypedArray {
     }
 }
 
+macro_rules! release_array {
+    ($target:expr, $type:ty) => {{
+        std::slice::from_raw_parts_mut($target.array as *mut $type, $target.len).release();
+    }};
+}
+
 impl Releasable for RawTypedArray {
     unsafe fn release(&mut self) {
-        verbose!(LOG_TAG, "release {:?}", self);
-        verbose!(LOG_TAG, "release array {:?}", self.array);
-        let _: Box<dyn Any> = match self.type_token {
-            Types::ByteArray => Box::from_raw(
-                std::slice::from_raw_parts_mut(self.array as *mut u8, self.len).as_mut_ptr(),
-            ),
-            Types::I32Array => Box::from_raw(
-                std::slice::from_raw_parts_mut(self.array as *mut i32, self.len).as_mut_ptr(),
-            ),
-            Types::I64Array => Box::from_raw(
-                std::slice::from_raw_parts_mut(self.array as *mut i64, self.len).as_mut_ptr(),
-            ),
-            Types::F32Array => Box::from_raw(
-                std::slice::from_raw_parts_mut(self.array as *mut f32, self.len).as_mut_ptr(),
-            ),
-            Types::F64Array => Box::from_raw(
-                std::slice::from_raw_parts_mut(self.array as *mut f64, self.len).as_mut_ptr(),
-            ),
+        match self.type_token {
+            Types::ByteArray => release_array!(self, u8),
+            Types::I32Array => release_array!(self, i32),
+            Types::I64Array => release_array!(self, i64),
+            Types::F32Array => release_array!(self, f32),
+            Types::F64Array => release_array!(self, f64),
             _ => {
                 panic!("can't match type of array")
             }
@@ -79,62 +139,43 @@ impl RawBuffer {
 
     pub(super) fn set_data<T>(&mut self, data: T)
     where
-        T: Sized + Debug,
+        T: Releasable + 'static,
     {
-        let log = format!("{:?}", data);
-        let ptr = Box::into_raw(Box::new(data)) as *const _;
-        verbose!(LOG_TAG, "leak data {log} {:?}", ptr);
-        self.raw_data = ptr;
+        self.raw_data = data.leak() as *const _;
     }
 
     unsafe fn drop_data(&mut self) {
         if self.raw_data.is_null() {
             return;
         }
-        verbose!(LOG_TAG, "release data {:?}", self.raw_data);
-        let _: Box<dyn Any> = match self.type_token {
-            Types::I32 => Box::from_raw(self.raw_data as *mut i32),
-            Types::Str => Box::from_raw(self.raw_data as *mut ByteSlice),
-            Types::Bool => Box::from_raw(self.raw_data as *mut bool),
-            Types::I64 => Box::from_raw(self.raw_data as *mut i64),
-            Types::F32 => Box::from_raw(self.raw_data as *mut f32),
-            Types::F64 => Box::from_raw(self.raw_data as *mut f64),
+        match self.type_token {
+            Types::I32 => (self.raw_data as *mut i32).release(),
+            Types::Str => (self.raw_data as *mut ByteSlice).release(),
+            Types::Bool => (self.raw_data as *mut bool).release(),
+            Types::I64 => (self.raw_data as *mut i64).release(),
+            Types::F32 => (self.raw_data as *mut f32).release(),
+            Types::F64 => (self.raw_data as *mut f64).release(),
             Types::ByteArray
             | Types::I32Array
             | Types::I64Array
             | Types::F32Array
-            | Types::F64Array => Box::from_raw(self.raw_data as *mut RawTypedArray),
+            | Types::F64Array => (self.raw_data as *mut RawTypedArray).release(),
         };
     }
 
     pub(super) fn set_error(&mut self, e: InternalError) {
-        let log = format!("{:?}", e);
-        let err = Box::into_raw(Box::new(e));
-        verbose!(LOG_TAG, "leak {log} {:?}", err);
-        self.err = err;
+        self.err = e.leak();
     }
 
     unsafe fn drop_error(&mut self) {
         if !self.err.is_null() {
-            let _ = Box::from_raw(self.err.cast_mut());
+            self.err.cast_mut().release();
         }
-    }
-
-    pub(super) fn leak(self) -> *mut Self {
-        let log = format!("{:?}", self);
-        let ptr = Box::into_raw(Box::new(self));
-        verbose!(LOG_TAG, "leak {log} {:?}", ptr);
-        ptr
-    }
-
-    pub(super) fn from_raw(ptr: *mut RawBuffer) -> Self {
-        *unsafe { Box::from_raw(ptr) }
     }
 }
 
 impl Releasable for RawBuffer {
     unsafe fn release(&mut self) {
-        verbose!(LOG_TAG, "release {:?}", self);
         self.drop_data();
         self.drop_error();
     }
@@ -150,8 +191,8 @@ impl InternalError {
             Some(str) => {
                 let byte_slice = ByteSlice::new(str);
                 let log = format!("{:?}", byte_slice);
-                let reason = Box::into_raw(Box::new(byte_slice));
-                verbose!(LOG_TAG, "leak {log} {:?}", reason);
+                let reason = byte_slice.leak();
+                verbose!(LOG_TAG, "leak {log}, ptr: {:?}", reason);
                 InternalError { code, reason }
             }
         }
@@ -177,10 +218,74 @@ impl TryFrom<Error> for InternalError {
 
 impl Releasable for InternalError {
     unsafe fn release(&mut self) {
-        verbose!(LOG_TAG, "release {:?}", self);
         if !self.reason.is_null() {
-            let byte_slice = Box::from_raw(self.reason.cast_mut());
-            verbose!(LOG_TAG, "release {:?} {:?}", byte_slice, self.reason);
+            verbose!(
+                LOG_TAG,
+                "release ByteSlice {{ bytes: {:?}, len: {} }}, ptr: {:?}",
+                (*self.reason).bytes,
+                (*self.reason).len,
+                self.reason
+            );
+            self.reason.cast_mut().release();
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::ffi::ffi_buffer::{Leakable, Releasable};
+    use crate::ffi::{ByteSlice, InternalError, RawBuffer, RawTypedArray, Types};
+    use crate::log::logger;
+
+    #[test]
+    fn test_byte_slice() {
+        let str = "Test slice".to_string();
+        let mut ptr = ByteSlice::new(str).leak();
+        unsafe {
+            ptr.release();
+        }
+        logger::sync()
+    }
+
+    #[test]
+    fn test_internal_error() {
+        let str = "Test slice".to_string();
+        let mut ptr = InternalError::new(0, Some(str)).leak();
+        unsafe {
+            ptr.release();
+        }
+        logger::sync();
+    }
+
+    #[test]
+    fn test_raw_buffer() {
+        let mut buffer = RawBuffer::new(Types::Bool);
+        buffer.set_error(InternalError::new(0, None));
+        let mut ptr = buffer.leak();
+        unsafe {
+            ptr.release();
+        }
+
+        let mut buffer = RawBuffer::new(Types::Str);
+        buffer.set_data(ByteSlice::new("test str".to_string()));
+        let mut ptr = buffer.leak();
+        unsafe {
+            ptr.release();
+        }
+
+        let mut buffer = RawBuffer::new(Types::I32);
+        buffer.set_data(10i32);
+        let mut ptr = buffer.leak();
+        unsafe {
+            ptr.release();
+        }
+
+        let mut buffer = RawBuffer::new(Types::I32Array);
+        buffer.set_data(RawTypedArray::new(vec![1i32, 2, 3], Types::I32Array));
+        let mut ptr = buffer.leak();
+        unsafe {
+            ptr.release();
+        }
+        logger::sync();
     }
 }
