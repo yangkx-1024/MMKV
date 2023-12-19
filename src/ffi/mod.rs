@@ -1,11 +1,11 @@
 mod ffi_buffer;
 
-use mmkv_proc_macro_lib::AutoRelease;
+use crate::{Error, LogLevel, Logger, MMKV};
+use ffi_buffer::{Leakable, Releasable};
+use mmkv_proc_macro_lib::Leakable;
 use std::ffi::{c_void, CStr};
 use std::fmt::Debug;
 use std::os::raw::c_char;
-
-use crate::{Error, LogLevel, Logger, MMKV};
 
 pub(super) const LOG_TAG: &str = "MMKV:FFI";
 
@@ -33,14 +33,14 @@ pub enum Types {
 }
 
 #[repr(C)]
-#[derive(Debug, AutoRelease)]
+#[derive(Debug, Leakable)]
 pub struct ByteSlice {
     pub bytes: *const u8,
     pub len: usize,
 }
 
 #[repr(C)]
-#[derive(Debug, AutoRelease)]
+#[derive(Debug, Leakable)]
 pub struct RawTypedArray {
     pub array: *const c_void,
     pub type_token: Types,
@@ -62,8 +62,6 @@ pub struct NativeLogger {
 
 unsafe impl Send for NativeLogger {}
 
-unsafe impl Sync for NativeLogger {}
-
 impl Drop for NativeLogger {
     fn drop(&mut self) {
         verbose!(LOG_TAG, "release {:?}", self);
@@ -73,10 +71,10 @@ impl Drop for NativeLogger {
 
 impl NativeLogger {
     fn call_target(&self, log_level: LogLevel, log_str: String) {
-        let ptr = Box::into_raw(Box::new(ByteSlice::new(log_str)));
+        let mut ptr = ByteSlice::new(log_str).leak();
         (self.callback)(self.obj, log_level as i32, ptr);
         unsafe {
-            let _ = Box::from_raw(ptr);
+            ptr.release();
         }
     }
 }
@@ -106,7 +104,7 @@ impl Logger for NativeLogger {
 pub type RawCStr = *const c_char;
 
 #[repr(C)]
-#[derive(Debug, AutoRelease)]
+#[derive(Debug, Leakable)]
 pub struct RawBuffer {
     pub raw_data: *const c_void,
     pub type_token: Types,
@@ -114,7 +112,7 @@ pub struct RawBuffer {
 }
 
 #[repr(C)]
-#[derive(Debug, AutoRelease)]
+#[derive(Debug, Leakable)]
 pub struct InternalError {
     pub code: i32,
     pub reason: *const ByteSlice,
@@ -224,7 +222,7 @@ macro_rules! impl_put_typed_array {
         #[no_mangle]
         pub extern "C" fn $name(key: RawCStr, value: $value_type, len: usize) -> *const RawBuffer {
             let key_str = unsafe { CStr::from_ptr(key) }.to_str().unwrap();
-            let mut result = Box::new(RawBuffer::new($type_token));
+            let mut result = RawBuffer::new($type_token);
             match mmkv_put!(key_str, value, len, $value_type) {
                 Err(e) => result.set_error(map_error(key_str, e, $log)),
                 Ok(()) => {
@@ -272,7 +270,7 @@ pub extern "C" fn set_log_level(log_level: i32) {
 
 #[no_mangle]
 pub unsafe extern "C" fn free_buffer(ptr: *const c_void) {
-    let _ = RawBuffer::from_raw(ptr as *mut RawBuffer);
+    (ptr as *mut RawBuffer).release();
 }
 
 #[no_mangle]

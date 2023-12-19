@@ -12,7 +12,7 @@ include!(concat!(env!("OUT_DIR"), "/protos/mod.rs"));
 #[derive(Debug, Clone)]
 pub struct Buffer(KV);
 
-pub trait Encoder: Send + Sync {
+pub trait Encoder: Send {
     fn encode_to_bytes(&self, raw_buffer: &Buffer) -> Result<Vec<u8>>;
 }
 

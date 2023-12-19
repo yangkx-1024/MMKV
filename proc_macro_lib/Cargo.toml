@@ -1,6 +1,6 @@
 [package]
 name = "mmkv-proc-macro-lib"
-version = "0.0.2"
+version = "0.0.3"
 edition = "2021"
 authors = ["Kexuan Yang <kexuan.yang@gmail.com>"]
 description = "Proc macro lib of Rust version of MMKV"
@@ -13,4 +13,4 @@ proc-macro = true
 
 [dependencies]
 quote = "1"
-syn = { version = "2", features = ["full","extra-traits"] }
+syn = { version = "2", features = ["full", "extra-traits"] }

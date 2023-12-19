@@ -52,6 +52,7 @@ impl LogWrapper {
         let tid = thread::current().id();
         let time = local_time();
         let log_str = format!("[{}] {}", tag, content);
+        // write log in io thread
         self.io_looper
             .post(move |callback| {
                 let writer = callback.downcast_ref::<LogWriter>().unwrap();
@@ -85,6 +86,7 @@ pub fn get_log_level() -> i32 {
 }
 
 pub fn set_logger(log_impl: Option<Box<dyn Logger>>) {
+    // Here move the log_impl to io thread
     LOG_WRAPPER
         .io_looper
         .post(|callback| {
@@ -98,4 +100,9 @@ pub fn set_logger(log_impl: Option<Box<dyn Logger>>) {
 pub fn reset() {
     set_log_level(LogLevel::Verbose);
     set_logger(None);
+}
+
+#[allow(dead_code)]
+pub fn sync() {
+    LOG_WRAPPER.io_looper.sync()
 }

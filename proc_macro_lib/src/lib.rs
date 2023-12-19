@@ -5,7 +5,7 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::{parse_macro_input, DeriveInput};
 
-#[proc_macro_derive(AutoRelease)]
+#[proc_macro_derive(Leakable)]
 pub fn derive_auto_release(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     let indent = input.ident;
@@ -18,5 +18,6 @@ pub fn derive_auto_release(input: TokenStream) -> TokenStream {
                 }
             }
         }
-    ).into()
+    )
+    .into()
 }

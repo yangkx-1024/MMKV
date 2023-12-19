@@ -1,6 +1,7 @@
 use crate::Error::{IOError, LockError};
 use crate::Result;
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -62,12 +63,11 @@ impl IOLooper {
     where
         F: FnOnce(&mut dyn std::any::Any) + Send + 'static,
     {
-        let mut queue = self
-            .executor
+        self.executor
             .queue
             .lock()
+            .map(|mut queue| queue.push_back(Box::new(task)))
             .map_err(|e| LockError(e.to_string()))?;
-        queue.push_back(Box::new(task));
 
         self.sender
             .as_ref()
@@ -75,6 +75,20 @@ impl IOLooper {
             .send(Signal::Normal)
             .map_err(|e| IOError(e.to_string()))?;
         Ok(())
+    }
+
+    pub fn sync(&self) {
+        let synced = Arc::new(AtomicBool::new(false));
+        let synced_clone = synced.clone();
+        self.post(move |_| {
+            synced.store(true, Ordering::Release);
+        })
+        .unwrap();
+        loop {
+            if synced_clone.load(Ordering::Acquire) {
+                break;
+            }
+        }
     }
 }
 
