@@ -45,7 +45,6 @@ impl IOLooper {
     where
         F: FnOnce(&mut dyn std::any::Any) + Send + 'static,
     {
-        debug!(LOG_TAG, "try kill io thread");
         self.executor.queue.lock().unwrap().clear();
         self.sender
             .as_ref()
@@ -54,8 +53,8 @@ impl IOLooper {
             .unwrap();
         drop(self.sender.take());
         if let Some(handle) = self.executor.join_handle.take() {
+            debug!(LOG_TAG, "kill io thread");
             handle.join().unwrap();
-            verbose!(LOG_TAG, "io thread finished");
         }
     }
 

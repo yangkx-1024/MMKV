@@ -43,13 +43,13 @@ impl TryFrom<i32> for LogLevel {
 
 impl Display for LogLevel {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self { 
+        match self {
             LogLevel::Off => write!(f, ""),
             LogLevel::Error => write!(f, "E"),
             LogLevel::Warn => write!(f, "W"),
             LogLevel::Info => write!(f, "I"),
             LogLevel::Debug => write!(f, "D"),
-            LogLevel::Verbose => write!(f, "V")
+            LogLevel::Verbose => write!(f, "V"),
         }
     }
 }
