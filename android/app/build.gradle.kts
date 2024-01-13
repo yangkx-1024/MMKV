@@ -1,4 +1,4 @@
-import BuildUtil.loadProperities
+import BuildUtil.loadProperties
 import org.gradle.api.artifacts.Configuration
 
 plugins {
@@ -6,7 +6,7 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-project.loadProperities()
+project.loadProperties()
 
 android {
     namespace = "net.yangkx.mmkv.demo"

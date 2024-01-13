@@ -1,4 +1,4 @@
-import BuildUtil.loadProperities
+import BuildUtil.loadProperties
 import java.net.URI
 
 plugins {
@@ -8,7 +8,7 @@ plugins {
     id("signing")
 }
 
-project.loadProperities()
+project.loadProperties()
 
 android {
     namespace = "net.yangkx.mmkv"

@@ -8,8 +8,8 @@ import kotlin.io.path.writeText
 
 object BuildUtil {
 
-    fun Project.loadProperities() {
-        loadProperityFile()
+    fun Project.loadProperties() {
+        loadPropertyFile()
         if (System.getenv("ENCODED_ANDROID_KEYSTORE")?.isNotEmpty() == true) {
             prepareSignKey()
         }
@@ -18,7 +18,7 @@ object BuildUtil {
         }
     }
 
-    private fun Project.loadProperityFile() {
+    private fun Project.loadPropertyFile() {
         val propFile = File(rootProject.rootDir, "local.properties")
         if (propFile.exists()) {
             val prop = Properties().apply {
