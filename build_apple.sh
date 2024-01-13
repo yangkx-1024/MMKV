@@ -1,6 +1,7 @@
 #!/bin/bash
 
 cargo install cargo-expand
+cargo install cbindgen
 # Build static libs
 for TARGET in \
         aarch64-apple-ios x86_64-apple-ios aarch64-apple-ios-sim \
