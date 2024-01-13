@@ -25,13 +25,13 @@ impl Drop for MmkvImpl {
         drop(self.io_looper.take());
         debug!(
             LOG_TAG,
-            "io thread finished, cost {:?}",
-            Instant::now().duration_since(time_start)
+            "wait for io task finish, cost {:?}",
+            time_start.elapsed()
         );
     }
 }
 
-pub struct IOWriter {
+struct IOWriter {
     config: Config,
     mm: MemoryMap,
     need_trim: bool,
@@ -91,13 +91,12 @@ impl IOWriter {
                 count += 1;
             }
             self.need_trim = false;
-            let time_end = Instant::now();
             info!(
                 LOG_TAG,
                 "wrote {} items, new len {}, cost {:?}",
                 count,
                 self.mm.len(),
-                time_end.duration_since(time_start)
+                time_start.elapsed()
             );
         } else {
             // expand and write
@@ -157,7 +156,7 @@ impl MmkvImpl {
             "instance initialized, read {} items, content len {}, cost {:?}",
             mmkv.kv_map.len(),
             content_len,
-            Instant::now().duration_since(time_start)
+            time_start.elapsed()
         );
         mmkv
     }

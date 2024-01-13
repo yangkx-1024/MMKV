@@ -39,12 +39,11 @@ impl Config {
         // expand the file size with page_size
         self.file.sync_all().unwrap();
         self.file.set_len(file_size + self.page_size).unwrap();
-        let expand_end = Instant::now();
         info!(
             LOG_TAG,
             "expanded, file size: {}, cost {:?}",
             self.file_size(),
-            expand_end.duration_since(expand_start)
+            expand_start.elapsed()
         );
     }
 
