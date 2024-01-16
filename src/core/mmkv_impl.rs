@@ -107,7 +107,7 @@ impl IOWriter {
 
     fn expand(&mut self) {
         self.config.expand();
-        self.mm = MemoryMap::new(&self.config.file);
+        self.mm = MemoryMap::new(&self.config.file, self.config.file_size() as usize);
     }
 
     fn remove_file(&mut self) {
@@ -127,7 +127,7 @@ impl MmkvImpl {
         #[cfg(not(feature = "encryption"))]
         let encoder = Box::new(CrcEncoderDecoder);
         let mut kv_map = HashMap::new();
-        let mm = MemoryMap::new(&config.file);
+        let mm = MemoryMap::new(&config.file, config.file_size() as usize);
         #[cfg(feature = "encryption")]
         let decoder = encryptor.clone();
         #[cfg(not(feature = "encryption"))]
