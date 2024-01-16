@@ -110,7 +110,7 @@ mod tests {
             .open(file_name)
             .unwrap();
         file.set_len(1024).unwrap();
-        let mut mm = MemoryMap::new(&file);
+        let mut mm = MemoryMap::new(&file, 1024);
         let mut buffers: Vec<Buffer> = vec![];
         let test_encoder = &TestEncoderDecoder;
         for i in 0..10 {

@@ -5,10 +5,25 @@ use crate::log::logger;
 use crate::Error::InstanceClosed;
 use crate::{LogLevel, Result};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::RwLock;
 
 const DEFAULT_FILE_NAME: &str = "mini_mmkv";
-const PAGE_SIZE: u64 = 4 * 1024; // 4KB is the default Linux page size
+
+fn page_size() -> usize {
+    static PAGE_SIZE: AtomicUsize = AtomicUsize::new(0);
+
+    match PAGE_SIZE.load(Ordering::Relaxed) {
+        0 => {
+            let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) as usize };
+
+            PAGE_SIZE.store(page_size, Ordering::Relaxed);
+
+            page_size
+        }
+        page_size => page_size,
+    }
+}
 
 static MMKV_INSTANCE: RwLock<Option<MmkvImpl>> = RwLock::new(None);
 
@@ -61,7 +76,7 @@ impl MMKV {
         let mut instance = MMKV_INSTANCE.write().unwrap();
         drop(instance.take());
         let file_path = MMKV::resolve_file_path(dir);
-        let config = Config::new(file_path.as_path(), PAGE_SIZE);
+        let config = Config::new(file_path.as_path(), page_size() as u64);
         *instance = Some(MmkvImpl::new(
             config,
             #[cfg(feature = "encryption")]

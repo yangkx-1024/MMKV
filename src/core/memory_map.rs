@@ -1,21 +1,92 @@
 use std::fs::File;
-use std::ops::Range;
-
-use memmap2::{Advice, MmapMut};
+use std::ops::{Deref, DerefMut, Range};
+use std::os::fd::{AsRawFd, RawFd};
+use std::ptr::NonNull;
+use std::{io, ptr, slice};
 
 pub const LEN_OFFSET: usize = 8;
 
+#[cfg(any(target_os = "linux", target_os = "android"))]
+const MAP_POPULATE: libc::c_int = libc::MAP_POPULATE;
+
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+const MAP_POPULATE: libc::c_int = 0;
+
 #[derive(Debug)]
-pub struct MemoryMap(MmapMut);
+struct RawMmap {
+    ptr: NonNull<libc::c_void>,
+    len: usize,
+}
+
+impl RawMmap {
+    fn new(fd: RawFd, len: usize) -> io::Result<RawMmap> {
+        unsafe {
+            let ptr = libc::mmap(
+                ptr::null_mut(),
+                len as libc::size_t,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_SHARED | MAP_POPULATE,
+                fd,
+                0,
+            );
+            if ptr == libc::MAP_FAILED {
+                Err(io::Error::last_os_error())
+            } else {
+                libc::madvise(ptr, len, libc::MADV_WILLNEED);
+                Ok(RawMmap {
+                    ptr: NonNull::new(ptr).unwrap(),
+                    len,
+                })
+            }
+        }
+    }
+
+    fn flush(&self, len: usize) -> io::Result<()> {
+        let result = unsafe { libc::msync(self.ptr.as_ptr(), len as libc::size_t, libc::MS_SYNC) };
+        if result == 0 {
+            Ok(())
+        } else {
+            Err(io::Error::last_os_error())
+        }
+    }
+}
+
+impl Drop for RawMmap {
+    fn drop(&mut self) {
+        unsafe {
+            libc::munmap(self.ptr.as_ptr(), self.len as libc::size_t);
+        }
+    }
+}
+
+impl Deref for RawMmap {
+    type Target = [u8];
+    #[inline]
+    fn deref(&self) -> &[u8] {
+        unsafe { slice::from_raw_parts(self.ptr.as_ptr() as *const u8, self.len) }
+    }
+}
+
+impl DerefMut for RawMmap {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut [u8] {
+        unsafe { slice::from_raw_parts_mut(self.ptr.as_ptr() as *mut u8, self.len) }
+    }
+}
+
+unsafe impl Send for RawMmap {}
+unsafe impl Sync for RawMmap {}
+
+#[derive(Debug)]
+pub struct MemoryMap(RawMmap);
 
 impl MemoryMap {
-    pub fn new(file: &File) -> Self {
-        let raw_mmap = unsafe { MmapMut::map_mut(file) }.unwrap();
-        raw_mmap.advise(Advice::WillNeed).unwrap();
+    pub fn new(file: &File, len: usize) -> Self {
+        let raw_mmap = RawMmap::new(file.as_raw_fd(), len).unwrap();
         MemoryMap(raw_mmap)
     }
 
-    pub fn append(&mut self, value: Vec<u8>) -> std::io::Result<()> {
+    pub fn append(&mut self, value: Vec<u8>) -> io::Result<()> {
         let data_len = value.len();
         let start = self.len();
         let content_len = start - LEN_OFFSET;
@@ -23,13 +94,13 @@ impl MemoryMap {
         let new_content_len = data_len + content_len;
         self.0[0..LEN_OFFSET].copy_from_slice(new_content_len.to_be_bytes().as_slice());
         self.0[start..end].copy_from_slice(value.as_slice());
-        self.0.flush()
+        self.0.flush(end)
     }
 
-    pub fn reset(&mut self) -> std::io::Result<()> {
+    pub fn reset(&mut self) -> io::Result<()> {
         let len = 0usize;
         self.0[0..LEN_OFFSET].copy_from_slice(len.to_be_bytes().as_slice());
-        self.0.flush()
+        self.0.flush(LEN_OFFSET)
     }
 
     pub fn len(&self) -> usize {
@@ -58,7 +129,7 @@ mod tests {
             .open("test_mmap")
             .unwrap();
         file.set_len(1024).unwrap();
-        let mut mm = MemoryMap::new(&file);
+        let mut mm = MemoryMap::new(&file, 1024);
         assert_eq!(mm.len(), 8);
         mm.append(vec![1, 2, 3]).unwrap();
         mm.append(vec![4]).unwrap();

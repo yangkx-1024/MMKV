@@ -15,7 +15,7 @@ exclude = [
 
 [dependencies]
 protobuf = "3.3.0"
-memmap2 = "0.9.3"
+libc = "0.2.152"
 crc = "3.0.1"
 eax = { version = "0.5.0", features = ["stream"], optional = true }
 aes = { version = "0.8.3", optional = true }
