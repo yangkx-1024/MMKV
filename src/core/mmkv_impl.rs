@@ -1,12 +1,13 @@
-use crate::core::buffer::{Buffer, Decoder, Encoder};
+use crate::core::buffer::{Buffer, Decoder};
 use crate::core::config::Config;
 #[cfg(not(feature = "encryption"))]
 use crate::core::crc::CrcEncoderDecoder;
 #[cfg(feature = "encryption")]
 use crate::core::encrypt::Encryptor;
-use crate::core::io_looper::{Callback, IOLooper};
+use crate::core::io_looper::IOLooper;
 use crate::core::memory_map::MemoryMap;
-use crate::Error::{EncodeFailed, InstanceClosed};
+use crate::core::writer::IOWriter;
+use crate::Error::InstanceClosed;
 use crate::{Error, Result};
 use std::collections::HashMap;
 use std::time::Instant;
@@ -31,92 +32,6 @@ impl Drop for MmkvImpl {
     }
 }
 
-struct IOWriter {
-    config: Config,
-    mm: MemoryMap,
-    need_trim: bool,
-    encoder: Box<dyn Encoder>,
-    #[cfg(feature = "encryption")]
-    encryptor: Encryptor,
-}
-
-impl Callback for IOWriter {}
-
-impl IOWriter {
-    fn new(
-        config: Config,
-        mm: MemoryMap,
-        encoder: Box<dyn Encoder>,
-        #[cfg(feature = "encryption")] encryptor: Encryptor,
-    ) -> Self {
-        IOWriter {
-            config,
-            mm,
-            need_trim: false,
-            encoder,
-            #[cfg(feature = "encryption")]
-            encryptor,
-        }
-    }
-
-    // Flash the data to file, always running in one io thread, so don't need lock here
-    fn write(&mut self, buffer: Buffer, map: HashMap<String, Buffer>, duplicated: bool) {
-        let data = self.encoder.encode_to_bytes(&buffer).unwrap();
-        let target_end = data.len() + self.mm.len();
-        let file_size = self.config.file_size();
-        if duplicated {
-            self.need_trim = true;
-        }
-        if target_end as u64 <= file_size {
-            self.mm.append(data).unwrap();
-            return;
-        }
-        if self.need_trim {
-            // rewrite the entire map
-            #[cfg(feature = "encryption")]
-            self.encryptor.reset();
-            let time_start = Instant::now();
-            info!(LOG_TAG, "start trim, current len {}", self.mm.len());
-            let mut count = 0;
-            self.mm
-                .reset()
-                .map_err(|e| EncodeFailed(e.to_string()))
-                .unwrap();
-            for buffer in map.values() {
-                let bytes = self.encoder.encode_to_bytes(buffer).unwrap();
-                if self.mm.len() + bytes.len() > file_size as usize {
-                    self.expand();
-                }
-                self.mm.append(bytes).unwrap();
-                count += 1;
-            }
-            self.need_trim = false;
-            info!(
-                LOG_TAG,
-                "wrote {} items, new len {}, cost {:?}",
-                count,
-                self.mm.len(),
-                time_start.elapsed()
-            );
-        } else {
-            // expand and write
-            self.expand();
-            self.mm.append(data).unwrap();
-        }
-    }
-
-    fn expand(&mut self) {
-        self.config.expand();
-        self.mm = MemoryMap::new(&self.config.file, self.config.file_size() as usize);
-    }
-
-    fn remove_file(&mut self) {
-        self.config.remove_file();
-        #[cfg(feature = "encryption")]
-        self.encryptor.remove_file();
-    }
-}
-
 impl MmkvImpl {
     pub fn new(config: Config, #[cfg(feature = "encryption")] key: &str) -> Self {
         let time_start = Instant::now();
@@ -129,23 +44,25 @@ impl MmkvImpl {
         let mut kv_map = HashMap::new();
         let mm = MemoryMap::new(&config.file, config.file_size() as usize);
         #[cfg(feature = "encryption")]
-        let decoder = encryptor.clone();
+        let decoder = Box::new(encryptor.clone());
         #[cfg(not(feature = "encryption"))]
-        let decoder = CrcEncoderDecoder;
+        let decoder = Box::new(CrcEncoderDecoder);
         mm.iter(|bytes| decoder.decode_bytes(bytes))
             .for_each(|buffer: Option<Buffer>| {
                 if let Some(data) = buffer {
                     kv_map.insert(data.key().to_string(), data);
                 }
             });
+        let content_len = mm.offset();
+        let file_size = mm.len();
         let io_writer = IOWriter::new(
             config,
             mm,
             encoder,
+            decoder,
             #[cfg(feature = "encryption")]
             encryptor,
         );
-        let content_len = io_writer.mm.len();
         let mmkv = MmkvImpl {
             kv_map,
             is_valid: true,
@@ -153,9 +70,10 @@ impl MmkvImpl {
         };
         info!(
             LOG_TAG,
-            "instance initialized, read {} items, content len {}, cost {:?}",
+            "instance initialized, read {} items, content len {}, file size {}, cost {:?}",
             mmkv.kv_map.len(),
             content_len,
+            file_size,
             time_start.elapsed()
         );
         mmkv
@@ -167,12 +85,11 @@ impl MmkvImpl {
         }
         let result = self.kv_map.insert(key.to_string(), raw_buffer.clone());
         let duplicated = result.is_some();
-        let map = self.kv_map.clone();
         self.io_looper.as_ref().unwrap().post(move |callback| {
             callback
                 .downcast_mut::<IOWriter>()
                 .unwrap()
-                .write(raw_buffer, map, duplicated)
+                .write(raw_buffer, duplicated)
         })
     }
 
@@ -218,7 +135,7 @@ mod tests {
 
     use crate::core::buffer::Buffer;
     use crate::core::config::Config;
-    use crate::core::mmkv_impl::IOWriter;
+    use crate::core::memory_map::MemoryMap;
     use crate::core::mmkv_impl::MmkvImpl;
     use crate::LogLevel::Debug;
     use crate::MMKV;
@@ -235,19 +152,6 @@ mod tests {
         )
     }
 
-    macro_rules! assert_mmkv_len {
-        ($mmkv:expr, $value:literal) => {
-            $mmkv
-                .io_looper
-                .as_ref()
-                .unwrap()
-                .post(|writer| {
-                    assert_eq!(writer.downcast_ref::<IOWriter>().unwrap().mm.len(), $value);
-                })
-                .expect("");
-        };
-    }
-
     #[test]
     #[cfg(not(feature = "encryption"))]
     fn test_trim_and_expand_default() {
@@ -256,35 +160,41 @@ mod tests {
         assert!(!Path::new(file_path).exists());
         let _ = fs::remove_file(format!("{}.meta", file_path));
         let config = &Config::new(Path::new(file_path), 100);
+        let mm = MemoryMap::new(&config.file, 200);
         let mut mmkv = init(config);
         mmkv.put("key1", Buffer::from_i32("key1", 1)).unwrap(); // + 17
         drop(mmkv);
+        assert_eq!(mm.offset(), 25);
+
         mmkv = init(config);
-        assert_mmkv_len!(mmkv, 25);
         mmkv.put("key2", Buffer::from_i32("key2", 2)).unwrap(); // + 17
         mmkv.put("key3", Buffer::from_i32("key3", 3)).unwrap(); // + 17
         mmkv.put("key1", Buffer::from_i32("key1", 4)).unwrap(); // + 17
         mmkv.put("key2", Buffer::from_i32("key2", 5)).unwrap(); // + 17
         drop(mmkv);
+        assert_eq!(mm.offset(), 93);
+
         mmkv = init(config);
-        assert_mmkv_len!(mmkv, 93);
         mmkv.put("key1", Buffer::from_i32("key1", 6)).unwrap(); // + 17, trim, 3 items remain
         drop(mmkv);
+        assert_eq!(mm.offset(), 59);
+
         mmkv = init(config);
-        assert_mmkv_len!(mmkv, 59);
         assert_eq!(mmkv.get("key1").unwrap().decode_i32(), Ok(6));
         assert_eq!(mmkv.get("key2").unwrap().decode_i32(), Ok(5));
         mmkv.put("key4", Buffer::from_i32("key4", 4)).unwrap();
         mmkv.put("key5", Buffer::from_i32("key5", 5)).unwrap(); // 93
         mmkv.put("key6", Buffer::from_i32("key6", 6)).unwrap(); // expand, 110
         drop(mmkv);
-        mmkv = init(config);
-        assert_mmkv_len!(mmkv, 110);
+        assert_eq!(mm.offset(), 110);
         assert_eq!(config.file_size(), 200);
+
+        mmkv = init(config);
         mmkv.put("key7", Buffer::from_i32("key7", 7)).unwrap();
         drop(mmkv);
+        assert_eq!(mm.offset(), 127);
+
         mmkv = init(config);
-        assert_mmkv_len!(mmkv, 127);
         mmkv.clear_data();
         assert!(!Path::new(file_path).exists());
     }
@@ -296,32 +206,38 @@ mod tests {
         let _ = fs::remove_file(file);
         let _ = fs::remove_file(format!("{file}.meta"));
         let config = &Config::new(Path::new(file), 100);
+        let mm = MemoryMap::new(&config.file, 200);
         let mut mmkv = init(config);
         mmkv.put("key1", Buffer::from_i32("key1", 1)).unwrap(); // + 24
         drop(mmkv);
+        assert_eq!(mm.offset(), 32);
+
         mmkv = init(config);
-        assert_mmkv_len!(mmkv, 32);
         mmkv.put("key2", Buffer::from_i32("key2", 2)).unwrap(); // + 24
         mmkv.put("key3", Buffer::from_i32("key3", 3)).unwrap(); // + 24
         drop(mmkv);
+        assert_eq!(mm.offset(), 80);
+
         mmkv = init(config);
-        assert_mmkv_len!(mmkv, 80);
         mmkv.put("key1", Buffer::from_i32("key1", 4)).unwrap(); // + 24 trim
         mmkv.put("key2", Buffer::from_i32("key2", 5)).unwrap(); // + 24 trim
         drop(mmkv);
+        assert_eq!(mm.offset(), 80);
+
         mmkv = init(config);
-        assert_mmkv_len!(mmkv, 80);
         assert_eq!(mmkv.get("key1").unwrap().decode_i32(), Ok(4));
         assert_eq!(mmkv.get("key2").unwrap().decode_i32(), Ok(5));
         mmkv.put("key4", Buffer::from_i32("key4", 4)).unwrap(); // + 24
         drop(mmkv);
-        mmkv = init(config);
-        assert_mmkv_len!(mmkv, 104);
+        assert_eq!(mm.offset(), 104);
         assert_eq!(config.file_size(), 200);
+
+        mmkv = init(config);
         mmkv.put("key5", Buffer::from_i32("key5", 5)).unwrap(); // + 24
         drop(mmkv);
+        assert_eq!(mm.offset(), 128);
+
         mmkv = init(config);
-        assert_mmkv_len!(mmkv, 128);
         mmkv.clear_data();
         assert!(!Path::new(file).exists());
     }

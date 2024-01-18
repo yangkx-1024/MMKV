@@ -75,7 +75,6 @@ impl DerefMut for RawMmap {
 }
 
 unsafe impl Send for RawMmap {}
-unsafe impl Sync for RawMmap {}
 
 #[derive(Debug)]
 pub struct MemoryMap(RawMmap);
@@ -88,7 +87,7 @@ impl MemoryMap {
 
     pub fn append(&mut self, value: Vec<u8>) -> io::Result<()> {
         let data_len = value.len();
-        let start = self.len();
+        let start = self.offset();
         let content_len = start - LEN_OFFSET;
         let end = data_len + start;
         let new_content_len = data_len + content_len;
@@ -103,8 +102,14 @@ impl MemoryMap {
         self.0.flush(LEN_OFFSET)
     }
 
-    pub fn len(&self) -> usize {
+    /// The write offset of current mmap
+    pub fn offset(&self) -> usize {
         usize::from_be_bytes(self.0[0..LEN_OFFSET].try_into().unwrap()) + LEN_OFFSET
+    }
+
+    /// The max len of current mmap
+    pub fn len(&self) -> usize {
+        self.0.len
     }
 
     pub fn read(&self, range: Range<usize>) -> &[u8] {
@@ -130,21 +135,21 @@ mod tests {
             .unwrap();
         file.set_len(1024).unwrap();
         let mut mm = MemoryMap::new(&file, 1024);
-        assert_eq!(mm.len(), 8);
+        assert_eq!(mm.offset(), 8);
         mm.append(vec![1, 2, 3]).unwrap();
         mm.append(vec![4]).unwrap();
-        assert_eq!(mm.len(), 12);
+        assert_eq!(mm.offset(), 12);
 
         let read = mm.read(8..10);
         assert_eq!(read.len(), 2);
         assert_eq!(read[0], 1);
         assert_eq!(read[1], 2);
-        let read = mm.read(mm.len() - 1..mm.len());
+        let read = mm.read(mm.offset() - 1..mm.offset());
         assert_eq!(read[0], 4);
 
         mm.reset().unwrap();
         mm.append(vec![5, 4, 3, 2, 1]).unwrap();
-        assert_eq!(mm.len(), 13);
+        assert_eq!(mm.offset(), 13);
         let read = mm.read(8..9);
         assert_eq!(read[0], 5);
 

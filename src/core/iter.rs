@@ -19,7 +19,7 @@ impl MemoryMap {
         F: Fn(&[u8]) -> crate::Result<DecodeResult>,
     {
         let start = LEN_OFFSET;
-        let end = self.len();
+        let end = self.offset();
         Iter {
             mm: self,
             start,

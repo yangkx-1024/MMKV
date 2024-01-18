@@ -14,7 +14,8 @@ By default, this lib uses [CRC8](https://github.com/mrhooray/crc-rs) to check da
 
 If include feature `encryption`, this lib will encrypt the data with [AES-EAX](https://github.com/RustCrypto/AEADs/tree/master/eax).
 
-MMKV is thread-safe but cannot guarantee cross-process data consistency (still under development). If you want to use it in a cross-process scenario, please ensure that there is no competing write.
+MMKV is thread-safe but cannot guarantee cross-process data consistency.
+If you want to use it in a cross-process scenario, please ensure that there is no competing write.
 
 ## How to use
 
@@ -68,11 +69,13 @@ Add lib dependency to gradle:
 
 ```kotlin
 dependencies {
-    implementation("net.yangkx:mmkv:0.2.4")
+    implementation("net.yangkx:mmkv:0.4.0")
     // Or another one with encryption feature
-    // implementation("net.yangkx:mmkv-encrypt:0.2.4")
+    // implementation("net.yangkx:mmkv-encrypt:0.4.0")
 }
 ```
+
+You can find all versions in the [Releases](https://github.com/yangkx-1024/MMKV/releases).
 
 Use the kotlin API:
 
