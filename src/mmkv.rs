@@ -62,7 +62,8 @@ impl MMKV {
     Initialize the MMKV instance with a writeable directory,
     absolute or relative paths are acceptable.
 
-    All API calls before initialization will panic.
+    All API calls(except [set_logger](MMKV::set_logger), [set_log_level](MMKV::set_log_level))
+    before initialization will panic.
 
     Calling [initialize](MMKV::initialize) multiple times is allowed,
     the old instance will be closed (see [close](MMKV::close)), the last call will take over.

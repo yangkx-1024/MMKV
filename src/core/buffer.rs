@@ -21,7 +21,7 @@ pub struct DecodeResult {
     pub len: u32,
 }
 
-pub trait Decoder {
+pub trait Decoder: Send {
     fn decode_bytes(&self, data: &[u8]) -> Result<DecodeResult>;
 }
 
