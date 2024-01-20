@@ -1,7 +1,5 @@
 use crate::core::buffer::{Buffer, Decoder, Encoder};
 use crate::core::config::Config;
-#[cfg(feature = "encryption")]
-use crate::core::encrypt::Encryptor;
 use crate::core::io_looper::Callback;
 use crate::core::memory_map::MemoryMap;
 use crate::Error::EncodeFailed;
@@ -13,11 +11,10 @@ const LOG_TAG: &str = "MMKV:IO";
 pub struct IOWriter {
     config: Config,
     mm: MemoryMap,
+    position: u32,
     need_trim: bool,
     encoder: Box<dyn Encoder>,
     decoder: Box<dyn Decoder>,
-    #[cfg(feature = "encryption")]
-    encryptor: Encryptor,
 }
 
 impl Callback for IOWriter {}
@@ -26,24 +23,26 @@ impl IOWriter {
     pub fn new(
         config: Config,
         mm: MemoryMap,
+        position: u32,
         encoder: Box<dyn Encoder>,
         decoder: Box<dyn Decoder>,
-        #[cfg(feature = "encryption")] encryptor: Encryptor,
     ) -> Self {
         IOWriter {
             config,
             mm,
+            position,
             need_trim: false,
             encoder,
             decoder,
-            #[cfg(feature = "encryption")]
-            encryptor,
         }
     }
 
     // Flash the data to file, always running in one io thread, so don't need lock here
     pub fn write(&mut self, buffer: Buffer, duplicated: bool) {
-        let data = self.encoder.encode_to_bytes(&buffer).unwrap();
+        let data = self
+            .encoder
+            .encode_to_bytes(&buffer, self.position)
+            .unwrap();
         let target_end = data.len() + self.mm.offset();
         let max_len = self.mm.len();
         if duplicated {
@@ -51,43 +50,40 @@ impl IOWriter {
         }
         if target_end <= max_len {
             self.mm.append(data).unwrap();
+            self.position += 1;
             return;
         }
         if self.need_trim {
             // rewrite the entire map
-            #[cfg(feature = "encryption")]
-            self.encryptor.reset();
             let time_start = Instant::now();
             info!(LOG_TAG, "start trim, current len {}", self.mm.offset());
             let mut snapshot: HashMap<String, Buffer> = HashMap::new();
             self.mm
-                .iter(|bytes| self.decoder.decode_bytes(bytes))
+                .iter(|bytes, position| self.decoder.decode_bytes(bytes, position))
                 .for_each(|buffer| {
                     if let Some(data) = buffer {
                         snapshot.insert(data.key().to_string(), data);
                     }
                 });
             snapshot.insert(buffer.key().to_string(), buffer);
-            let mut count = 0;
             self.mm
                 .reset()
                 .map_err(|e| EncodeFailed(e.to_string()))
                 .unwrap();
-            #[cfg(feature = "encryption")]
-            self.encryptor.reset();
+            self.position = 0;
             for buffer in snapshot.values() {
-                let bytes = self.encoder.encode_to_bytes(buffer).unwrap();
+                let bytes = self.encoder.encode_to_bytes(buffer, self.position).unwrap();
                 if self.mm.offset() + bytes.len() > max_len {
                     self.expand();
                 }
                 self.mm.append(bytes).unwrap();
-                count += 1;
+                self.position += 1;
             }
             self.need_trim = false;
             info!(
                 LOG_TAG,
                 "wrote {} items, new len {}, cost {:?}",
-                count,
+                self.position,
                 self.mm.offset(),
                 time_start.elapsed()
             );
@@ -95,6 +91,7 @@ impl IOWriter {
             // expand and write
             self.expand();
             self.mm.append(data).unwrap();
+            self.position += 1;
         }
     }
 
@@ -105,7 +102,5 @@ impl IOWriter {
 
     pub fn remove_file(&mut self) {
         self.config.remove_file();
-        #[cfg(feature = "encryption")]
-        self.encryptor.remove_file();
     }
 }

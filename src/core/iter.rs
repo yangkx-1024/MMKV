@@ -5,9 +5,10 @@ const LOG_TAG: &str = "MMKV:MemoryMap";
 
 pub struct Iter<'a, F>
 where
-    F: Fn(&[u8]) -> crate::Result<DecodeResult>,
+    F: Fn(&[u8], u32) -> crate::Result<DecodeResult>,
 {
     mm: &'a MemoryMap,
+    pub position: u32,
     start: usize,
     end: usize,
     decode: F,
@@ -16,12 +17,13 @@ where
 impl MemoryMap {
     pub fn iter<F>(&self, decode: F) -> Iter<F>
     where
-        F: Fn(&[u8]) -> crate::Result<DecodeResult>,
+        F: Fn(&[u8], u32) -> crate::Result<DecodeResult>,
     {
         let start = LEN_OFFSET;
         let end = self.offset();
         Iter {
             mm: self,
+            position: 0,
             start,
             end,
             decode,
@@ -31,7 +33,7 @@ impl MemoryMap {
 
 impl<'a, F> Iterator for Iter<'a, F>
 where
-    F: Fn(&[u8]) -> crate::Result<DecodeResult>,
+    F: Fn(&[u8], u32) -> crate::Result<DecodeResult>,
 {
     type Item = Option<Buffer>;
 
@@ -40,7 +42,8 @@ where
             return None;
         }
         let bytes = self.mm.read(self.start..self.end);
-        let decode_result = (self.decode)(bytes);
+        let decode_result = (self.decode)(bytes, self.position);
+        self.position += 1;
         match decode_result {
             Ok(result) => {
                 self.start += result.len as usize;
@@ -69,7 +72,7 @@ mod tests {
 
     struct TestEncoderDecoder;
     impl Encoder for TestEncoderDecoder {
-        fn encode_to_bytes(&self, raw_buffer: &Buffer) -> Result<Vec<u8>> {
+        fn encode_to_bytes(&self, raw_buffer: &Buffer, _: u32) -> Result<Vec<u8>> {
             let bytes_to_write = raw_buffer.to_bytes();
             let len = bytes_to_write.len() as u32;
             let mut data = len.to_be_bytes().to_vec();
@@ -79,7 +82,7 @@ mod tests {
     }
 
     impl Decoder for TestEncoderDecoder {
-        fn decode_bytes(&self, data: &[u8]) -> Result<DecodeResult> {
+        fn decode_bytes(&self, data: &[u8], _: u32) -> Result<DecodeResult> {
             let offset = size_of::<u32>();
             let item_len = u32::from_be_bytes(data[0..offset].try_into().map_err(|_| DataInvalid)?);
             let bytes_to_decode = &data[offset..(offset + item_len as usize)];
@@ -115,12 +118,15 @@ mod tests {
         let test_encoder = &TestEncoderDecoder;
         for i in 0..10 {
             let buffer = Buffer::from_i32(&i.to_string(), i);
-            mm.append(test_encoder.encode_to_bytes(&buffer).unwrap())
+            mm.append(test_encoder.encode_to_bytes(&buffer, i as u32).unwrap())
                 .unwrap();
             buffers.push(buffer);
         }
         let decoder = &TestEncoderDecoder;
-        for (index, i) in mm.iter(|bytes| decoder.decode_bytes(bytes)).enumerate() {
+        for (index, i) in mm
+            .iter(|bytes, position| decoder.decode_bytes(bytes, position))
+            .enumerate()
+        {
             assert_eq!(buffers[index], i.unwrap());
         }
         let _ = fs::remove_file("test_mmap_iterator");

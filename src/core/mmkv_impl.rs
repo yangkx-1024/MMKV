@@ -18,6 +18,8 @@ pub struct MmkvImpl {
     kv_map: HashMap<String, Buffer>,
     is_valid: bool,
     io_looper: Option<IOLooper>,
+    #[cfg(feature = "encryption")]
+    encryptor: Encryptor,
 }
 
 impl Drop for MmkvImpl {
@@ -47,26 +49,23 @@ impl MmkvImpl {
         let decoder = Box::new(encryptor.clone());
         #[cfg(not(feature = "encryption"))]
         let decoder = Box::new(CrcEncoderDecoder);
-        mm.iter(|bytes| decoder.decode_bytes(bytes))
+        let mut decoded_position = 0;
+        mm.iter(|bytes, position| decoder.decode_bytes(bytes, position))
             .for_each(|buffer: Option<Buffer>| {
+                decoded_position += 1;
                 if let Some(data) = buffer {
                     kv_map.insert(data.key().to_string(), data);
                 }
             });
         let content_len = mm.offset();
         let file_size = mm.len();
-        let io_writer = IOWriter::new(
-            config,
-            mm,
-            encoder,
-            decoder,
-            #[cfg(feature = "encryption")]
-            encryptor,
-        );
+        let io_writer = IOWriter::new(config, mm, decoded_position, encoder, decoder);
         let mmkv = MmkvImpl {
             kv_map,
             is_valid: true,
             io_looper: Some(IOLooper::new(io_writer)),
+            #[cfg(feature = "encryption")]
+            encryptor,
         };
         info!(
             LOG_TAG,
@@ -114,6 +113,8 @@ impl MmkvImpl {
             callback.downcast_mut::<IOWriter>().unwrap().remove_file();
             info!(LOG_TAG, "data cleared");
         });
+        #[cfg(feature = "encryption")]
+        self.encryptor.remove_file();
     }
 
     pub fn close(&mut self) {
