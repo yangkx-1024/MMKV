@@ -202,7 +202,6 @@ impl InternalError {
 impl TryFrom<Error> for InternalError {
     type Error = ();
 
-    #[allow(unreachable_patterns)]
     fn try_from(e: Error) -> Result<Self, Self::Error> {
         match e {
             Error::KeyNotFound => Ok(InternalError::new(0, None)),
@@ -211,7 +210,7 @@ impl TryFrom<Error> for InternalError {
             Error::DataInvalid => Ok(InternalError::new(3, None)),
             Error::InstanceClosed => Ok(InternalError::new(4, None)),
             Error::EncodeFailed(descr) => Ok(InternalError::new(5, Some(descr))),
-            _ => Err(()),
+            _ => unreachable!("should not happen"),
         }
     }
 }

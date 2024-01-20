@@ -10,10 +10,11 @@ use kv::{Types, KV};
 include!(concat!(env!("OUT_DIR"), "/protos/mod.rs"));
 
 #[derive(Debug, Clone)]
+#[repr(transparent)]
 pub struct Buffer(KV);
 
 pub trait Encoder: Send {
-    fn encode_to_bytes(&self, raw_buffer: &Buffer) -> Result<Vec<u8>>;
+    fn encode_to_bytes(&self, raw_buffer: &Buffer, position: u32) -> Result<Vec<u8>>;
 }
 
 pub struct DecodeResult {
@@ -22,7 +23,7 @@ pub struct DecodeResult {
 }
 
 pub trait Decoder: Send {
-    fn decode_bytes(&self, data: &[u8]) -> Result<DecodeResult>;
+    fn decode_bytes(&self, data: &[u8], position: u32) -> Result<DecodeResult>;
 }
 
 macro_rules! impl_from_typed_array {

@@ -11,7 +11,7 @@ const CRC8: Crc<u8> = Crc::<u8>::new(&CRC_8_AUTOSAR);
 pub struct CrcEncoderDecoder;
 
 impl Encoder for CrcEncoderDecoder {
-    fn encode_to_bytes(&self, raw_buffer: &Buffer) -> Result<Vec<u8>> {
+    fn encode_to_bytes(&self, raw_buffer: &Buffer, _: u32) -> Result<Vec<u8>> {
         let bytes_to_write = raw_buffer.to_bytes();
         let sum = CRC8.checksum(bytes_to_write.as_slice());
         let len = bytes_to_write.len() as u32 + 1;
@@ -23,7 +23,7 @@ impl Encoder for CrcEncoderDecoder {
 }
 
 impl Decoder for CrcEncoderDecoder {
-    fn decode_bytes(&self, data: &[u8]) -> Result<DecodeResult> {
+    fn decode_bytes(&self, data: &[u8], _: u32) -> Result<DecodeResult> {
         let offset = size_of::<u32>();
         let item_len = u32::from_be_bytes(data[0..offset].try_into().map_err(|_| DataInvalid)?);
         let bytes_to_decode = &data[offset..(offset + item_len as usize - 1)];
@@ -56,8 +56,8 @@ mod tests {
     #[test]
     fn test_crc_buffer() {
         let buffer = Buffer::from_i32("key", 1);
-        let bytes = CrcEncoderDecoder.encode_to_bytes(&buffer).unwrap();
-        let decode_result = CrcEncoderDecoder.decode_bytes(bytes.as_slice()).unwrap();
+        let bytes = CrcEncoderDecoder.encode_to_bytes(&buffer, 0).unwrap();
+        let decode_result = CrcEncoderDecoder.decode_bytes(bytes.as_slice(), 0).unwrap();
         assert_eq!(decode_result.len, bytes.len() as u32);
         assert_eq!(decode_result.buffer, Some(buffer));
     }

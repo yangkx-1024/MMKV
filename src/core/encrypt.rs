@@ -4,16 +4,15 @@ use eax::aead::rand_core::RngCore;
 use eax::aead::stream::{NewStream, StreamBE32, StreamPrimitive};
 use eax::aead::{generic_array::GenericArray, KeyInit, OsRng, Payload};
 use eax::Eax;
-use std::cell::RefCell;
 use std::fs;
 use std::fs::OpenOptions;
 use std::io::{Read, Write};
 use std::mem::size_of;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use crate::core::buffer::{Buffer, DecodeResult, Decoder, Encoder};
-use crate::Error::{DataInvalid, DecryptFailed, EncryptFailed, LockError};
+use crate::Error::{DataInvalid, DecryptFailed, EncryptFailed};
 use crate::Result;
 
 const LOG_TAG: &str = "MMKV:Encrypt";
@@ -24,26 +23,22 @@ type Stream = StreamBE32<Aes128Eax>;
 
 #[derive(Clone)]
 pub struct Encryptor {
-    pub meta_file_path: PathBuf,
-    encryptor: Arc<Mutex<EncryptorImpl>>,
-    key: Vec<u8>,
+    meta_file_path: PathBuf,
+    encryptor: Arc<StreamWrapper>,
 }
 
-struct EncryptorImpl {
-    stream: Stream,
-    position: RefCell<u32>,
-}
+#[repr(transparent)]
+struct StreamWrapper(Stream);
 
 impl Encryptor {
     pub fn init(file_path: &Path, key: &str) -> Self {
         let decoded_key = hex::decode(key).unwrap();
         let meta_file_path = Encryptor::resolve_meta_file_path(file_path);
-        let encryptor_impl =
-            EncryptorImpl::init(decoded_key.as_slice().try_into().unwrap(), &meta_file_path);
+        let encryptor =
+            StreamWrapper::init(decoded_key.as_slice().try_into().unwrap(), &meta_file_path);
         Encryptor {
             meta_file_path,
-            encryptor: Arc::new(Mutex::new(encryptor_impl)),
-            key: decoded_key,
+            encryptor: Arc::new(encryptor),
         }
     }
 
@@ -59,21 +54,14 @@ impl Encryptor {
     pub fn remove_file(&self) {
         let _ = fs::remove_file(&self.meta_file_path);
     }
-
-    pub fn reset(&mut self) {
-        *self.encryptor.lock().unwrap() = EncryptorImpl::init(
-            self.key.as_slice().try_into().unwrap(),
-            &self.meta_file_path,
-        );
-    }
 }
 
-impl EncryptorImpl {
+impl StreamWrapper {
     fn init(key: [u8; 16], meta_file_path: &PathBuf) -> Self {
         if meta_file_path.exists() {
-            EncryptorImpl::new_with_nonce(key, meta_file_path)
+            StreamWrapper::new_with_nonce(key, meta_file_path)
         } else {
-            EncryptorImpl::new(key, meta_file_path)
+            StreamWrapper::new(key, meta_file_path)
         }
     }
 
@@ -91,10 +79,7 @@ impl EncryptorImpl {
             .expect("failed to write nonce file");
         let cipher = Aes128Eax::new(generic_array);
         let stream = StreamBE32::from_aead(cipher, &nonce);
-        EncryptorImpl {
-            stream,
-            position: Default::default(),
-        }
+        StreamWrapper(stream)
     }
 
     fn new_with_nonce(key: [u8; 16], meta_file_path: &PathBuf) -> Self {
@@ -104,7 +89,7 @@ impl EncryptorImpl {
             error!(LOG_TAG, "filed to read nonce, reason: {:?}", reason);
             warn!(LOG_TAG, "delete meta file due to previous reason, which may cause mmkv drop all encrypted data");
             let _ = fs::remove_file(meta_file_path);
-            EncryptorImpl::new(key, meta_file_path)
+            StreamWrapper::new(key, meta_file_path)
         };
         match nonce_file.read_to_end(&mut nonce) {
             Ok(len) if len != NONCE_LEN => {
@@ -117,47 +102,40 @@ impl EncryptorImpl {
         let nonce = GenericArray::from_slice(nonce.as_slice());
         let cipher = Aes128Eax::new(generic_array);
         let stream = StreamBE32::from_aead(cipher, nonce);
-        EncryptorImpl {
-            stream,
-            position: Default::default(),
-        }
+        StreamWrapper(stream)
     }
 
-    fn encrypt(&self, bytes: Vec<u8>) -> Result<Vec<u8>> {
-        let position = *self.position.borrow();
+    fn encrypt(&self, bytes: Vec<u8>, position: u32) -> Result<Vec<u8>> {
         if position == Stream::COUNTER_MAX {
             return Err(EncryptFailed(String::from("counter overflow")));
         }
 
         let result = self
-            .stream
+            .0
             .encrypt(position, false, Payload::from(bytes.as_slice()))
             .map_err(|e| EncryptFailed(e.to_string()))?;
 
-        *self.position.borrow_mut() = position + Stream::COUNTER_INCR;
         Ok(result)
     }
 
-    fn decrypt(&self, bytes: Vec<u8>) -> Result<Vec<u8>> {
-        let position = *self.position.borrow();
+    fn decrypt(&self, bytes: Vec<u8>, position: u32) -> Result<Vec<u8>> {
         if position == Stream::COUNTER_MAX {
             return Err(DecryptFailed(String::from("counter overflow")));
         }
 
         let result = self
-            .stream
+            .0
             .decrypt(position, false, Payload::from(bytes.as_slice()))
             .map_err(|e| DecryptFailed(e.to_string()))?;
 
-        *self.position.borrow_mut() = position + Stream::COUNTER_INCR;
         Ok(result)
     }
 }
 
 impl Encoder for Encryptor {
-    fn encode_to_bytes(&self, raw_buffer: &Buffer) -> Result<Vec<u8>> {
+    fn encode_to_bytes(&self, raw_buffer: &Buffer, position: u32) -> Result<Vec<u8>> {
         let bytes_to_write = raw_buffer.to_bytes();
-        let crypt_bytes = self.encryptor.lock().unwrap().encrypt(bytes_to_write)?;
+        let crypt_bytes = self.encryptor.encrypt(bytes_to_write, position)?;
         let len = crypt_bytes.len() as u32;
         let mut data = len.to_be_bytes().to_vec();
         data.extend_from_slice(crypt_bytes.as_slice());
@@ -166,7 +144,7 @@ impl Encoder for Encryptor {
 }
 
 impl Decoder for Encryptor {
-    fn decode_bytes(&self, data: &[u8]) -> Result<DecodeResult> {
+    fn decode_bytes(&self, data: &[u8], position: u32) -> Result<DecodeResult> {
         let data_offset = size_of::<u32>();
         let item_len =
             u32::from_be_bytes(data[0..data_offset].try_into().map_err(|_| DataInvalid)?);
@@ -174,9 +152,7 @@ impl Decoder for Encryptor {
         let read_len = data_offset as u32 + item_len;
         let result = self
             .encryptor
-            .lock()
-            .map_err(|e| LockError(e.to_string()))
-            .and_then(|encryptor| encryptor.decrypt(bytes_to_decode.to_vec()))
+            .decrypt(bytes_to_decode.to_vec(), position)
             .and_then(|vec| Buffer::from_encoded_bytes(vec.as_slice()));
         let buffer = match result {
             Ok(data) => Some(data),
@@ -203,32 +179,26 @@ mod tests {
     #[test]
     fn test_crypt_buffer() {
         let path = Path::new("./mmkv");
-        let mut encoder = Encryptor::init(path, TEST_KEY);
-        let mut decoder = Encryptor::init(path, TEST_KEY);
+        let encryptor = Encryptor::init(path, TEST_KEY);
         let buffer1 = Buffer::from_i32("key1", 1);
-        let bytes1 = encoder.encode_to_bytes(&buffer1).unwrap();
-        let decode_result1 = decoder.decode_bytes(bytes1.as_slice()).unwrap();
+        let bytes1 = encryptor.encode_to_bytes(&buffer1, 0).unwrap();
+        let decode_result1 = encryptor.decode_bytes(bytes1.as_slice(), 0).unwrap();
         assert_eq!(decode_result1.len, bytes1.len() as u32);
         assert_eq!(decode_result1.buffer, Some(buffer1.clone()));
         let buffer2 = Buffer::from_i32("key2", 2);
-        let bytes2 = encoder.encode_to_bytes(&buffer2).unwrap();
-        let decode_result2 = decoder.decode_bytes(bytes2.as_slice()).unwrap();
+        let bytes2 = encryptor.encode_to_bytes(&buffer2, 1).unwrap();
+        let decode_result2 = encryptor.decode_bytes(bytes2.as_slice(), 1).unwrap();
         assert_eq!(decode_result2.len, bytes2.len() as u32);
         assert_eq!(decode_result2.buffer, Some(buffer2));
-        assert_eq!(*encoder.encryptor.lock().unwrap().position.borrow(), 2);
-        assert_eq!(*decoder.encryptor.lock().unwrap().position.borrow(), 2);
-        assert!(decoder
-            .decode_bytes(bytes1.as_slice())
+        assert!(encryptor
+            .decode_bytes(bytes1.as_slice(), 1)
             .unwrap()
             .buffer
             .is_none());
-        encoder.reset();
-        decoder.reset();
-        assert_eq!(*encoder.encryptor.lock().unwrap().position.borrow(), 0);
-        assert_eq!(*decoder.encryptor.lock().unwrap().position.borrow(), 0);
-        let new_decode_result1 = decoder.decode_bytes(bytes1.as_slice()).unwrap();
+        let encryptor = Encryptor::init(path, TEST_KEY);
+        let new_decode_result1 = encryptor.decode_bytes(bytes1.as_slice(), 0).unwrap();
         assert_eq!(new_decode_result1.buffer, Some(buffer1));
-        encoder.remove_file();
-        assert!(!encoder.meta_file_path.exists());
+        encryptor.remove_file();
+        assert!(!encryptor.meta_file_path.exists());
     }
 }
