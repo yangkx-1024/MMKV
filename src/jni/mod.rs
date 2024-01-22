@@ -357,6 +357,24 @@ impl_java_get!(
 );
 
 #[no_mangle]
+pub unsafe extern "C" fn Java_net_yangkx_mmkv_MMKV_delete(
+    mut env: JNIEnv,
+    _: JClass,
+    key: JString,
+) {
+    let key = env_str(&mut env, key);
+    match MMKV::delete(&key) {
+        Ok(()) => verbose!(LOG_TAG, "delete key {} success", &key),
+        Err(e) => {
+            let log_str = format!("failed to delete key {}, reason: {:?}", &key, e);
+            error!(LOG_TAG, "{}", &log_str);
+            env.throw_new(ANDROID_KEY_NOT_FOUND_EXCEPTION, log_str)
+                .expect("throw");
+        }
+    }
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn Java_net_yangkx_mmkv_MMKV_setLogLevel(
     mut env: JNIEnv,
     _: JClass,

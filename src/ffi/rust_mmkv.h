@@ -71,6 +71,8 @@ void close_instance(void);
 
 void clear_data(void);
 
+const struct RawBuffer *delete(RawCStr key);
+
 const struct RawBuffer *put_str(RawCStr key, RawCStr value);
 
 const struct RawBuffer *get_str(RawCStr key);

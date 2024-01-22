@@ -152,23 +152,37 @@ class MMKVTest {
     }
 
     @Test
+    fun testPutAndDelete() {
+        val key = "key_to_delete"
+        initSdk()
+        MMKV.putInt(key, 1)
+        initSdk()
+        MMKV.delete(key)
+        assertEquals(MMKV.getInt(key, -1), -1)
+        initSdk()
+        assertEquals(MMKV.getInt(key, -1), -1)
+    }
+
+    @Test
     fun testMultiThread() {
         clean()
         initSdk()
         MMKV.setLogLevel(LogLevel.VERBOSE)
         val threadArray = mutableListOf<Thread>()
+        val repeatCount = 1000
         Thread {
-            var strValue = ""
-            val key = "multi_thread_str_key"
-            repeat(100) {
-                strValue += it.toString()
-                MMKV.putString(key, strValue)
+            val key = "multi_thread_repeat_key"
+            repeat(repeatCount) {
+                if (it % 2 == 0) {
+                    MMKV.putInt(key, it)
+                } else {
+                    MMKV.delete(key)
+                }
             }
         }.apply {
             threadArray.add(this)
             start()
         }
-        val repeatCount = 1000
         repeat(2) { i ->
             Thread {
                 repeat(repeatCount) {
@@ -184,6 +198,7 @@ class MMKVTest {
         threadArray.clear()
 
         MMKV.setLogLevel(LogLevel.INFO)
+        assertEquals(MMKV.getInt("multi_thread_repeat_key", -1), -1)
         repeat(2) { i ->
             Thread {
                 repeat(repeatCount) {

@@ -1,5 +1,6 @@
 use crate::core::buffer::{Buffer, DecodeResult};
 use crate::core::memory_map::{MemoryMap, LEN_OFFSET};
+use std::collections::HashMap;
 
 const LOG_TAG: &str = "MMKV:MemoryMap";
 
@@ -28,6 +29,27 @@ impl MemoryMap {
             end,
             decode,
         }
+    }
+}
+
+impl<'a, F> Iter<'a, F>
+where
+    F: Fn(&[u8], u32) -> crate::Result<DecodeResult>,
+{
+    pub fn into_map(self) -> (HashMap<String, Buffer>, u32) {
+        let mut iter_count = 0;
+        let mut map = HashMap::new();
+        self.for_each(|buffer| {
+            iter_count += 1;
+            if let Some(data) = buffer {
+                if data.is_deleting() {
+                    map.remove(data.key());
+                } else {
+                    map.insert(data.key().to_string(), data);
+                }
+            }
+        });
+        (map, iter_count)
     }
 }
 

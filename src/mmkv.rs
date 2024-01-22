@@ -47,6 +47,15 @@ macro_rules! mmkv_put {
     };
 }
 
+macro_rules! mmkv_delete {
+    ($key:expr) => {
+        match MMKV_INSTANCE.write().unwrap().as_mut() {
+            Some(mmkv) => mmkv.delete($key),
+            None => Err(InstanceClosed),
+        }
+    };
+}
+
 macro_rules! mut_mmkv_call {
     ($op:ident) => {
         MMKV_INSTANCE
@@ -187,6 +196,10 @@ impl MMKV {
         mmkv_get!(key, decode_f64_array)
     }
 
+    pub fn delete(key: &str) -> Result<()> {
+        mmkv_delete!(key)
+    }
+
     /**
     Clear all data and [close](MMKV::close) the instance.
 
@@ -264,6 +277,7 @@ impl MMKV {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Error::KeyNotFound;
     use std::fs;
 
     #[test]
@@ -322,6 +336,8 @@ mod tests {
         MMKV::put_f64_array("f64_array", vec![1.1, 2.2, 3.3].as_slice()).unwrap();
         assert_eq!(MMKV::get_f64_array("f64_array"), Ok(vec![1.1, 2.2, 3.3]));
 
+        MMKV::delete("second").unwrap();
+        assert_eq!(MMKV::get_i32("second"), Err(KeyNotFound));
         MMKV::close();
         MMKV::initialize(
             ".",
@@ -329,6 +345,7 @@ mod tests {
             "88C51C536176AD8A8EE4A06F62EE897E",
         );
         assert_eq!(MMKV::get_str("first"), Ok("one".to_string()));
+        assert_eq!(MMKV::get_i32("second"), Err(KeyNotFound));
         MMKV::clear_data();
         assert!(!Path::new("./mini_mmkv").exists());
         assert!(!Path::new("./mini_mmkv.meta").exists());

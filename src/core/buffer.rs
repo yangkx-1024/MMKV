@@ -3,7 +3,7 @@ use std::{f32, f64, str};
 
 use protobuf::{EnumOrUnknown, Message};
 
-use crate::Error::{DataInvalid, DecodeFailed, TypeMissMatch};
+use crate::Error::{DataInvalid, DecodeFailed, KeyNotFound, TypeMissMatch};
 use crate::Result;
 use kv::{Types, KV};
 
@@ -100,6 +100,10 @@ impl Buffer {
 
     impl_from_number!(from_f64, f64, Types::F64);
 
+    pub fn deleted_buffer(key: &str) -> Self {
+        Buffer::from_kv(key, Types::DELETED, vec![].as_slice())
+    }
+
     pub fn from_str(key: &str, value: &str) -> Self {
         Buffer::from_kv(key, Types::STR, value.as_bytes())
     }
@@ -139,7 +143,18 @@ impl Buffer {
         self.0.value.as_slice()
     }
 
+    pub fn is_deleting(&self) -> bool {
+        if let Ok(buffer_type) = self.0.type_.enum_value() {
+            buffer_type == Types::DELETED
+        } else {
+            false
+        }
+    }
+
     fn check_buffer_type(&self, required: Types) -> Result<()> {
+        if self.is_deleting() {
+            return Err(KeyNotFound);
+        }
         if required == self.0.type_.enum_value().map_err(|_| TypeMissMatch)? {
             Ok(())
         } else {

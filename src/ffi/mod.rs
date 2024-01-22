@@ -283,6 +283,17 @@ pub extern "C" fn clear_data() {
     MMKV::clear_data()
 }
 
+#[no_mangle]
+pub extern "C" fn delete(key: RawCStr) -> *const RawBuffer {
+    let key_str = unsafe { CStr::from_ptr(key) }.to_str().unwrap();
+    let mut result = RawBuffer::new(Types::Str);
+    match MMKV::delete(key_str) {
+        Err(e) => result.set_error(map_error(key_str, e, "delete")),
+        Ok(()) => verbose!(LOG_TAG, "delete key {} success", key_str),
+    }
+    result.leak()
+}
+
 impl_put!(put_str, RawCStr, Types::Str, "put string");
 
 impl_get!(get_str, ByteSlice, Types::Str, "get string");
