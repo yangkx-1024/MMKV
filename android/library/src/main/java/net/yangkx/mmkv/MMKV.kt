@@ -210,6 +210,10 @@ object MMKV {
         }
     }
 
+    @Throws(NativeException::class)
+    @JvmStatic
+    external fun delete(key: String)
+
     /**
      * Set log level to mmkv, the default log level is [LogLevel.VERBOSE],
      * logs with a larger level will be filtered out.

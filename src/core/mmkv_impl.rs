@@ -43,20 +43,14 @@ impl MmkvImpl {
         let encoder = Box::new(encryptor.clone());
         #[cfg(not(feature = "encryption"))]
         let encoder = Box::new(CrcEncoderDecoder);
-        let mut kv_map = HashMap::new();
         let mm = MemoryMap::new(&config.file, config.file_size() as usize);
         #[cfg(feature = "encryption")]
         let decoder = Box::new(encryptor.clone());
         #[cfg(not(feature = "encryption"))]
         let decoder = Box::new(CrcEncoderDecoder);
-        let mut decoded_position = 0;
-        mm.iter(|bytes, position| decoder.decode_bytes(bytes, position))
-            .for_each(|buffer: Option<Buffer>| {
-                decoded_position += 1;
-                if let Some(data) = buffer {
-                    kv_map.insert(data.key().to_string(), data);
-                }
-            });
+        let (kv_map, decoded_position) = mm
+            .iter(|bytes, position| decoder.decode_bytes(bytes, position))
+            .into_map();
         let content_len = mm.offset();
         let file_size = mm.len();
         let io_writer = IOWriter::new(config, mm, decoded_position, encoder, decoder);
@@ -102,6 +96,23 @@ impl MmkvImpl {
         }
     }
 
+    pub fn delete(&mut self, key: &str) -> Result<()> {
+        if !self.is_valid {
+            return Err(InstanceClosed);
+        }
+        let ret = self.kv_map.remove(key);
+        if ret.is_none() {
+            return Ok(());
+        }
+        let buffer = Buffer::deleted_buffer(key);
+        self.io_looper.as_ref().unwrap().post(move |callback| {
+            callback
+                .downcast_mut::<IOWriter>()
+                .unwrap()
+                .write(buffer, true)
+        })
+    }
+
     pub fn clear_data(&mut self) {
         if !self.is_valid {
             warn!(LOG_TAG, "instance already closed");
@@ -138,6 +149,7 @@ mod tests {
     use crate::core::config::Config;
     use crate::core::memory_map::MemoryMap;
     use crate::core::mmkv_impl::MmkvImpl;
+    use crate::Error::KeyNotFound;
     use crate::LogLevel::Debug;
     use crate::MMKV;
 
@@ -266,12 +278,14 @@ mod tests {
             s.spawn(|| {
                 let repeat_key = "test_multi_thread_mmkv_repeat_key";
                 for i in 0..loop_count {
-                    mmkv.write()
-                        .unwrap()
-                        .as_mut()
-                        .unwrap()
-                        .put(repeat_key, Buffer::from_i32(repeat_key, i))
-                        .unwrap();
+                    let mut lock = mmkv.write().unwrap();
+                    let mmkv = lock.as_mut().unwrap();
+                    if i % 2 == 0 {
+                        mmkv.put(repeat_key, Buffer::from_i32(repeat_key, i))
+                            .unwrap();
+                    } else {
+                        mmkv.delete(repeat_key).unwrap();
+                    }
                 }
             });
             for i in 0..2 {
@@ -279,24 +293,18 @@ mod tests {
             }
         });
         drop(mmkv.write().unwrap().take());
-        *mmkv.write().unwrap() = Some(init(config));
+        let mut mmkv = init(config);
         for i in 0..2 {
             for j in 0..loop_count {
                 let key = &format!("thread_{i}_key_{j}");
-                assert_eq!(
-                    mmkv.read()
-                        .unwrap()
-                        .as_ref()
-                        .unwrap()
-                        .get(key)
-                        .unwrap()
-                        .decode_i32()
-                        .unwrap(),
-                    j
-                )
+                assert_eq!(mmkv.get(key).unwrap().decode_i32().unwrap(), j)
             }
         }
-        mmkv.write().unwrap().as_mut().unwrap().clear_data();
+        assert_eq!(
+            mmkv.get("test_multi_thread_mmkv_repeat_key"),
+            Err(KeyNotFound)
+        );
+        mmkv.clear_data();
         assert!(!Path::new(file).exists());
     }
 }

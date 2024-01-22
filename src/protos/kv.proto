@@ -12,6 +12,7 @@ enum Types {
   I64_ARRAY = 8;
   F32_ARRAY = 9;
   F64_ARRAY = 10;
+  DELETED = 100;
 }
 
 message KV {

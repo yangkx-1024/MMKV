@@ -76,7 +76,6 @@ final class MMKVTests: XCTestCase {
         try MMKV.shared.putInt32("key_i32", 12).unwrap()
         try MMKV.shared.putInt32("key_i32_max", Int32.max).unwrap()
         try MMKV.shared.putInt32("key_i32_min", Int32.min).unwrap()
-        closeSdk()
         initSdk()
         XCTAssertEqual(MMKV.shared.getInt32("key_i32").unwrap(0), 12)
         XCTAssertEqual(MMKV.shared.getInt32("key_i32_max").unwrap(0), Int32.max)
@@ -162,6 +161,28 @@ final class MMKVTests: XCTestCase {
         XCTAssertEqual(value, array)
     }
     
+    func testPutAndDelete() throws {
+        initSdk()
+        try MMKV.shared.putInt32("key_to_delete", 1).unwrap()
+        initSdk()
+        try MMKV.shared.delete("key_to_delete").unwrap()
+        let result = MMKV.shared.getInt32("key_to_delete").unwrapResult()
+        switch result {
+        case .failure(let err):
+            assertError(err: err, exceptCode: 0)
+        case .success(_):
+            XCTFail("Should be failure")
+        }
+        initSdk()
+        let newResult = MMKV.shared.getInt32("key_to_delete").unwrapResult()
+        switch newResult {
+        case .failure(let err):
+            assertError(err: err, exceptCode: 0)
+        case .success(_):
+            XCTFail("Should be failure")
+        }
+    }
+    
     func assertError(err: MMKVError, exceptCode: Int32) {
         switch err {
         case MMKVError.native(let code, _):
@@ -175,13 +196,17 @@ final class MMKVTests: XCTestCase {
         let dispatchGroup = DispatchGroup()
         DispatchQueue.global().async(group: dispatchGroup) {
             let key = "test_multi_thread_repeat_write_key"
-            for i in 0...repeatCount {
-                MMKV.shared.putInt32(key, i).unwrap(())
+            for i in 0...repeatCount - 1 {
+                if (i % 2 == 0) {
+                    MMKV.shared.putInt32(key, i).unwrap(())
+                } else {
+                    MMKV.shared.delete(key).unwrap(())
+                }
             }
         }
-        for i in 0...2 {
+        for i in 0...1 {
             DispatchQueue.global().async(group: dispatchGroup) {
-                for j : Int32 in 0...repeatCount {
+                for j : Int32 in 0...repeatCount - 1 {
                     MMKV.shared.putInt32("task_\(i)_key_\(j)", j).unwrap(())
                 }
             }
@@ -189,9 +214,10 @@ final class MMKVTests: XCTestCase {
         dispatchGroup.wait()
         closeSdk()
         initSdk()
-        for i in 0...2 {
+        XCTAssertEqual(MMKV.shared.getInt32("test_multi_thread_repeat_write_key").unwrap(-1), -1)
+        for i in 0...1 {
             DispatchQueue.global().async(group: dispatchGroup) {
-                for j : Int32 in 0...repeatCount {
+                for j : Int32 in 0...repeatCount - 1 {
                     let value = MMKV.shared.getInt32("task_\(i)_key_\(j)").unwrap(0)
                     XCTAssertEqual(value, j)
                 }

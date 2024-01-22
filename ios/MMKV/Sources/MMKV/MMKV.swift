@@ -18,6 +18,10 @@ import RustMMKV
  try let value = MMKV.shared.getString("key").unwrap()
  // Or ignore the error with a default value
  let value = MMKV.shared.getString("key").unwrap("")
+ // Delete key
+ try MMKV.shared.delete("key").unwrap()
+ // Or ignore the error with a default value, which is Void for delete
+ MMKV.shared.delete("key").unwrap(())
  // Close the instance if you wan't to init with different data dir
  MMKV.shared.close()
  // Must be reinitialized to continue using MMKV
@@ -178,5 +182,9 @@ public class MMKV {
     
     public func getFloat64Array(_ key: String) -> ResultWrapper<[Float64]> {
         return RustMMKV.get_f64_array(key).intoResultWrapper()
+    }
+    
+    public func delete(_ key: String) -> ResultWrapper<Void> {
+        return RustMMKV.delete(key).intoResultWrapper()
     }
 }

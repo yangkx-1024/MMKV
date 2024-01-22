@@ -3,7 +3,6 @@ use crate::core::config::Config;
 use crate::core::io_looper::Callback;
 use crate::core::memory_map::MemoryMap;
 use crate::Error::EncodeFailed;
-use std::collections::HashMap;
 use std::time::Instant;
 
 const LOG_TAG: &str = "MMKV:IO";
@@ -57,15 +56,15 @@ impl IOWriter {
             // rewrite the entire map
             let time_start = Instant::now();
             info!(LOG_TAG, "start trim, current len {}", self.mm.offset());
-            let mut snapshot: HashMap<String, Buffer> = HashMap::new();
-            self.mm
+            let (mut snapshot, _) = self
+                .mm
                 .iter(|bytes, position| self.decoder.decode_bytes(bytes, position))
-                .for_each(|buffer| {
-                    if let Some(data) = buffer {
-                        snapshot.insert(data.key().to_string(), data);
-                    }
-                });
-            snapshot.insert(buffer.key().to_string(), buffer);
+                .into_map();
+            if buffer.is_deleting() {
+                snapshot.remove(buffer.key());
+            } else {
+                snapshot.insert(buffer.key().to_string(), buffer);
+            }
             self.mm
                 .reset()
                 .map_err(|e| EncodeFailed(e.to_string()))
