@@ -1,0 +1,5 @@
+language = "C"
+style = "tag"
+
+[export]
+include = ["RawTypedArray"]

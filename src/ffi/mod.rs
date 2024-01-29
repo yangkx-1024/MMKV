@@ -47,11 +47,6 @@ pub struct RawTypedArray {
     pub len: usize,
 }
 
-#[no_mangle]
-pub extern "C" fn __use_typed_array(typed_array: RawTypedArray) {
-    error!(LOG_TAG, "{:?}", typed_array)
-}
-
 #[repr(C)]
 #[derive(Debug)]
 pub struct NativeLogger {

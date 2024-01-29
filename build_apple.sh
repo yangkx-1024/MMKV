@@ -15,7 +15,7 @@ done
 HEADER="include"
 mkdir $HEADER
 cargo expand ffi > $HEADER/mod.rs
-cbindgen $HEADER/mod.rs -l C -s tag > src/ffi/rust_mmkv.h
+cbindgen --config cbindgen.toml $HEADER/mod.rs -o src/ffi/rust_mmkv.h
 cp src/ffi/rust_mmkv.h $HEADER/rust_mmkv.h
 rm $HEADER/mod.rs
 touch $HEADER/module.modulemap

@@ -17,12 +17,6 @@ enum Types {
   F64Array,
 };
 
-struct RawTypedArray {
-  const void *array;
-  enum Types type_token;
-  uintptr_t len;
-};
-
 struct ByteSlice {
   const uint8_t *bytes;
   uintptr_t len;
@@ -57,7 +51,11 @@ typedef const float *CF32Array;
 
 typedef const double *CF64Array;
 
-void __use_typed_array(struct RawTypedArray typed_array);
+struct RawTypedArray {
+  const void *array;
+  enum Types type_token;
+  uintptr_t len;
+};
 
 void initialize(const char *dir);
 
