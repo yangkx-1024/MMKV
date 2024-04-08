@@ -57,6 +57,8 @@ pub struct NativeLogger {
 
 unsafe impl Send for NativeLogger {}
 
+unsafe impl Sync for NativeLogger {}
+
 impl Drop for NativeLogger {
     fn drop(&mut self) {
         verbose!(LOG_TAG, "release {:?}", self);

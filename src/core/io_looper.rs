@@ -1,5 +1,6 @@
 use crate::Error::{IOError, LockError};
 use crate::Result;
+use std::any::Any;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -9,18 +10,19 @@ use std::thread::JoinHandle;
 
 const LOG_TAG: &str = "MMKV:IO";
 
-type Job = Box<dyn FnOnce(&mut dyn std::any::Any) + Send + 'static>;
+type Job = Box<dyn FnOnce(&mut dyn Any) + Send + 'static>;
 
 enum Signal {
     Normal,
     Kill(Job),
 }
 
-pub trait Callback: Send {}
+pub trait Callback: Send + Any {}
 
-pub struct IOLooper {
+pub struct IOLooper<T> {
     sender: Option<Sender<Signal>>,
     executor: Executor,
+    _marker: std::marker::PhantomData<T>,
 }
 
 struct Executor {
@@ -28,28 +30,27 @@ struct Executor {
     join_handle: Option<JoinHandle<()>>,
 }
 
-impl IOLooper {
-    pub fn new<T>(callback: T) -> Self
-    where
-        T: Callback + 'static,
-    {
+impl<T: Callback + 'static> IOLooper<T> {
+    pub fn new(callback: T) -> Self {
         let (sender, receiver) = channel::<Signal>();
         let executor = Executor::new(receiver, callback);
         IOLooper {
             sender: Some(sender),
             executor,
+            _marker: std::marker::PhantomData,
         }
     }
 
-    pub fn post_and_kill<F>(&mut self, task: F)
-    where
-        F: FnOnce(&mut dyn std::any::Any) + Send + 'static,
-    {
+    pub fn post_and_kill<F: FnOnce(&mut T) + Send + 'static>(&mut self, task: F) {
+        let job: Job = Box::new(|callback| {
+            let callback = callback.downcast_mut::<T>().unwrap();
+            task(callback)
+        });
         self.executor.queue.lock().unwrap().clear();
         self.sender
             .as_ref()
             .unwrap()
-            .send(Signal::Kill(Box::new(task)))
+            .send(Signal::Kill(job))
             .unwrap();
         drop(self.sender.take());
         if let Some(handle) = self.executor.join_handle.take() {
@@ -58,14 +59,15 @@ impl IOLooper {
         }
     }
 
-    pub fn post<F>(&self, task: F) -> Result<()>
-    where
-        F: FnOnce(&mut dyn std::any::Any) + Send + 'static,
-    {
+    pub fn post<F: FnOnce(&mut T) + Send + 'static>(&self, task: F) -> Result<()> {
+        let job: Job = Box::new(|callback| {
+            let callback = callback.downcast_mut::<T>().unwrap();
+            task(callback)
+        });
         self.executor
             .queue
             .lock()
-            .map(|mut queue| queue.push_back(Box::new(task)))
+            .map(|mut queue| queue.push_back(job))
             .map_err(|e| LockError(e.to_string()))?;
 
         self.sender
@@ -91,7 +93,7 @@ impl IOLooper {
     }
 }
 
-impl Drop for IOLooper {
+impl<T> Drop for IOLooper<T> {
     fn drop(&mut self) {
         drop(self.sender.take());
 
@@ -103,10 +105,7 @@ impl Drop for IOLooper {
 }
 
 impl Executor {
-    pub fn new<T>(receiver: Receiver<Signal>, mut callback: T) -> Self
-    where
-        T: Callback + std::any::Any + 'static,
-    {
+    pub fn new<T: Callback + 'static>(receiver: Receiver<Signal>, mut callback: T) -> Self {
         let queue: Arc<Mutex<VecDeque<Job>>> = Arc::new(Mutex::new(VecDeque::with_capacity(100)));
         let queue_clone = Arc::clone(&queue);
         let handle = thread::spawn(move || loop {
@@ -164,31 +163,20 @@ mod tests {
         io_looper
             .post(|callback| {
                 thread::sleep(Duration::from_millis(100));
-                callback
-                    .downcast_ref::<SimpleCallback>()
-                    .unwrap()
-                    .print("first job")
+                callback.print("first job")
             })
             .expect("failed to execute job");
         io_looper
             .post(|callback| {
                 thread::sleep(Duration::from_millis(100));
-                callback
-                    .downcast_ref::<SimpleCallback>()
-                    .unwrap()
-                    .print("second job")
+                callback.print("second job")
             })
             .expect("failed to execute job");
         assert!(io_looper.sender.is_some());
         assert_eq!(io_looper.executor.queue.lock().unwrap().len(), 2);
         assert!(io_looper.executor.join_handle.is_some());
         thread::sleep(Duration::from_millis(50));
-        io_looper.post_and_kill(|callback| {
-            callback
-                .downcast_ref::<SimpleCallback>()
-                .unwrap()
-                .print("last job")
-        });
+        io_looper.post_and_kill(|callback| callback.print("last job"));
         assert!(io_looper.sender.is_none());
         assert!(io_looper.executor.queue.lock().unwrap().is_empty());
         assert!(io_looper.executor.join_handle.is_none());
