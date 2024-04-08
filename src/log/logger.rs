@@ -8,7 +8,7 @@ use std::{process, thread};
 
 use crate::log::{LogLevel, Logger};
 struct LogWrapper {
-    io_looper: IOLooper,
+    io_looper: IOLooper<LogWriter>,
 }
 
 struct LogWriter {
@@ -54,8 +54,7 @@ impl LogWrapper {
         let log_str = format!("[{}] {}", tag, content);
         // write log in io thread
         self.io_looper
-            .post(move |callback| {
-                let writer = callback.downcast_ref::<LogWriter>().unwrap();
+            .post(move |writer| {
                 writer.write(level, time, pid, tid, log_str);
             })
             .unwrap();
@@ -89,8 +88,7 @@ pub fn set_logger(log_impl: Option<Box<dyn Logger>>) {
     // Here move the log_impl to io thread
     LOG_WRAPPER
         .io_looper
-        .post(|callback| {
-            let writer = callback.downcast_mut::<LogWriter>().unwrap();
+        .post(|writer| {
             drop(writer.inner_logger.take());
             writer.inner_logger = log_impl;
         })

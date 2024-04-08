@@ -76,6 +76,8 @@ impl DerefMut for RawMmap {
 
 unsafe impl Send for RawMmap {}
 
+unsafe impl Sync for RawMmap {}
+
 #[derive(Debug)]
 #[repr(transparent)]
 pub struct MemoryMap(RawMmap);

@@ -19,7 +19,7 @@ const LOG_TAG: &str = "MMKV:Core";
 pub struct MmkvImpl {
     kv_map: HashMap<String, Buffer>,
     is_valid: bool,
-    io_looper: Option<IOLooper>,
+    io_looper: Option<IOLooper<IOWriter>>,
     #[cfg(feature = "encryption")]
     encryptor: Encryptor,
 }
@@ -77,12 +77,10 @@ impl MmkvImpl {
         }
         let result = self.kv_map.insert(key.to_string(), raw_buffer.clone());
         let duplicated = result.is_some();
-        self.io_looper.as_ref().unwrap().post(move |callback| {
-            callback
-                .downcast_mut::<IOWriter>()
-                .unwrap()
-                .write(raw_buffer, duplicated)
-        })
+        self.io_looper
+            .as_ref()
+            .unwrap()
+            .post(move |writer| writer.write(raw_buffer, duplicated))
     }
 
     pub fn get(&self, key: &str) -> Result<&Buffer> {
@@ -104,12 +102,10 @@ impl MmkvImpl {
             return Ok(());
         }
         let buffer = Buffer::deleted_buffer(key);
-        self.io_looper.as_ref().unwrap().post(move |callback| {
-            callback
-                .downcast_mut::<IOWriter>()
-                .unwrap()
-                .write(buffer, true)
-        })
+        self.io_looper
+            .as_ref()
+            .unwrap()
+            .post(move |writer| writer.write(buffer, true))
     }
 
     pub fn clear_data(&mut self) {
@@ -121,8 +117,8 @@ impl MmkvImpl {
         self.kv_map.clear();
         #[cfg(feature = "encryption")]
         let meta_file = self.encryptor.meta_file_path.clone();
-        self.io_looper.as_mut().unwrap().post_and_kill(|callback| {
-            callback.downcast_mut::<IOWriter>().unwrap().remove_file();
+        self.io_looper.as_mut().unwrap().post_and_kill(|writer| {
+            writer.remove_file();
             #[cfg(feature = "encryption")]
             let _ = fs::remove_file(meta_file);
             info!(LOG_TAG, "data cleared");

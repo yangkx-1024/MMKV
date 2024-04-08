@@ -7,7 +7,7 @@ See [MMKV::set_logger](crate::MMKV::set_logger)
 
 Logger should be [`Send`], cause it will be moved into io thread
  */
-pub trait Logger: Debug + Send {
+pub trait Logger: Debug + Send + Sync {
     fn verbose(&self, log_str: String);
     fn info(&self, log_str: String);
     fn debug(&self, log_str: String);
