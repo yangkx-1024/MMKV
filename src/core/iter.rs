@@ -1,5 +1,5 @@
 use crate::core::buffer::{Buffer, DecodeResult};
-use crate::core::memory_map::{MemoryMap, LEN_OFFSET};
+use crate::core::memory_map::MemoryMap;
 use std::collections::HashMap;
 
 const LOG_TAG: &str = "MMKV:MemoryMap";
@@ -20,8 +20,8 @@ impl MemoryMap {
     where
         F: Fn(&[u8], u32) -> crate::Result<DecodeResult>,
     {
-        let start = LEN_OFFSET;
-        let end = self.offset();
+        let start = self.content_start_offset();
+        let end = self.write_offset();
         Iter {
             mm: self,
             position: 0,

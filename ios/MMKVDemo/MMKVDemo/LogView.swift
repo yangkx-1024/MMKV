@@ -52,8 +52,8 @@ class CustomLogger: MMKVLogger, ObservableObject {
     
     init(_ logLevel: LogLevel, _ content: String) {
         logs.append(content)
-        MMKV.shared.setLogLevel(logLevel)
-        MMKV.shared.setLogger(self)
+        MMKV.setLogLevel(logLevel)
+        MMKV.setLogger(self)
     }
     
     func trace(_ message: String) {

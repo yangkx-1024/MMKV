@@ -3,8 +3,13 @@ package net.yangkx.mmkv
 import android.app.Application
 
 class MyApplication : Application() {
+
+    companion object {
+        lateinit var mmkv: MMKV
+    }
+
     override fun onCreate() {
         super.onCreate()
-        MMKVInitializer.init(this)
+        mmkv = MMKVInitializer.init(this)
     }
 }

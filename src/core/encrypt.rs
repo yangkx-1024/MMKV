@@ -23,7 +23,7 @@ type Stream = StreamBE32<Aes128Eax>;
 
 #[derive(Clone)]
 pub struct Encryptor {
-    meta_file_path: PathBuf,
+    pub meta_file_path: PathBuf,
     encryptor: Arc<StreamWrapper>,
 }
 
@@ -50,10 +50,6 @@ impl Encryptor {
         }
         path.with_extension(meta_ext)
     }
-
-    pub fn remove_file(&self) {
-        let _ = fs::remove_file(&self.meta_file_path);
-    }
 }
 
 impl StreamWrapper {
@@ -71,6 +67,7 @@ impl StreamWrapper {
         OsRng.fill_bytes(&mut nonce);
         let mut nonce_file = OpenOptions::new()
             .create(true)
+            .truncate(true)
             .write(true)
             .open(meta_file_path)
             .unwrap();
@@ -83,7 +80,7 @@ impl StreamWrapper {
     }
 
     fn new_with_nonce(key: [u8; 16], meta_file_path: &PathBuf) -> Self {
-        let mut nonce_file = OpenOptions::new().read(true).open(&meta_file_path).unwrap();
+        let mut nonce_file = OpenOptions::new().read(true).open(meta_file_path).unwrap();
         let mut nonce = Vec::<u8>::new();
         let error_handle = |reason: String| {
             error!(LOG_TAG, "filed to read nonce, reason: {:?}", reason);
@@ -172,6 +169,7 @@ impl Decoder for Encryptor {
 mod tests {
     use crate::core::buffer::{Buffer, Decoder, Encoder};
     use crate::core::encrypt::Encryptor;
+    use std::fs;
     use std::path::Path;
 
     const TEST_KEY: &str = "88C51C536176AD8A8EE4A06F62EE897E";
@@ -198,7 +196,6 @@ mod tests {
         let encryptor = Encryptor::init(path, TEST_KEY);
         let new_decode_result1 = encryptor.decode_bytes(bytes1.as_slice(), 0).unwrap();
         assert_eq!(new_decode_result1.buffer, Some(buffer1));
-        encryptor.remove_file();
-        assert!(!encryptor.meta_file_path.exists());
+        let _ = fs::remove_file(&encryptor.meta_file_path);
     }
 }

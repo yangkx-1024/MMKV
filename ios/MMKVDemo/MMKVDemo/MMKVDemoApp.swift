@@ -2,9 +2,6 @@ import SwiftUI
 import MMKV
 @main
 struct MMKVDemoApp: App {
-    init() {
-        initMMKV()
-    }
     var body: some Scene {
         WindowGroup {
             ContentView()
@@ -12,7 +9,20 @@ struct MMKVDemoApp: App {
     }
 }
 
-func initMMKV() {
+class MMKVManager {
+    static var mmkv: MMKV {
+        _mmkv!
+    }
+    
+    private static var _mmkv: MMKV? = initMMKV()
+    
+    static func reInit() {
+        _mmkv = nil
+        _mmkv = initMMKV()
+    }
+}
+
+func initMMKV() -> MMKV {
     let paths = NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true)
     let documentsDirectory = paths[0]
     let docURL = URL(string: documentsDirectory)!
@@ -24,5 +34,5 @@ func initMMKV() {
             print(error.localizedDescription)
         }
     }
-    MMKV.shared.initialize(dataPath.path)
+    return MMKV(dataPath.path)
 }

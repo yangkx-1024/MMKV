@@ -97,11 +97,6 @@ pub fn set_logger(log_impl: Option<Box<dyn Logger>>) {
         .unwrap();
 }
 
-pub fn reset() {
-    set_log_level(LogLevel::Verbose);
-    set_logger(None);
-}
-
 #[allow(dead_code)]
 pub fn sync() {
     LOG_WRAPPER.io_looper.sync()

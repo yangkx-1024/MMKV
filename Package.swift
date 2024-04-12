@@ -32,6 +32,7 @@ let package = Package(
                 "build.sh",
                 "Cargo.lock",
                 "Cargo.toml",
+                "cbindgen.toml",
                 "README.md",
                 "LICENSE-APACHE",
                 "ios/MMKVDemo",
