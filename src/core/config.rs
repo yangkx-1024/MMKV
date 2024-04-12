@@ -17,6 +17,7 @@ impl Config {
             .read(true)
             .write(true)
             .create(true)
+            .truncate(false)
             .open(path)
             .unwrap();
         let mut file_len = file.metadata().unwrap().len();

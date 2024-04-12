@@ -114,75 +114,85 @@ pub struct InternalError {
 }
 
 macro_rules! mmkv_put {
-    ($key:expr, $value:expr, RawCStr) => {{
-        let value_str = unsafe { CStr::from_ptr($value) }.to_str().unwrap();
-        MMKV::put_str($key, value_str)
+    ($mmkv:ident, $key:expr, $value:expr, RawCStr) => {{
+        let value_str = CStr::from_ptr($value).to_str().unwrap();
+        $mmkv.put_str($key, value_str)
     }};
-    ($key:expr, $value:expr, bool) => {
-        MMKV::put_bool($key, $value)
+    ($mmkv:ident, $key:expr, $value:expr, bool) => {
+        $mmkv.put_bool($key, $value)
     };
-    ($key:expr, $value:expr, i32) => {
-        MMKV::put_i32($key, $value)
+    ($mmkv:ident, $key:expr, $value:expr, i32) => {
+        $mmkv.put_i32($key, $value)
     };
-    ($key:expr, $value:expr, i64) => {
-        MMKV::put_i64($key, $value)
+    ($mmkv:ident, $key:expr, $value:expr, i64) => {
+        $mmkv.put_i64($key, $value)
     };
-    ($key:expr, $value:expr, f32) => {
-        MMKV::put_f32($key, $value)
+    ($mmkv:ident, $key:expr, $value:expr, f32) => {
+        $mmkv.put_f32($key, $value)
     };
-    ($key:expr, $value:expr, f64) => {
-        MMKV::put_f64($key, $value)
+    ($mmkv:ident, $key:expr, $value:expr, f64) => {
+        $mmkv.put_f64($key, $value)
     };
-    ($key:expr, $value:expr, $len:expr, CByteArray) => {
-        MMKV::put_byte_array($key, unsafe { std::slice::from_raw_parts($value, $len) })
+    ($mmkv:ident, $key:expr, $value:expr, $len:expr, CByteArray) => {
+        $mmkv.put_byte_array($key, std::slice::from_raw_parts($value, $len))
     };
-    ($key:expr, $value:expr, $len:expr, CI32Array) => {
-        MMKV::put_i32_array($key, unsafe { std::slice::from_raw_parts($value, $len) })
+    ($mmkv:ident, $key:expr, $value:expr, $len:expr, CI32Array) => {
+        $mmkv.put_i32_array($key, std::slice::from_raw_parts($value, $len))
     };
-    ($key:expr, $value:expr, $len:expr, CI64Array) => {
-        MMKV::put_i64_array($key, unsafe { std::slice::from_raw_parts($value, $len) })
+    ($mmkv:ident, $key:expr, $value:expr, $len:expr, CI64Array) => {
+        $mmkv.put_i64_array($key, std::slice::from_raw_parts($value, $len))
     };
-    ($key:expr, $value:expr, $len:expr, CF32Array) => {
-        MMKV::put_f32_array($key, unsafe { std::slice::from_raw_parts($value, $len) })
+    ($mmkv:ident, $key:expr, $value:expr, $len:expr, CF32Array) => {
+        $mmkv.put_f32_array($key, std::slice::from_raw_parts($value, $len))
     };
-    ($key:expr, $value:expr, $len:expr, CF64Array) => {
-        MMKV::put_f64_array($key, unsafe { std::slice::from_raw_parts($value, $len) })
+    ($mmkv:ident, $key:expr, $value:expr, $len:expr, CF64Array) => {
+        $mmkv.put_f64_array($key, std::slice::from_raw_parts($value, $len))
     };
 }
 
 macro_rules! mmkv_get {
-    ($key:expr, ByteSlice) => {
-        MMKV::get_str($key).map(|value| ByteSlice::new(value))
+    ($mmkv:ident, $key:expr, ByteSlice) => {
+        $mmkv.get_str($key).map(|value| ByteSlice::new(value))
     };
-    ($key:expr, bool) => {
-        MMKV::get_bool($key)
+    ($mmkv:ident, $key:expr, bool) => {
+        $mmkv.get_bool($key)
     };
-    ($key:expr, i32) => {
-        MMKV::get_i32($key)
+    ($mmkv:ident, $key:expr, i32) => {
+        $mmkv.get_i32($key)
     };
-    ($key:expr, i64) => {
-        MMKV::get_i64($key)
+    ($mmkv:ident, $key:expr, i64) => {
+        $mmkv.get_i64($key)
     };
-    ($key:expr, f32) => {
-        MMKV::get_f32($key)
+    ($mmkv:ident, $key:expr, f32) => {
+        $mmkv.get_f32($key)
     };
-    ($key:expr, f64) => {
-        MMKV::get_f64($key)
+    ($mmkv:ident, $key:expr, f64) => {
+        $mmkv.get_f64($key)
     };
-    ($key:expr, CByteArray) => {
-        MMKV::get_byte_array($key).map(|value| RawTypedArray::new(value, Types::ByteArray))
+    ($mmkv:ident, $key:expr, CByteArray) => {
+        $mmkv
+            .get_byte_array($key)
+            .map(|value| RawTypedArray::new(value, Types::ByteArray))
     };
-    ($key:expr, CI32Array) => {
-        MMKV::get_i32_array($key).map(|value| RawTypedArray::new(value, Types::I32Array))
+    ($mmkv:ident, $key:expr, CI32Array) => {
+        $mmkv
+            .get_i32_array($key)
+            .map(|value| RawTypedArray::new(value, Types::I32Array))
     };
-    ($key:expr, CI64Array) => {
-        MMKV::get_i64_array($key).map(|value| RawTypedArray::new(value, Types::I64Array))
+    ($mmkv:ident, $key:expr, CI64Array) => {
+        $mmkv
+            .get_i64_array($key)
+            .map(|value| RawTypedArray::new(value, Types::I64Array))
     };
-    ($key:expr, CF32Array) => {
-        MMKV::get_f32_array($key).map(|value| RawTypedArray::new(value, Types::F32Array))
+    ($mmkv:ident, $key:expr, CF32Array) => {
+        $mmkv
+            .get_f32_array($key)
+            .map(|value| RawTypedArray::new(value, Types::F32Array))
     };
-    ($key:expr, CF64Array) => {
-        MMKV::get_f64_array($key).map(|value| RawTypedArray::new(value, Types::F64Array))
+    ($mmkv:ident, $key:expr, CF64Array) => {
+        $mmkv
+            .get_f64_array($key)
+            .map(|value| RawTypedArray::new(value, Types::F64Array))
     };
 }
 
@@ -198,10 +208,15 @@ fn map_error(key: &str, e: Error, log: &str) -> InternalError {
 macro_rules! impl_put {
     ($name:ident, $value_type:tt, $type_token:expr, $log:literal) => {
         #[no_mangle]
-        pub extern "C" fn $name(key: RawCStr, value: $value_type) -> *const RawBuffer {
-            let key_str = unsafe { CStr::from_ptr(key) }.to_str().unwrap();
+        pub unsafe extern "C" fn $name(
+            ptr: *const c_void,
+            key: RawCStr,
+            value: $value_type,
+        ) -> *const RawBuffer {
+            let mmkv = (ptr as *const MMKV).as_ref().unwrap();
+            let key_str = CStr::from_ptr(key).to_str().unwrap();
             let mut result = RawBuffer::new($type_token);
-            match mmkv_put!(key_str, value, $value_type) {
+            match mmkv_put!(mmkv, key_str, value, $value_type) {
                 Err(e) => result.set_error(map_error(key_str, e, $log)),
                 Ok(()) => {
                     verbose!(LOG_TAG, "{} for key '{}' success", $log, key_str);
@@ -215,10 +230,16 @@ macro_rules! impl_put {
 macro_rules! impl_put_typed_array {
     ($name:ident, $value_type:tt, $type_token:expr, $log:literal) => {
         #[no_mangle]
-        pub extern "C" fn $name(key: RawCStr, value: $value_type, len: usize) -> *const RawBuffer {
-            let key_str = unsafe { CStr::from_ptr(key) }.to_str().unwrap();
+        pub unsafe extern "C" fn $name(
+            ptr: *const c_void,
+            key: RawCStr,
+            value: $value_type,
+            len: usize,
+        ) -> *const RawBuffer {
+            let mmkv = (ptr as *const MMKV).as_ref().unwrap();
+            let key_str = CStr::from_ptr(key).to_str().unwrap();
             let mut result = RawBuffer::new($type_token);
-            match mmkv_put!(key_str, value, len, $value_type) {
+            match mmkv_put!(mmkv, key_str, value, len, $value_type) {
                 Err(e) => result.set_error(map_error(key_str, e, $log)),
                 Ok(()) => {
                     verbose!(LOG_TAG, "{} for key '{}' success", $log, key_str);
@@ -232,10 +253,11 @@ macro_rules! impl_put_typed_array {
 macro_rules! impl_get {
     ($name:ident, $value_type:tt, $type_token:expr, $log:literal) => {
         #[no_mangle]
-        pub extern "C" fn $name(key: RawCStr) -> *const RawBuffer {
-            let key_str = unsafe { CStr::from_ptr(key) }.to_str().unwrap();
+        pub unsafe extern "C" fn $name(ptr: *const c_void, key: RawCStr) -> *const RawBuffer {
+            let mmkv = (ptr as *const MMKV).as_ref().unwrap();
+            let key_str = CStr::from_ptr(key).to_str().unwrap();
             let mut result = RawBuffer::new($type_token);
-            match mmkv_get!(key_str, $value_type) {
+            match mmkv_get!(mmkv, key_str, $value_type) {
                 Err(e) => result.set_error(map_error(key_str, e, $log)),
                 Ok(value) => {
                     verbose!(LOG_TAG, "{} for key '{}' success", $log, key_str);
@@ -248,9 +270,10 @@ macro_rules! impl_get {
 }
 
 #[no_mangle]
-pub extern "C" fn initialize(dir: *const c_char) {
+pub extern "C" fn new_instance(dir: *const c_char) -> *const c_void {
     let dir_str = unsafe { CStr::from_ptr(dir) }.to_str().unwrap();
-    MMKV::initialize(dir_str)
+    let mmkv = MMKV::new(dir_str);
+    Box::into_raw(Box::new(mmkv)) as *const c_void
 }
 
 #[no_mangle]
@@ -269,20 +292,22 @@ pub unsafe extern "C" fn free_buffer(ptr: *const c_void) {
 }
 
 #[no_mangle]
-pub extern "C" fn close_instance() {
-    MMKV::close()
+pub unsafe extern "C" fn close_instance(ptr: *const c_void) {
+    drop(Box::from_raw(ptr as *mut MMKV));
 }
 
 #[no_mangle]
-pub extern "C" fn clear_data() {
-    MMKV::clear_data()
+pub unsafe extern "C" fn clear_data(ptr: *const c_void) {
+    let mmkv = (ptr as *const MMKV).as_ref().unwrap();
+    mmkv.clear_data();
 }
 
 #[no_mangle]
-pub extern "C" fn delete(key: RawCStr) -> *const RawBuffer {
+pub unsafe extern "C" fn delete(ptr: *const c_void, key: RawCStr) -> *const RawBuffer {
+    let mmkv = (ptr as *const MMKV).as_ref().unwrap();
     let key_str = unsafe { CStr::from_ptr(key) }.to_str().unwrap();
     let mut result = RawBuffer::new(Types::Str);
-    match MMKV::delete(key_str) {
+    match mmkv.delete(key_str) {
         Err(e) => result.set_error(map_error(key_str, e, "delete")),
         Ok(()) => verbose!(LOG_TAG, "delete key {} success", key_str),
     }

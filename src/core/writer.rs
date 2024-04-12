@@ -42,7 +42,7 @@ impl IOWriter {
             .encoder
             .encode_to_bytes(&buffer, self.position)
             .unwrap();
-        let target_end = data.len() + self.mm.offset();
+        let target_end = data.len() + self.mm.write_offset();
         let max_len = self.mm.len();
         if duplicated {
             self.need_trim = true;
@@ -55,7 +55,11 @@ impl IOWriter {
         if self.need_trim {
             // rewrite the entire map
             let time_start = Instant::now();
-            info!(LOG_TAG, "start trim, current len {}", self.mm.offset());
+            info!(
+                LOG_TAG,
+                "start trim, current len {}",
+                self.mm.write_offset()
+            );
             let (mut snapshot, _) = self
                 .mm
                 .iter(|bytes, position| self.decoder.decode_bytes(bytes, position))
@@ -72,7 +76,7 @@ impl IOWriter {
             self.position = 0;
             for buffer in snapshot.values() {
                 let bytes = self.encoder.encode_to_bytes(buffer, self.position).unwrap();
-                if self.mm.offset() + bytes.len() > max_len {
+                if self.mm.write_offset() + bytes.len() > max_len {
                     self.expand();
                 }
                 self.mm.append(bytes).unwrap();
@@ -83,7 +87,7 @@ impl IOWriter {
                 LOG_TAG,
                 "wrote {} items, new len {}, cost {:?}",
                 self.position,
-                self.mm.offset(),
+                self.mm.write_offset(),
                 time_start.elapsed()
             );
         } else {

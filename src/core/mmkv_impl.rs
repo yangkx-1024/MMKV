@@ -10,6 +10,8 @@ use crate::core::writer::IOWriter;
 use crate::Error::InstanceClosed;
 use crate::{Error, Result};
 use std::collections::HashMap;
+#[cfg(feature = "encryption")]
+use std::fs;
 use std::time::Instant;
 
 const LOG_TAG: &str = "MMKV:Core";
@@ -24,6 +26,7 @@ pub struct MmkvImpl {
 
 impl Drop for MmkvImpl {
     fn drop(&mut self) {
+        debug!(LOG_TAG, "drop MmkvImpl");
         let time_start = Instant::now();
         drop(self.io_looper.take());
         debug!(
@@ -51,7 +54,7 @@ impl MmkvImpl {
         let (kv_map, decoded_position) = mm
             .iter(|bytes, position| decoder.decode_bytes(bytes, position))
             .into_map();
-        let content_len = mm.offset();
+        let content_len = mm.write_offset();
         let file_size = mm.len();
         let io_writer = IOWriter::new(config, mm, decoded_position, encoder, decoder);
         let mmkv = MmkvImpl {
@@ -120,22 +123,14 @@ impl MmkvImpl {
         }
         self.is_valid = false;
         self.kv_map.clear();
+        #[cfg(feature = "encryption")]
+        let meta_file = self.encryptor.meta_file_path.clone();
         self.io_looper.as_mut().unwrap().post_and_kill(|callback| {
             callback.downcast_mut::<IOWriter>().unwrap().remove_file();
+            #[cfg(feature = "encryption")]
+            let _ = fs::remove_file(meta_file);
             info!(LOG_TAG, "data cleared");
         });
-        #[cfg(feature = "encryption")]
-        self.encryptor.remove_file();
-    }
-
-    pub fn close(&mut self) {
-        if !self.is_valid {
-            warn!(LOG_TAG, "instance already closed");
-            return;
-        }
-        self.is_valid = false;
-        self.kv_map.clear();
-        info!(LOG_TAG, "instance closed");
     }
 }
 
@@ -177,7 +172,7 @@ mod tests {
         let mut mmkv = init(config);
         mmkv.put("key1", Buffer::from_i32("key1", 1)).unwrap(); // + 17
         drop(mmkv);
-        assert_eq!(mm.offset(), 25);
+        assert_eq!(mm.write_offset(), 25);
 
         mmkv = init(config);
         mmkv.put("key2", Buffer::from_i32("key2", 2)).unwrap(); // + 17
@@ -185,12 +180,12 @@ mod tests {
         mmkv.put("key1", Buffer::from_i32("key1", 4)).unwrap(); // + 17
         mmkv.put("key2", Buffer::from_i32("key2", 5)).unwrap(); // + 17
         drop(mmkv);
-        assert_eq!(mm.offset(), 93);
+        assert_eq!(mm.write_offset(), 93);
 
         mmkv = init(config);
         mmkv.put("key1", Buffer::from_i32("key1", 6)).unwrap(); // + 17, trim, 3 items remain
         drop(mmkv);
-        assert_eq!(mm.offset(), 59);
+        assert_eq!(mm.write_offset(), 59);
 
         mmkv = init(config);
         assert_eq!(mmkv.get("key1").unwrap().decode_i32(), Ok(6));
@@ -199,13 +194,13 @@ mod tests {
         mmkv.put("key5", Buffer::from_i32("key5", 5)).unwrap(); // 93
         mmkv.put("key6", Buffer::from_i32("key6", 6)).unwrap(); // expand, 110
         drop(mmkv);
-        assert_eq!(mm.offset(), 110);
+        assert_eq!(mm.write_offset(), 110);
         assert_eq!(config.file_size(), 200);
 
         mmkv = init(config);
         mmkv.put("key7", Buffer::from_i32("key7", 7)).unwrap();
         drop(mmkv);
-        assert_eq!(mm.offset(), 127);
+        assert_eq!(mm.write_offset(), 127);
 
         mmkv = init(config);
         mmkv.clear_data();
@@ -223,32 +218,32 @@ mod tests {
         let mut mmkv = init(config);
         mmkv.put("key1", Buffer::from_i32("key1", 1)).unwrap(); // + 24
         drop(mmkv);
-        assert_eq!(mm.offset(), 32);
+        assert_eq!(mm.write_offset(), 32);
 
         mmkv = init(config);
         mmkv.put("key2", Buffer::from_i32("key2", 2)).unwrap(); // + 24
         mmkv.put("key3", Buffer::from_i32("key3", 3)).unwrap(); // + 24
         drop(mmkv);
-        assert_eq!(mm.offset(), 80);
+        assert_eq!(mm.write_offset(), 80);
 
         mmkv = init(config);
         mmkv.put("key1", Buffer::from_i32("key1", 4)).unwrap(); // + 24 trim
         mmkv.put("key2", Buffer::from_i32("key2", 5)).unwrap(); // + 24 trim
         drop(mmkv);
-        assert_eq!(mm.offset(), 80);
+        assert_eq!(mm.write_offset(), 80);
 
         mmkv = init(config);
         assert_eq!(mmkv.get("key1").unwrap().decode_i32(), Ok(4));
         assert_eq!(mmkv.get("key2").unwrap().decode_i32(), Ok(5));
         mmkv.put("key4", Buffer::from_i32("key4", 4)).unwrap(); // + 24
         drop(mmkv);
-        assert_eq!(mm.offset(), 104);
+        assert_eq!(mm.write_offset(), 104);
         assert_eq!(config.file_size(), 200);
 
         mmkv = init(config);
         mmkv.put("key5", Buffer::from_i32("key5", 5)).unwrap(); // + 24
         drop(mmkv);
-        assert_eq!(mm.offset(), 128);
+        assert_eq!(mm.write_offset(), 128);
 
         mmkv = init(config);
         mmkv.clear_data();

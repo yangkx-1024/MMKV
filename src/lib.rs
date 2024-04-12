@@ -4,11 +4,11 @@
 //! use mmkv::MMKV;
 //!
 //! let temp_dir = std::env::temp_dir();
-//! MMKV::initialize(temp_dir.to_str().unwrap(), #[cfg(feature = "encryption")] "88C51C536176AD8A8EE4A06F62EE897E");
-//! MMKV::put_i32("key1", 1).unwrap();
-//! assert_eq!(MMKV::get_i32("key1"), Ok(1));
+//! let mmkv = MMKV::new(temp_dir.to_str().unwrap(), #[cfg(feature = "encryption")] "88C51C536176AD8A8EE4A06F62EE897E");
+//! mmkv.put_i32("key1", 1).unwrap();
+//! assert_eq!(mmkv.get_i32("key1"), Ok(1));
 //! // Not actually needed unless you intend to delete all data
-//! MMKV::clear_data();
+//! mmkv.clear_data();
 //! ```
 //! For detailed API doc, see [MMKV]
 pub use crate::log::LogLevel;

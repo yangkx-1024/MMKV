@@ -4,7 +4,7 @@ use std::os::fd::{AsRawFd, RawFd};
 use std::ptr::NonNull;
 use std::{io, ptr, slice};
 
-pub const LEN_OFFSET: usize = 8;
+const LEN_OFFSET: usize = 8;
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
 const MAP_POPULATE: libc::c_int = libc::MAP_POPULATE;
@@ -88,7 +88,7 @@ impl MemoryMap {
 
     pub fn append(&mut self, value: Vec<u8>) -> io::Result<()> {
         let data_len = value.len();
-        let start = self.offset();
+        let start = self.write_offset();
         let content_len = start - LEN_OFFSET;
         let end = data_len + start;
         let new_content_len = data_len + content_len;
@@ -103,8 +103,12 @@ impl MemoryMap {
         self.0.flush(LEN_OFFSET)
     }
 
+    pub fn content_start_offset(&self) -> usize {
+        LEN_OFFSET
+    }
+
     /// The write offset of current mmap
-    pub fn offset(&self) -> usize {
+    pub fn write_offset(&self) -> usize {
         usize::from_be_bytes(self.0[0..LEN_OFFSET].try_into().unwrap()) + LEN_OFFSET
     }
 
@@ -123,34 +127,35 @@ mod tests {
     use std::fs;
     use std::fs::OpenOptions;
 
-    use super::MemoryMap;
+    use super::{MemoryMap, LEN_OFFSET};
 
     #[test]
     fn test_mmap() {
         let _ = fs::remove_file("test_mmap");
         let file = OpenOptions::new()
             .create(true)
+            .truncate(true)
             .write(true)
             .read(true)
             .open("test_mmap")
             .unwrap();
         file.set_len(1024).unwrap();
         let mut mm = MemoryMap::new(&file, 1024);
-        assert_eq!(mm.offset(), 8);
+        assert_eq!(mm.write_offset(), LEN_OFFSET);
         mm.append(vec![1, 2, 3]).unwrap();
         mm.append(vec![4]).unwrap();
-        assert_eq!(mm.offset(), 12);
+        assert_eq!(mm.write_offset(), 12);
 
         let read = mm.read(8..10);
         assert_eq!(read.len(), 2);
         assert_eq!(read[0], 1);
         assert_eq!(read[1], 2);
-        let read = mm.read(mm.offset() - 1..mm.offset());
+        let read = mm.read(mm.write_offset() - 1..mm.write_offset());
         assert_eq!(read[0], 4);
 
         mm.reset().unwrap();
         mm.append(vec![5, 4, 3, 2, 1]).unwrap();
-        assert_eq!(mm.offset(), 13);
+        assert_eq!(mm.write_offset(), 13);
         let read = mm.read(8..9);
         assert_eq!(read[0], 5);
 
