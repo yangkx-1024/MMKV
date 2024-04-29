@@ -86,11 +86,8 @@ impl MMKV {
     Initialize the MMKV instance with a writeable directory,
     absolute or relative paths are acceptable.
 
-    All API calls(except [set_logger](MMKV::set_logger), [set_log_level](MMKV::set_log_level))
-    before initialization will panic.
-
-    Calling [initialize](MMKV::initialize) multiple times is allowed,
-    the old instance will be closed (see [close](MMKV::close)), the last call will take over.
+    Calling [new](MMKV::new) multiple times with same parameter `dir` will get different MMKV
+    instances share the same mmap, it's safe to call get or put concurrently on these instances.
 
     If enabled feature "encryption", additional param `key` is required,
     the key should be a hexadecimal string of length 16, for example:
