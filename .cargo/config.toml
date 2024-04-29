@@ -1,0 +1,9 @@
+[build]
+#target = "x86_64-linux-android"
+
+[target.'cfg(any(target_os="android", target_os="ios"))']
+[profile.release]
+opt-level = 'z'
+lto = true
+codegen-units = 1
+panic = 'abort'
