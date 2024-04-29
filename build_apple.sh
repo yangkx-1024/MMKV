@@ -10,6 +10,7 @@ do
     echo "Build for $TARGET..."
     rustup target add $TARGET
     cargo build -r --target=$TARGET
+    strip target/"$TARGET"/release/libmmkv.a
 done
 
 HEADER="include"

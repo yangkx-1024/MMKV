@@ -4,7 +4,6 @@
 .DS_Store
 mini_mmkv
 mini_mmkv.meta
-.cargo
 .swiftpm
 .build
 .vscode

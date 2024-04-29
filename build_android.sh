@@ -29,8 +29,10 @@ for ITEM in "${targets_dic[@]}" ; do
   rustup target add "$TARGET"
   echo "Building with default feature......"
   cargo build --target "$TARGET" --release
+  "$ANDROID_NDK_TOOLCHAINS_PATH"/llvm-strip target/"$TARGET"/release/libmmkv.so
   cp target/"$TARGET"/release/libmmkv.so android/library/src/main/jniLibs/"$ANDROID_TARGET"/libmmkv.so
   echo "Building with feature encryption...."
   cargo build --features encryption --target "$TARGET" --release
+  "$ANDROID_NDK_TOOLCHAINS_PATH"/llvm-strip target/"$TARGET"/release/libmmkv.so
   cp target/"$TARGET"/release/libmmkv.so android/library-encrypt/src/main/jniLibs/"$ANDROID_TARGET"/libmmkv.so
 done

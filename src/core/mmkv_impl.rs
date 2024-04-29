@@ -29,11 +29,7 @@ impl Drop for MmkvImpl {
         debug!(LOG_TAG, "drop MmkvImpl");
         let time_start = Instant::now();
         drop(self.io_looper.take());
-        debug!(
-            LOG_TAG,
-            "wait for io task finish, cost {:?}",
-            time_start.elapsed()
-        );
+        debug!(LOG_TAG, "MmkvImpl dropped, cost {:?}", time_start.elapsed());
     }
 }
 
