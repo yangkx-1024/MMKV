@@ -1,17 +1,17 @@
 name: Publish Rust package
-on: 
-  release: 
-    types: [published]
+on:
+  release:
+    types: [ published ]
 
-env: 
+env:
   CARGO_TERM_COLOR: always
 
-jobs: 
-  build: 
+jobs:
+  build:
     runs-on: ubuntu-latest
-    steps: 
+    steps:
       - uses: actions/checkout@v4
       - name: Cargo publish
         run: cargo publish --token ${CARGO_REGISTRY_TOKEN}
-        env: 
+        env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
