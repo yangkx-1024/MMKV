@@ -1,5 +1,3 @@
-use crate::Error::{IOError, LockError};
-use crate::Result;
 use std::any::Any;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -7,6 +5,9 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::thread::JoinHandle;
+
+use crate::Error::{IOError, LockError};
+use crate::Result;
 
 const LOG_TAG: &str = "MMKV:IO";
 
@@ -72,10 +73,12 @@ impl<T: Callback + 'static> IOLooper<T> {
 
         self.sender
             .as_ref()
-            .unwrap()
-            .send(Signal::Normal)
-            .map_err(|e| IOError(e.to_string()))?;
-        Ok(())
+            .map(|sender| {
+                sender
+                    .send(Signal::Normal)
+                    .map_err(|e| IOError(e.to_string()))
+            })
+            .ok_or(IOError("channel closed".to_string()))?
     }
 
     pub fn sync(&self) {
@@ -106,28 +109,25 @@ impl<T> Drop for IOLooper<T> {
 
 impl Executor {
     pub fn new<T: Callback + 'static>(receiver: Receiver<Signal>, mut callback: T) -> Self {
+        let mut buffer: VecDeque<Job> = VecDeque::with_capacity(100);
         let queue: Arc<Mutex<VecDeque<Job>>> = Arc::new(Mutex::new(VecDeque::with_capacity(100)));
         let queue_clone = Arc::clone(&queue);
         let handle = thread::spawn(move || loop {
-            let callback = &mut callback;
             let signal = receiver.recv();
 
             match signal {
                 Ok(Signal::Kill(job)) => {
-                    job(callback);
+                    job(&mut callback);
                     break;
                 }
-                Ok(Signal::Normal) => loop {
-                    let mut locked_queue = queue.lock().unwrap();
-                    let job = locked_queue.pop_front();
-                    drop(locked_queue);
-                    match job {
-                        Some(job) => {
-                            job(callback);
-                        }
-                        None => break,
+                Ok(Signal::Normal) => {
+                    let mut current_queue = queue.lock().unwrap();
+                    std::mem::swap(&mut buffer, &mut *current_queue);
+                    drop(current_queue);
+                    while let Some(job) = buffer.pop_front() {
+                        job(&mut callback);
                     }
-                },
+                }
                 Err(_) => {
                     break;
                 }
@@ -143,10 +143,11 @@ impl Executor {
 
 #[cfg(test)]
 mod tests {
-    use crate::core::io_looper::{Callback, IOLooper};
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
+
+    use crate::core::io_looper::{Callback, IOLooper};
 
     struct SimpleCallback;
 
