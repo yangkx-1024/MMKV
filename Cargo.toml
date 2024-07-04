@@ -1,6 +1,6 @@
 [package]
 name = "mmkv"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2021"
 authors = ["Kexuan Yang <kexuan.yang@gmail.com>"]
 description = "Rust version of MMKV"
@@ -17,7 +17,7 @@ exclude = [
 
 [dependencies]
 protobuf = "3.4.0"
-libc = "0.2.153"
+libc = "0.2.155"
 crc = "3.2.1"
 eax = { version = "0.5.0", features = ["stream"], optional = true }
 aes = { version = "0.8.4", optional = true }
@@ -27,7 +27,7 @@ chrono = { version = "0.4.38" }
 once_cell = { version = "1.19.0" }
 
 [build-dependencies]
-protobuf-codegen = "3.4.0"
+protobuf-codegen = "3.5.0"
 protoc-bin-vendored = "3.0.0"
 
 [features]
