@@ -130,6 +130,7 @@ mod tests {
         let _ = fs::remove_file(file_name);
         let file = OpenOptions::new()
             .create(true)
+            .truncate(true)
             .write(true)
             .read(true)
             .open(file_name)
@@ -140,8 +141,7 @@ mod tests {
         let test_encoder = &TestEncoderDecoder;
         for i in 0..10 {
             let buffer = Buffer::from_i32(&i.to_string(), i);
-            mm.append(test_encoder.encode_to_bytes(&buffer, i as u32).unwrap())
-                .unwrap();
+            mm.append(test_encoder.encode_to_bytes(&buffer, i as u32).unwrap());
             buffers.push(buffer);
         }
         let decoder = &TestEncoderDecoder;

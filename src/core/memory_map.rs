@@ -82,13 +82,19 @@ unsafe impl Sync for RawMmap {}
 #[repr(transparent)]
 pub struct MemoryMap(RawMmap);
 
+impl Drop for MemoryMap {
+    fn drop(&mut self) {
+        self.0.flush(self.write_offset()).unwrap();
+    }
+}
+
 impl MemoryMap {
     pub fn new(file: &File, len: usize) -> Self {
         let raw_mmap = RawMmap::new(file.as_raw_fd(), len).unwrap();
         MemoryMap(raw_mmap)
     }
 
-    pub fn append(&mut self, value: Vec<u8>) -> io::Result<()> {
+    pub fn append(&mut self, value: Vec<u8>) {
         let data_len = value.len();
         let start = self.write_offset();
         let content_len = start - LEN_OFFSET;
@@ -96,13 +102,11 @@ impl MemoryMap {
         let new_content_len = data_len + content_len;
         self.0[0..LEN_OFFSET].copy_from_slice(new_content_len.to_be_bytes().as_slice());
         self.0[start..end].copy_from_slice(value.as_slice());
-        self.0.flush(end)
     }
 
-    pub fn reset(&mut self) -> io::Result<()> {
+    pub fn reset(&mut self) {
         let len = 0usize;
         self.0[0..LEN_OFFSET].copy_from_slice(len.to_be_bytes().as_slice());
-        self.0.flush(LEN_OFFSET)
     }
 
     pub fn content_start_offset(&self) -> usize {
@@ -144,8 +148,8 @@ mod tests {
         file.set_len(1024).unwrap();
         let mut mm = MemoryMap::new(&file, 1024);
         assert_eq!(mm.write_offset(), LEN_OFFSET);
-        mm.append(vec![1, 2, 3]).unwrap();
-        mm.append(vec![4]).unwrap();
+        mm.append(vec![1, 2, 3]);
+        mm.append(vec![4]);
         assert_eq!(mm.write_offset(), 12);
 
         let read = mm.read(8..10);
@@ -155,8 +159,8 @@ mod tests {
         let read = mm.read(mm.write_offset() - 1..mm.write_offset());
         assert_eq!(read[0], 4);
 
-        mm.reset().unwrap();
-        mm.append(vec![5, 4, 3, 2, 1]).unwrap();
+        mm.reset();
+        mm.append(vec![5, 4, 3, 2, 1]);
         assert_eq!(mm.write_offset(), 13);
         let read = mm.read(8..9);
         assert_eq!(read[0], 5);
