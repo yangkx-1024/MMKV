@@ -2,7 +2,6 @@ use crate::core::buffer::{Buffer, Decoder, Encoder};
 use crate::core::config::Config;
 use crate::core::io_looper::Callback;
 use crate::core::memory_map::MemoryMap;
-use crate::Error::EncodeFailed;
 use std::time::Instant;
 
 const LOG_TAG: &str = "MMKV:IO";
@@ -48,7 +47,7 @@ impl IOWriter {
             self.need_trim = true;
         }
         if target_end <= max_len {
-            self.mm.append(data).unwrap();
+            self.mm.append(data);
             self.position += 1;
             return;
         }
@@ -60,6 +59,7 @@ impl IOWriter {
                 "start trim, current len {}",
                 self.mm.write_offset()
             );
+            info!(LOG_TAG,"start take snapshot");
             let (mut snapshot, _) = self
                 .mm
                 .iter(|bytes, position| self.decoder.decode_bytes(bytes, position))
@@ -69,17 +69,15 @@ impl IOWriter {
             } else {
                 snapshot.insert(buffer.key().to_string(), buffer);
             }
-            self.mm
-                .reset()
-                .map_err(|e| EncodeFailed(e.to_string()))
-                .unwrap();
+            info!(LOG_TAG,"snapshot finished in {:?}", time_start.elapsed());
+            self.mm.reset();
             self.position = 0;
             for buffer in snapshot.values() {
                 let bytes = self.encoder.encode_to_bytes(buffer, self.position).unwrap();
                 if self.mm.write_offset() + bytes.len() > max_len {
                     self.expand();
                 }
-                self.mm.append(bytes).unwrap();
+                self.mm.append(bytes);
                 self.position += 1;
             }
             self.need_trim = false;
@@ -93,7 +91,7 @@ impl IOWriter {
         } else {
             // expand and write
             self.expand();
-            self.mm.append(data).unwrap();
+            self.mm.append(data);
             self.position += 1;
         }
     }
