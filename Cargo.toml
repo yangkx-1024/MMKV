@@ -1,6 +1,6 @@
 [package]
 name = "mmkv"
-version = "0.5.1"
+version = "0.5.2"
 edition = "2021"
 authors = ["Kexuan Yang <kexuan.yang@gmail.com>"]
 description = "Rust version of MMKV"
@@ -22,7 +22,7 @@ crc = "3.2.1"
 eax = { version = "0.5.0", features = ["stream"], optional = true }
 aes = { version = "0.8.4", optional = true }
 hex = { version = "0.4.3", optional = true }
-mmkv-proc-macro-lib = { path = "proc_macro_lib" }
+mmkv-proc-macro-lib = { version = "0.0.3" }
 chrono = { version = "0.4.38" }
 once_cell = { version = "1.19.0" }
 
