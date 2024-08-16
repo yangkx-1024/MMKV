@@ -55,24 +55,18 @@ where
 }
 
 macro_rules! impl_release_for_primary {
-    ($ident:ident) => {
-        impl Releasable for $ident {
-            unsafe fn release(&mut self) {
-                // Do nothing, we need nothing to be release inside primary type
+    ($($ident:ident),+) => {
+        $(
+            impl Releasable for $ident {
+                unsafe fn release(&mut self) {
+                    // Do nothing, we need nothing to be release inside primary type
+                }
             }
-        }
+        )+
     };
 }
 
-impl_release_for_primary!(bool);
-
-impl_release_for_primary!(i32);
-
-impl_release_for_primary!(i64);
-
-impl_release_for_primary!(f32);
-
-impl_release_for_primary!(f64);
+impl_release_for_primary!(bool, i32, i64, f32, f64);
 
 impl ByteSlice {
     pub(super) fn new(string: String) -> Self {
