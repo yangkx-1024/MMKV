@@ -178,12 +178,12 @@ mod tests {
     fn test_crypt_buffer() {
         let path = Path::new("./mmkv");
         let encryptor = Encryptor::init(path, TEST_KEY);
-        let buffer1 = Buffer::from_i32("key1", 1);
+        let buffer1 = Buffer::encode("key1", 1);
         let bytes1 = encryptor.encode_to_bytes(&buffer1, 0).unwrap();
         let decode_result1 = encryptor.decode_bytes(bytes1.as_slice(), 0).unwrap();
         assert_eq!(decode_result1.len, bytes1.len() as u32);
         assert_eq!(decode_result1.buffer, Some(buffer1.clone()));
-        let buffer2 = Buffer::from_i32("key2", 2);
+        let buffer2 = Buffer::encode("key2", 2);
         let bytes2 = encryptor.encode_to_bytes(&buffer2, 1).unwrap();
         let decode_result2 = encryptor.decode_bytes(bytes2.as_slice(), 1).unwrap();
         assert_eq!(decode_result2.len, bytes2.len() as u32);

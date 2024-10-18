@@ -118,82 +118,82 @@ pub struct InternalError {
 macro_rules! mmkv_put {
     ($mmkv:ident, $key:expr, $value:expr, RawCStr) => {{
         let value_str = CStr::from_ptr($value).to_str().unwrap();
-        $mmkv.put_str($key, value_str)
+        $mmkv.put($key, value_str)
     }};
     ($mmkv:ident, $key:expr, $value:expr, bool) => {
-        $mmkv.put_bool($key, $value)
+        $mmkv.put($key, $value)
     };
     ($mmkv:ident, $key:expr, $value:expr, i32) => {
-        $mmkv.put_i32($key, $value)
+        $mmkv.put($key, $value)
     };
     ($mmkv:ident, $key:expr, $value:expr, i64) => {
-        $mmkv.put_i64($key, $value)
+        $mmkv.put($key, $value)
     };
     ($mmkv:ident, $key:expr, $value:expr, f32) => {
-        $mmkv.put_f32($key, $value)
+        $mmkv.put($key, $value)
     };
     ($mmkv:ident, $key:expr, $value:expr, f64) => {
-        $mmkv.put_f64($key, $value)
+        $mmkv.put($key, $value)
     };
     ($mmkv:ident, $key:expr, $value:expr, $len:expr, CByteArray) => {
-        $mmkv.put_byte_array($key, std::slice::from_raw_parts($value, $len))
+        $mmkv.put($key, std::slice::from_raw_parts($value, $len))
     };
     ($mmkv:ident, $key:expr, $value:expr, $len:expr, CI32Array) => {
-        $mmkv.put_i32_array($key, std::slice::from_raw_parts($value, $len))
+        $mmkv.put($key, std::slice::from_raw_parts($value, $len))
     };
     ($mmkv:ident, $key:expr, $value:expr, $len:expr, CI64Array) => {
-        $mmkv.put_i64_array($key, std::slice::from_raw_parts($value, $len))
+        $mmkv.put($key, std::slice::from_raw_parts($value, $len))
     };
     ($mmkv:ident, $key:expr, $value:expr, $len:expr, CF32Array) => {
-        $mmkv.put_f32_array($key, std::slice::from_raw_parts($value, $len))
+        $mmkv.put($key, std::slice::from_raw_parts($value, $len))
     };
     ($mmkv:ident, $key:expr, $value:expr, $len:expr, CF64Array) => {
-        $mmkv.put_f64_array($key, std::slice::from_raw_parts($value, $len))
+        $mmkv.put($key, std::slice::from_raw_parts($value, $len))
     };
 }
 
 macro_rules! mmkv_get {
     ($mmkv:ident, $key:expr, ByteSlice) => {
-        $mmkv.get_str($key).map(|value| ByteSlice::new(value))
+        $mmkv.get($key).map(|value| ByteSlice::new(value))
     };
     ($mmkv:ident, $key:expr, bool) => {
-        $mmkv.get_bool($key)
+        $mmkv.get::<bool>($key)
     };
     ($mmkv:ident, $key:expr, i32) => {
-        $mmkv.get_i32($key)
+        $mmkv.get::<i32>($key)
     };
     ($mmkv:ident, $key:expr, i64) => {
-        $mmkv.get_i64($key)
+        $mmkv.get::<i64>($key)
     };
     ($mmkv:ident, $key:expr, f32) => {
-        $mmkv.get_f32($key)
+        $mmkv.get::<f32>($key)
     };
     ($mmkv:ident, $key:expr, f64) => {
-        $mmkv.get_f64($key)
+        $mmkv.get::<f64>($key)
     };
     ($mmkv:ident, $key:expr, CByteArray) => {
         $mmkv
-            .get_byte_array($key)
+            .get::<Vec<u8>>($key)
             .map(|value| RawTypedArray::new(value, Types::ByteArray))
     };
     ($mmkv:ident, $key:expr, CI32Array) => {
         $mmkv
-            .get_i32_array($key)
+            .get::<Vec<i32>>($key)
             .map(|value| RawTypedArray::new(value, Types::I32Array))
     };
     ($mmkv:ident, $key:expr, CI64Array) => {
         $mmkv
-            .get_i64_array($key)
+            .get::<Vec<i64>>($key)
             .map(|value| RawTypedArray::new(value, Types::I64Array))
     };
     ($mmkv:ident, $key:expr, CF32Array) => {
         $mmkv
-            .get_f32_array($key)
+            .get::<Vec<f32>>($key)
             .map(|value| RawTypedArray::new(value, Types::F32Array))
     };
     ($mmkv:ident, $key:expr, CF64Array) => {
         $mmkv
-            .get_f64_array($key)
+            .get::<Vec<f64>>($key)
             .map(|value| RawTypedArray::new(value, Types::F64Array))
     };
 }
