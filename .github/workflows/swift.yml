@@ -16,6 +16,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build
         run: |
+          ./build_apple.sh
           cd ios/MMKV
           swift build
       - name: Run tests

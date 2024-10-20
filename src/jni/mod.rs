@@ -53,93 +53,93 @@ macro_rules! native_to_jarray {
 macro_rules! mmkv_put {
     ($env:expr, $mmkv:ident, $key:expr, $value:expr, JString) => {{
         let value = env_str($env, $value);
-        $mmkv.put_str(&$key, &value)
+        $mmkv.put(&$key, &value)
     }};
     ($env:expr, $mmkv:ident, $key:expr, $value:expr, jint) => {
-        $mmkv.put_i32(&$key, $value)
+        $mmkv.put(&$key, $value)
     };
     ($env:expr, $mmkv:ident, $key:expr, $value:expr, jboolean) => {
-        $mmkv.put_bool(&$key, $value == 1u8)
+        $mmkv.put(&$key, $value == 1u8)
     };
     ($env:expr, $mmkv:ident, $key:expr, $value:expr, jlong) => {
-        $mmkv.put_i64(&$key, $value)
+        $mmkv.put(&$key, $value)
     };
     ($env:expr, $mmkv:ident, $key:expr, $value:expr, jfloat) => {
-        $mmkv.put_f32(&$key, $value)
+        $mmkv.put(&$key, $value)
     };
     ($env:expr, $mmkv:ident, $key:expr, $value:expr, jdouble) => {
-        $mmkv.put_f64(&$key, $value)
+        $mmkv.put(&$key, $value)
     };
     ($env:expr, $mmkv:ident, $key:expr, $value:expr, JByteArray) => {{
         let vec = jarray_to_native!($env, $value, get_byte_array_region, 0);
         let byte_array: Vec<u8> = vec.into_iter().map(|item| item as u8).collect();
-        $mmkv.put_byte_array(&$key, byte_array.as_slice())
+        $mmkv.put(&$key, byte_array.as_slice())
     }};
     ($env:expr, $mmkv:ident, $key:expr, $value:expr, JIntArray) => {{
         let vec = jarray_to_native!($env, $value, get_int_array_region, 0);
-        $mmkv.put_i32_array(&$key, vec.as_slice())
+        $mmkv.put(&$key, vec.as_slice())
     }};
     ($env:expr, $mmkv:ident, $key:expr, $value:expr, JLongArray) => {{
         let vec = jarray_to_native!($env, $value, get_long_array_region, 0);
-        $mmkv.put_i64_array(&$key, vec.as_slice())
+        $mmkv.put(&$key, vec.as_slice())
     }};
     ($env:expr, $mmkv:ident, $key:expr, $value:expr, JFloatArray) => {{
         let vec = jarray_to_native!($env, $value, get_float_array_region, 0.0);
-        $mmkv.put_f32_array(&$key, vec.as_slice())
+        $mmkv.put(&$key, vec.as_slice())
     }};
     ($env:expr, $mmkv:ident, $key:expr, $value:expr, JDoubleArray) => {{
         let vec = jarray_to_native!($env, $value, get_double_array_region, 0.0);
-        $mmkv.put_f64_array(&$key, vec.as_slice())
+        $mmkv.put(&$key, vec.as_slice())
     }};
 }
 
 macro_rules! mmkv_get {
     ($env:expr, $mmkv:ident, $key:expr, jstring) => {
         $mmkv
-            .get_str(&$key)
+            .get::<String>(&$key)
             .map(|value| $env.new_string(value).unwrap().into_raw())
     };
     ($env:expr, $mmkv:ident, $key:expr, jint) => {
-        $mmkv.get_i32(&$key)
+        $mmkv.get::<i32>(&$key)
     };
     ($env:expr, $mmkv:ident, $key:expr, jboolean) => {
         $mmkv
-            .get_bool(&$key)
+            .get::<bool>(&$key)
             .map(|value| if value { 1u8 } else { 0u8 })
     };
     ($env:expr, $mmkv:ident, $key:expr, jlong) => {
-        $mmkv.get_i64(&$key)
+        $mmkv.get::<i64>(&$key)
     };
     ($env:expr, $mmkv:ident, $key:expr, jfloat) => {
-        $mmkv.get_f32(&$key)
+        $mmkv.get::<f32>(&$key)
     };
     ($env:expr, $mmkv:ident, $key:expr, jdouble) => {
-        $mmkv.get_f64(&$key)
+        $mmkv.get::<f64>(&$key)
     };
     ($env:expr, $mmkv:ident, $key:expr, jbyteArray) => {
-        $mmkv.get_byte_array(&$key).map(|value| {
+        $mmkv.get::<Vec<u8>>(&$key).map(|value| {
             let vec: Vec<i8> = value.into_iter().map(|item| item as i8).collect();
             native_to_jarray!($env, vec, new_byte_array, set_byte_array_region)
         })
     };
     ($env:expr, $mmkv:ident, $key:expr, jintArray) => {
         $mmkv
-            .get_i32_array(&$key)
+            .get::<Vec<i32>>(&$key)
             .map(|value| native_to_jarray!($env, value, new_int_array, set_int_array_region))
     };
     ($env:expr, $mmkv:ident, $key:expr, jlongArray) => {
         $mmkv
-            .get_i64_array(&$key)
+            .get::<Vec<i64>>(&$key)
             .map(|value| native_to_jarray!($env, value, new_long_array, set_long_array_region))
     };
     ($env:expr, $mmkv:ident, $key:expr, jfloatArray) => {
         $mmkv
-            .get_f32_array(&$key)
+            .get::<Vec<f32>>(&$key)
             .map(|value| native_to_jarray!($env, value, new_float_array, set_float_array_region))
     };
     ($env:expr, $mmkv:ident, $key:expr, jdoubleArray) => {
         $mmkv
-            .get_f64_array(&$key)
+            .get::<Vec<f64>>(&$key)
             .map(|value| native_to_jarray!($env, value, new_double_array, set_double_array_region))
     };
 }
