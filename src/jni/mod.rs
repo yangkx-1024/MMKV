@@ -53,7 +53,7 @@ macro_rules! native_to_jarray {
 macro_rules! mmkv_put {
     ($env:expr, $mmkv:ident, $key:expr, $value:expr, JString) => {{
         let value = env_str($env, $value);
-        $mmkv.put(&$key, &value)
+        $mmkv.put(&$key, value.as_str())
     }};
     ($env:expr, $mmkv:ident, $key:expr, $value:expr, jint) => {
         $mmkv.put(&$key, $value)
