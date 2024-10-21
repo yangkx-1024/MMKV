@@ -1,22 +1,7 @@
 syntax = "proto3";
 
-enum Types {
-  I32 = 0;
-  STR = 1;
-  BYTE = 2;
-  I64 = 3;
-  F32 = 4;
-  F64 = 5;
-  BYTE_ARRAY = 6;
-  I32_ARRAY = 7;
-  I64_ARRAY = 8;
-  F32_ARRAY = 9;
-  F64_ARRAY = 10;
-  DELETED = 100;
-}
-
 message KV {
   string key = 1;
-  Types type = 2;
+  int32 type = 2;
   bytes value = 3;
 }

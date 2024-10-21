@@ -55,7 +55,7 @@ mod tests {
 
     #[test]
     fn test_crc_buffer() {
-        let buffer = Buffer::encode("key", 1);
+        let buffer = Buffer::new("key", 1);
         let bytes = CrcEncoderDecoder.encode_to_bytes(&buffer, 0).unwrap();
         let decode_result = CrcEncoderDecoder.decode_bytes(bytes.as_slice(), 0).unwrap();
         assert_eq!(decode_result.len, bytes.len() as u32);
