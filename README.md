@@ -40,21 +40,21 @@ fn main() {
     let mmkv = MMKV::new(dir.to_str().unwrap());
     // Put and get result, for most case should be Ok(()),
     // if something wrong, it contains the useful info.
-    let ret = mmkv.put_i32("key1", 1);
+    let ret = mmkv.put("key1", 1);
     println!("{:?}", ret); // Ok(())
     // Get result with key
-    println!("{:?}", mmkv.get_i32("key1")); // Ok(1)
+    println!("{:?}", mmkv.get::<i32>("key1")); // Ok(1)
     // Put and unwrap the result
-    mmkv.put_str("key1", "value").unwrap();
-    println!("{:?}", mmkv.get_i32("key1")); // Err(TypeMissMatch)
-    println!("{:?}", mmkv.get_str("key1")); // Ok("value")
+    mmkv.put("key1", "value").unwrap();
+    println!("{:?}", mmkv.get::<i32>("key1")); // Err(TypeMissMatch)
+    println!("{:?}", mmkv.get::<String>("key1")); // Ok("value")
 
     let dir = temp_dir.join("test2");
     let _ = std::fs::create_dir(&dir);
     // Create another instance with different path
     let new_mmkv = MMKV::new(dir.to_str().unwrap());
-    new_mmkv.put_bool("key1", true).unwrap();
-    println!("{:?}", new_mmkv.get_bool("key1")); // Ok(true)
+    new_mmkv.put("key1", true).unwrap();
+    println!("{:?}", new_mmkv.get::<bool>("key1")); // Ok(true)
     // clear all data to free disk space
     new_mmkv.clear_data();
 }
