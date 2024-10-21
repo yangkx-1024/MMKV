@@ -5,7 +5,7 @@ use std::sync::{Arc, RwLock, Weak};
 
 use once_cell::sync::Lazy;
 
-use crate::core::buffer::{Buffer, FromBuffer, ToBuffer};
+use crate::core::buffer::{Buffer, FromBytes, ProvideTypeToken, ToBytes};
 use crate::core::config::Config;
 use crate::core::mmkv_impl::MmkvImpl;
 use crate::log::logger;
@@ -125,16 +125,70 @@ impl MMKV {
         path.join(DEFAULT_FILE_NAME)
     }
 
-    pub fn put<T: ToBuffer>(&self, key: &str, value: T) -> Result<()> {
+    /**
+    Types must implement [ProvideTypeToken] and [ToBytes] to be persisted in MMKV.
+
+    If you want to persist custom struct to MMKV,
+    your struct must implement [ToBytes] trait which serialize type to bytes,
+    and [FromBytes] trait which deserialize type from bytes.
+    For example:
+    ```
+    use mmkv::{FromBytes, MMKV, ProvideTypeToken, ToBytes, TypeToken};
+    #[derive(Clone, PartialEq, Eq, Debug, Hash)]
+    struct MyStruct {
+        int_value: i32,
+        str_value: String,
+    }
+
+    impl ProvideTypeToken for MyStruct {
+        fn type_token() -> TypeToken {
+            TypeToken::new(101)
+        }
+    }
+
+    impl ToBytes for MyStruct {
+        fn to_bytes(&self) -> Vec<u8> {
+            let mut vec = vec![];
+            vec.extend(self.int_value.to_be_bytes());
+            vec.extend(self.str_value.as_bytes().to_vec());
+            vec
+        }
+    }
+
+    impl FromBytes for MyStruct {
+        fn from_bytes(bytes: &[u8]) -> mmkv::Result<Self> {
+            let int_len = size_of::<i32>();
+            let int_val = i32::from_be_bytes(bytes[0..int_len].try_into().unwrap());
+            let str_val = String::from_utf8(bytes[int_len..].try_into().unwrap()).unwrap();
+            Ok(MyStruct {
+                int_value: int_val,
+                str_value: str_val
+            })
+        }
+    }
+
+    let temp_dir = std::env::temp_dir();
+    let mmkv = MMKV::new(temp_dir.to_str().unwrap(), #[cfg(feature = "encryption")] "88C51C536176AD8A8EE4A06F62EE897E");
+    let my_struct = MyStruct {
+        int_value: 1,
+        str_value: "abc".to_string(),
+    };
+    mmkv.put("my_struct", &my_struct).unwrap();
+    let copy: MyStruct = mmkv.get("my_struct").unwrap();
+    assert_eq!(my_struct, copy)
+    ```
+    */
+    pub fn put<T: ProvideTypeToken + ToBytes>(&self, key: &str, value: T) -> Result<()> {
         match self.mmkv_impl.write() {
-            Ok(mut mmkv) => mmkv.put(key, Buffer::encode(key, value)),
+            Ok(mut mmkv) => mmkv.put(key, Buffer::new(key, value)),
             Err(e) => Err(LockError(e.to_string())),
         }
     }
 
-    pub fn get<T: FromBuffer>(&self, key: &str) -> Result<T> {
+    /// See [MMKV::put]
+    pub fn get<T: ProvideTypeToken + FromBytes>(&self, key: &str) -> Result<T> {
         match self.mmkv_impl.read() {
-            Ok(mmkv) => mmkv.get(key)?.decode(),
+            Ok(mmkv) => mmkv.get(key)?.parse(),
             Err(e) => Err(LockError(e.to_string())),
         }
     }

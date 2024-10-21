@@ -140,7 +140,7 @@ mod tests {
         let mut buffers: Vec<Buffer> = vec![];
         let test_encoder = &TestEncoderDecoder;
         for i in 0..10 {
-            let buffer = Buffer::encode(&i.to_string(), i);
+            let buffer = Buffer::new(&i.to_string(), i);
             mm.append(test_encoder.encode_to_bytes(&buffer, i as u32).unwrap());
             buffers.push(buffer);
         }

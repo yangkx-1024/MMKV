@@ -11,6 +11,7 @@
 //! mmkv.clear_data();
 //! ```
 //! For detailed API doc, see [MMKV]
+pub use crate::core::buffer::{FromBytes, ProvideTypeToken, ToBytes, TypeToken};
 pub use crate::log::LogLevel;
 pub use crate::log::Logger;
 pub use crate::mmkv::MMKV;

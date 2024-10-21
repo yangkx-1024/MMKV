@@ -3,8 +3,8 @@ use std::{f32, f64, str, vec};
 
 use crate::Error::{DataInvalid, DecodeFailed, KeyNotFound, TypeMissMatch};
 use crate::Result;
-use kv::{Types, KV};
-use protobuf::{EnumOrUnknown, Message};
+use kv::KV;
+use protobuf::Message;
 
 include!(concat!(env!("OUT_DIR"), "/protos/mod.rs"));
 
@@ -26,24 +26,25 @@ pub trait Decoder: Send + Sync {
 }
 
 impl Buffer {
-    fn from_kv(key: &str, t: Types, value: &[u8]) -> Self {
+    fn from_kv(key: &str, t: i32, value: Vec<u8>) -> Self {
         let mut kv = KV::new();
         kv.key = key.to_string();
-        kv.type_ = EnumOrUnknown::new(t);
-        kv.value = value.to_vec();
+        kv.type_ = t;
+        kv.value = value;
         Buffer(kv)
     }
 
-    pub fn encode<T: ToBuffer>(key: &str, value: T) -> Self {
-        value.to_buffer(key)
+    pub fn new<T: ProvideTypeToken + ToBytes>(key: &str, value: T) -> Self {
+        Buffer::from_kv(key, T::type_token().token, value.to_bytes())
     }
 
-    pub fn decode<T: FromBuffer>(&self) -> Result<T> {
-        T::from_buffer(self)
+    pub fn parse<T: ProvideTypeToken + FromBytes>(&self) -> Result<T> {
+        self.check_buffer_type(T::type_token())?;
+        T::from_bytes(self.0.value.as_slice())
     }
 
     pub fn deleted_buffer(key: &str) -> Self {
-        Buffer::from_kv(key, Types::DELETED, vec![].as_slice())
+        Buffer::from_kv(key, InnerTypes::Deleted.value(), vec![])
     }
 
     pub fn from_encoded_bytes(data: &[u8]) -> Result<Self> {
@@ -65,18 +66,14 @@ impl Buffer {
     }
 
     pub fn is_deleting(&self) -> bool {
-        if let Ok(buffer_type) = self.0.type_.enum_value() {
-            buffer_type == Types::DELETED
-        } else {
-            false
-        }
+        self.0.type_ == InnerTypes::Deleted.value()
     }
 
-    fn check_buffer_type(&self, required: Types) -> Result<()> {
+    fn check_buffer_type(&self, type_token: TypeToken) -> Result<()> {
         if self.is_deleting() {
             return Err(KeyNotFound);
         }
-        if required == self.0.type_.enum_value().map_err(|_| TypeMissMatch)? {
+        if type_token.token == self.0.type_ {
             Ok(())
         } else {
             Err(TypeMissMatch)
@@ -84,111 +81,228 @@ impl Buffer {
     }
 }
 
-pub trait ToBuffer {
-    fn to_buffer(self, key: &str) -> Buffer;
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+enum InnerTypes {
+    I32 = 0,
+    Str = 1,
+    Byte = 2,
+    I64 = 3,
+    F32 = 4,
+    F64 = 5,
+    ByteArray = 6,
+    I32Array = 7,
+    I64Array = 8,
+    F32Array = 9,
+    F64Array = 10,
+    Deleted = 100,
 }
 
-impl ToBuffer for &str {
-    fn to_buffer(self, key: &str) -> Buffer {
-        Buffer::from_kv(key, Types::STR, self.as_bytes())
+impl InnerTypes {
+    fn value(&self) -> i32 {
+        *self as i32
+    }
+
+    fn reserved(value: i32) -> bool {
+        (0..=100).contains(&value)
     }
 }
 
-impl ToBuffer for bool {
-    fn to_buffer(self, key: &str) -> Buffer {
-        let out = if self { 1u8 } else { 0u8 };
-        Buffer::from_kv(key, Types::BYTE, vec![out].as_slice())
+/// 0 ~ 100 reserved for internal usage.
+pub struct TypeToken {
+    token: i32,
+}
+
+impl TypeToken {
+    /// Provide an int for type token, 0 ~ 100 reserved for internal usage.
+    ///
+    /// Notice: Panic when token is in 0 ~ 100
+    pub fn new(token: i32) -> Self {
+        if InnerTypes::reserved(token) {
+            panic!("type token 0 ~ 100 reserved for internal usage");
+        }
+        TypeToken { token }
+    }
+
+    fn from_int_unchecked(token: i32) -> Self {
+        TypeToken { token }
     }
 }
 
-impl ToBuffer for &[u8] {
-    fn to_buffer(self, key: &str) -> Buffer {
-        Buffer::from_kv(key, Types::BYTE_ARRAY, self)
+/// See [crate::MMKV::put]
+pub trait ToBytes {
+    /// Serialize to bytes
+    fn to_bytes(&self) -> Vec<u8>;
+}
+
+impl<T> ToBytes for &T
+where
+    T: ToBytes,
+{
+    fn to_bytes(&self) -> Vec<u8> {
+        (*self).to_bytes()
     }
 }
 
-macro_rules! impl_to_buffer_for_number {
-    ($(($t:ty, $kv_type:expr)),+) => {
+/// See [crate::MMKV::put]
+pub trait ProvideTypeToken {
+    /// See [TypeToken::new]
+    fn type_token() -> TypeToken;
+}
+
+impl<T> ProvideTypeToken for &T
+where
+    T: ProvideTypeToken,
+{
+    fn type_token() -> TypeToken {
+        T::type_token()
+    }
+}
+
+impl ProvideTypeToken for &str {
+    fn type_token() -> TypeToken {
+        TypeToken::from_int_unchecked(InnerTypes::Str.value())
+    }
+}
+
+impl ProvideTypeToken for String {
+    fn type_token() -> TypeToken {
+        TypeToken::from_int_unchecked(InnerTypes::Str.value())
+    }
+}
+
+impl ToBytes for &str {
+    fn to_bytes(&self) -> Vec<u8> {
+        self.as_bytes().to_vec()
+    }
+}
+
+impl ToBytes for String {
+    fn to_bytes(&self) -> Vec<u8> {
+        self.as_bytes().to_vec()
+    }
+}
+
+impl ProvideTypeToken for bool {
+    fn type_token() -> TypeToken {
+        TypeToken::from_int_unchecked(InnerTypes::Byte.value())
+    }
+}
+
+impl ToBytes for bool {
+    fn to_bytes(&self) -> Vec<u8> {
+        let out = if *self { 1u8 } else { 0u8 };
+        vec![out]
+    }
+}
+
+impl ProvideTypeToken for &[u8] {
+    fn type_token() -> TypeToken {
+        TypeToken::from_int_unchecked(InnerTypes::ByteArray.value())
+    }
+}
+
+impl ProvideTypeToken for Vec<u8> {
+    fn type_token() -> TypeToken {
+        TypeToken::from_int_unchecked(InnerTypes::ByteArray.value())
+    }
+}
+
+impl ToBytes for &[u8] {
+    fn to_bytes(&self) -> Vec<u8> {
+        self.to_vec()
+    }
+}
+macro_rules! impl_to_bytes_for_number {
+    ($(($t:ty, $kv_type:expr)),+;) => {
         $(
-        impl ToBuffer for $t {
-            fn to_buffer(self, key: &str) -> Buffer {
-                Buffer::from_kv(key, $kv_type, self.to_be_bytes().as_slice())
+        impl ProvideTypeToken for $t {
+            fn type_token() -> TypeToken {
+                TypeToken::from_int_unchecked($kv_type.value())
+            }
+        }
+        impl ToBytes for $t {
+            fn to_bytes(&self) -> Vec<u8> {
+                self.to_be_bytes().to_vec()
             }
         }
         )+
     };
 }
 
-impl_to_buffer_for_number!(
-    (i32, Types::I32),
-    (i64, Types::I64),
-    (f32, Types::F32),
-    (f64, Types::F64)
+impl_to_bytes_for_number!(
+    (i32, InnerTypes::I32),
+    (i64, InnerTypes::I64),
+    (f32, InnerTypes::F32),
+    (f64, InnerTypes::F64);
 );
 
-macro_rules! impl_to_buffer_for_typed_array {
-    ($(($t:ty, $kv_type:expr)),+) => {
+macro_rules! impl_to_bytes_for_typed_array {
+    ($(($t:ty, $kv_type:expr)),+;) => {
         $(
-        impl ToBuffer for &[$t] {
-            fn to_buffer(self, key: &str) -> Buffer {
+        impl ProvideTypeToken for &[$t] {
+            fn type_token() -> TypeToken {
+                TypeToken::from_int_unchecked($kv_type.value())
+            }
+        }
+        impl ProvideTypeToken for Vec<$t> {
+            fn type_token() -> TypeToken {
+                TypeToken::from_int_unchecked($kv_type.value())
+            }
+        }
+        impl ToBytes for &[$t] {
+            fn to_bytes(&self) -> Vec<u8> {
                 let mut vec = Vec::with_capacity(self.len() * (size_of::<$t>() / size_of::<u8>()));
-                for item in self {
+                for item in *self {
                     vec.extend_from_slice(item.to_be_bytes().as_slice());
                 }
-                Buffer::from_kv(key, $kv_type, vec.as_slice())
+                vec
             }
         }
         )+
     };
 }
 
-impl_to_buffer_for_typed_array!(
-    (i32, Types::I32),
-    (i64, Types::I64),
-    (f32, Types::F32),
-    (f64, Types::F64)
+impl_to_bytes_for_typed_array!(
+    (i32, InnerTypes::I32Array),
+    (i64, InnerTypes::I64Array),
+    (f32, InnerTypes::F32Array),
+    (f64, InnerTypes::F64Array);
 );
 
-pub trait FromBuffer {
-    fn from_buffer(buffer: &Buffer) -> Result<Self>
+/// See [crate::MMKV::put]
+pub trait FromBytes {
+    /// Deserialize from bytes
+    fn from_bytes(bytes: &[u8]) -> Result<Self>
     where
         Self: Sized;
 }
 
-impl FromBuffer for String {
-    fn from_buffer(buffer: &Buffer) -> Result<Self> {
-        buffer.check_buffer_type(Types::STR)?;
-        if let Ok(str) = String::from_utf8(buffer.0.value.to_vec()) {
-            Ok(str)
-        } else {
-            Err(DataInvalid)
-        }
+impl FromBytes for String {
+    fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        String::from_utf8(bytes.to_vec()).map_err(|_| DataInvalid)
     }
 }
 
-impl FromBuffer for bool {
-    fn from_buffer(buffer: &Buffer) -> Result<Self> {
-        buffer.check_buffer_type(Types::BYTE)?;
-        Ok(buffer.0.value[0] == 1)
+impl FromBytes for bool {
+    fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        Ok(bytes[0] == 1)
     }
 }
 
-impl FromBuffer for Vec<u8> {
-    fn from_buffer(buffer: &Buffer) -> Result<Self> {
-        buffer.check_buffer_type(Types::BYTE_ARRAY)?;
-        Ok(buffer.0.value.to_vec())
+impl FromBytes for Vec<u8> {
+    fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        Ok(bytes.to_vec())
     }
 }
 
 macro_rules! impl_from_buffer_for_number {
-    ($(($t:ty, $kv_type:expr)),+) => {
+    ($(($t:ty, $kv_type:expr)),+;) => {
         $(
-        impl FromBuffer for $t {
-            fn from_buffer(buffer: &Buffer) -> Result<Self> {
-                buffer.check_buffer_type($kv_type)?;
+        impl FromBytes for $t {
+            fn from_bytes(bytes: &[u8]) -> Result<Self> {
                 const ITEM_SIZE: usize = size_of::<$t>() / size_of::<u8>();
                 let array_result: std::result::Result<[u8; ITEM_SIZE], _> =
-                    buffer.0.value[0..ITEM_SIZE].try_into();
+                    bytes[0..ITEM_SIZE].try_into();
                 match array_result {
                     Ok(array) => Ok(<$t>::from_be_bytes(array)),
                     Err(_) => Err(DataInvalid),
@@ -203,23 +317,22 @@ impl_from_buffer_for_number!(
     (i32, Types::I32),
     (i64, Types::I64),
     (f32, Types::F32),
-    (f64, Types::F64)
+    (f64, Types::F64);
 );
 
 macro_rules! impl_from_buffer_for_typed_array {
-    ($(($t:ty, $kv_type:expr)),+) => {
+    ($(($t:ty, $kv_type:expr)),+;) => {
         $(
-        impl FromBuffer for Vec<$t> {
-            fn from_buffer(buffer: &Buffer) -> Result<Self> {
-                buffer.check_buffer_type($kv_type)?;
+        impl FromBytes for Vec<$t> {
+            fn from_bytes(bytes: &[u8]) -> Result<Self> {
                 const ITEM_SIZE: usize = size_of::<$t>() / size_of::<u8>();
-                if buffer.0.value.len() % ITEM_SIZE != 0 {
+                if bytes.len() % ITEM_SIZE != 0 {
                     return Err(DataInvalid);
                 }
-                let len = buffer.0.value.len() / ITEM_SIZE;
+                let len = bytes.len() / ITEM_SIZE;
                 let mut vec = Vec::with_capacity(len);
                 for i in 0..len {
-                    let sub_arr: [u8; ITEM_SIZE] = buffer.0.value[i * ITEM_SIZE..(i + 1) * ITEM_SIZE]
+                    let sub_arr: [u8; ITEM_SIZE] = bytes[i * ITEM_SIZE..(i + 1) * ITEM_SIZE]
                         .try_into()
                         .unwrap();
                     let value = <$t>::from_be_bytes(sub_arr);
@@ -233,10 +346,10 @@ macro_rules! impl_from_buffer_for_typed_array {
 }
 
 impl_from_buffer_for_typed_array!(
-    (i32, Types::I32),
-    (i64, Types::I64),
-    (f32, Types::F32),
-    (f64, Types::F64)
+    (i32, Types::I32_ARRAY),
+    (i64, Types::I64_ARRAY),
+    (f32, Types::F32_ARRAY),
+    (f64, Types::F64_ARRAY);
 );
 
 impl PartialEq for Buffer {
@@ -251,79 +364,79 @@ mod tests {
 
     #[test]
     fn test_buffer() {
-        let buffer = Buffer::encode("first_key", "first_value");
+        let buffer = Buffer::new("first_key", "first_value");
         let bytes = buffer.to_bytes();
         let copy = Buffer::from_encoded_bytes(bytes.as_slice()).unwrap();
         assert_eq!(copy, buffer);
-        assert_eq!(copy.decode(), Ok("first_value".to_string()));
-        assert_eq!(copy.decode::<i32>(), Err(TypeMissMatch));
-        assert_eq!(copy.decode::<bool>(), Err(TypeMissMatch));
+        assert_eq!(copy.parse(), Ok("first_value".to_string()));
+        assert_eq!(copy.parse::<i32>(), Err(TypeMissMatch));
+        assert_eq!(copy.parse::<bool>(), Err(TypeMissMatch));
 
-        let buffer = Buffer::encode("first_key", i32::MAX);
+        let buffer = Buffer::new("first_key", i32::MAX);
         let copy = Buffer::from_encoded_bytes(buffer.to_bytes().as_slice()).unwrap();
         assert_eq!(copy, buffer);
-        assert_eq!(copy.decode::<String>(), Err(TypeMissMatch));
-        assert_eq!(copy.decode(), Ok(i32::MAX));
-        assert_eq!(copy.decode::<bool>(), Err(TypeMissMatch));
+        assert_eq!(copy.parse::<String>(), Err(TypeMissMatch));
+        assert_eq!(copy.parse(), Ok(i32::MAX));
+        assert_eq!(copy.parse::<bool>(), Err(TypeMissMatch));
 
-        let buffer = Buffer::encode("first_key", true);
+        let buffer = Buffer::new("first_key", true);
         let copy = Buffer::from_encoded_bytes(buffer.to_bytes().as_slice()).unwrap();
         assert_eq!(copy, buffer);
-        assert_eq!(copy.decode::<String>(), Err(TypeMissMatch));
-        assert_eq!(copy.decode::<i32>(), Err(TypeMissMatch));
-        assert_eq!(copy.decode(), Ok(true));
+        assert_eq!(copy.parse::<String>(), Err(TypeMissMatch));
+        assert_eq!(copy.parse::<i32>(), Err(TypeMissMatch));
+        assert_eq!(copy.parse(), Ok(true));
 
-        let buffer = Buffer::encode("first_key", i64::MAX);
+        let buffer = Buffer::new("first_key", i64::MAX);
         let copy = Buffer::from_encoded_bytes(buffer.to_bytes().as_slice()).unwrap();
         assert_eq!(copy, buffer);
-        assert_eq!(copy.decode(), Ok(i64::MAX));
-        assert_eq!(copy.decode::<i32>(), Err(TypeMissMatch));
+        assert_eq!(copy.parse(), Ok(i64::MAX));
+        assert_eq!(copy.parse::<i32>(), Err(TypeMissMatch));
 
-        let buffer = Buffer::encode("first_key", f32::MAX);
+        let buffer = Buffer::new("first_key", f32::MAX);
         let copy = Buffer::from_encoded_bytes(buffer.to_bytes().as_slice()).unwrap();
         assert_eq!(copy, buffer);
-        assert_eq!(copy.decode(), Ok(f32::MAX));
-        assert_eq!(copy.decode::<i32>(), Err(TypeMissMatch));
+        assert_eq!(copy.parse(), Ok(f32::MAX));
+        assert_eq!(copy.parse::<i32>(), Err(TypeMissMatch));
 
-        let buffer = Buffer::encode("first_key", f64::MAX);
+        let buffer = Buffer::new("first_key", f64::MAX);
         let copy = Buffer::from_encoded_bytes(buffer.to_bytes().as_slice()).unwrap();
         assert_eq!(copy, buffer);
-        assert_eq!(copy.decode(), Ok(f64::MAX));
-        assert_eq!(copy.decode::<f32>(), Err(TypeMissMatch));
+        assert_eq!(copy.parse(), Ok(f64::MAX));
+        assert_eq!(copy.parse::<f32>(), Err(TypeMissMatch));
 
         let byte_array = vec![u8::MIN, 2, u8::MAX];
-        let buffer = Buffer::encode("byte_array", byte_array.as_slice());
+        let buffer = Buffer::new("byte_array", byte_array.as_slice());
         let copy = Buffer::from_encoded_bytes(buffer.to_bytes().as_slice()).unwrap();
         assert_eq!(copy, buffer);
-        assert_eq!(copy.decode(), Ok(byte_array));
-        assert_eq!(copy.decode::<Vec<i32>>(), Err(TypeMissMatch));
+        assert_eq!(copy.parse(), Ok(byte_array));
+        assert_eq!(copy.parse::<Vec<i32>>(), Err(TypeMissMatch));
 
         let i32_array = vec![i32::MIN, 2, i32::MAX];
-        let buffer = Buffer::encode("i32_array", i32_array.as_slice());
+        let buffer = Buffer::new("i32_array", i32_array.as_slice());
         let copy = Buffer::from_encoded_bytes(buffer.to_bytes().as_slice()).unwrap();
         assert_eq!(copy, buffer);
-        assert_eq!(copy.decode(), Ok(i32_array));
-        assert_eq!(copy.decode::<Vec<i64>>(), Err(TypeMissMatch));
+        assert_eq!(copy.parse(), Ok(i32_array));
+        assert_eq!(copy.parse::<Vec<i64>>(), Err(TypeMissMatch));
 
         let i64_array = vec![i64::MIN, 2, i64::MAX];
-        let buffer = Buffer::encode("i64_array", i64_array.as_slice());
+        let buffer = Buffer::new("i64_array", i64_array.as_slice());
         let copy = Buffer::from_encoded_bytes(buffer.to_bytes().as_slice()).unwrap();
         assert_eq!(copy, buffer);
-        assert_eq!(copy.decode(), Ok(i64_array));
-        assert_eq!(copy.decode::<Vec<i32>>(), Err(TypeMissMatch));
+        assert_eq!(copy.parse(), Ok(i64_array));
+        assert_eq!(copy.parse::<Vec<i32>>(), Err(TypeMissMatch));
 
         let f32_array = vec![f32::MIN, 2.2, f32::MAX];
-        let buffer = Buffer::encode("f32_array", f32_array.as_slice());
+        let buffer = Buffer::new("f32_array", f32_array.as_slice());
         let copy = Buffer::from_encoded_bytes(buffer.to_bytes().as_slice()).unwrap();
         assert_eq!(copy, buffer);
-        assert_eq!(copy.decode(), Ok(f32_array));
-        assert_eq!(copy.decode::<Vec<f64>>(), Err(TypeMissMatch));
+        assert_eq!(copy.parse(), Ok(f32_array));
+        assert_eq!(copy.parse::<Vec<f64>>(), Err(TypeMissMatch));
 
         let f64_array = vec![f64::MIN, 2.2, f64::MAX];
-        let buffer = Buffer::encode("f64_array", f64_array.as_slice());
+        let buffer = Buffer::new("f64_array", f64_array.as_slice());
         let copy = Buffer::from_encoded_bytes(buffer.to_bytes().as_slice()).unwrap();
         assert_eq!(copy, buffer);
-        assert_eq!(copy.decode(), Ok(f64_array));
-        assert_eq!(copy.decode::<Vec<u8>>(), Err(TypeMissMatch));
+        assert_eq!(copy.parse(), Ok(f64_array));
+        assert_eq!(copy.parse::<Vec<u8>>(), Err(TypeMissMatch));
     }
 }
