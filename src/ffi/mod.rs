@@ -208,7 +208,8 @@ fn map_error(key: &str, e: Error, log: &str) -> InternalError {
 }
 
 macro_rules! impl_put {
-    ($name:ident, $value_type:tt, $type_token:expr, $log:literal) => {
+    ($($name:ident, $value_type:tt, $type_token:expr, $log:literal;)+) => {
+        $(
         #[no_mangle]
         pub unsafe extern "C" fn $name(
             ptr: *const c_void,
@@ -226,11 +227,13 @@ macro_rules! impl_put {
             }
             result.leak()
         }
+        )+
     };
 }
 
 macro_rules! impl_put_typed_array {
-    ($name:ident, $value_type:tt, $type_token:expr, $log:literal) => {
+    ($($name:ident, $value_type:tt, $type_token:expr, $log:literal;)+) => {
+        $(
         #[no_mangle]
         pub unsafe extern "C" fn $name(
             ptr: *const c_void,
@@ -249,11 +252,13 @@ macro_rules! impl_put_typed_array {
             }
             result.leak()
         }
+        )+
     };
 }
 
 macro_rules! impl_get {
-    ($name:ident, $value_type:tt, $type_token:expr, $log:literal) => {
+    ($($name:ident, $value_type:tt, $type_token:expr, $log:literal;)+) => {
+        $(
         #[no_mangle]
         pub unsafe extern "C" fn $name(ptr: *const c_void, key: RawCStr) -> *const RawBuffer {
             let mmkv = (ptr as *const MMKV).as_ref().unwrap();
@@ -268,6 +273,7 @@ macro_rules! impl_get {
             }
             return result.leak();
         }
+        )+
     };
 }
 
@@ -316,56 +322,33 @@ pub unsafe extern "C" fn delete(ptr: *const c_void, key: RawCStr) -> *const RawB
     result.leak()
 }
 
-impl_put!(put_str, RawCStr, Types::Str, "put string");
-
-impl_get!(get_str, ByteSlice, Types::Str, "get string");
-
-impl_put!(put_bool, bool, Types::Bool, "put bool");
-
-impl_get!(get_bool, bool, Types::Bool, "get bool");
-
-impl_put!(put_i32, i32, Types::I32, "put i32");
-
-impl_get!(get_i32, i32, Types::I32, "get i32");
-
-impl_put!(put_i64, i64, Types::I64, "put i64");
-
-impl_get!(get_i64, i64, Types::I64, "get i64");
-
-impl_put!(put_f32, f32, Types::F32, "put f32");
-
-impl_get!(get_f32, f32, Types::F32, "get f32");
-
-impl_put!(put_f64, f64, Types::F64, "put f64");
-
-impl_get!(get_f64, f64, Types::F64, "get f64");
-
-impl_put_typed_array!(
-    put_byte_array,
-    CByteArray,
-    Types::ByteArray,
-    "put byte array"
+impl_put!(
+    put_str, RawCStr, Types::Str, "put string";
+    put_bool, bool, Types::Bool, "put bool";
+    put_i32, i32, Types::I32, "put i32";
+    put_i64, i64, Types::I64, "put i64";
+    put_f32, f32, Types::F32, "put f32";
+    put_f64, f64, Types::F64, "put f64";
 );
 
 impl_get!(
-    get_byte_array,
-    CByteArray,
-    Types::ByteArray,
-    "get byte array"
+    get_str, ByteSlice, Types::Str, "get string";
+    get_bool, bool, Types::Bool, "get bool";
+    get_i32, i32, Types::I32, "get i32";
+    get_i64, i64, Types::I64, "get i64";
+    get_f32, f32, Types::F32, "get f32";
+    get_f64, f64, Types::F64, "get f64";
+    get_byte_array, CByteArray, Types::ByteArray, "get byte array";
+    get_i32_array, CI32Array, Types::I32Array, "get i32 array";
+    get_i64_array, CI64Array, Types::I64Array, "get i64 array";
+    get_f32_array, CF32Array, Types::F32Array, "get f32 array";
+    get_f64_array, CF64Array, Types::F64Array, "get f64 array";
 );
 
-impl_put_typed_array!(put_i32_array, CI32Array, Types::I32Array, "put i32 array");
-
-impl_get!(get_i32_array, CI32Array, Types::I32Array, "get i32 array");
-
-impl_put_typed_array!(put_i64_array, CI64Array, Types::I64Array, "put i64 array");
-
-impl_get!(get_i64_array, CI64Array, Types::I64Array, "get i64 array");
-
-impl_put_typed_array!(put_f32_array, CF32Array, Types::F32Array, "put f32 array");
-
-impl_get!(get_f32_array, CF32Array, Types::F32Array, "get f32 array");
-
-impl_put_typed_array!(put_f64_array, CF64Array, Types::F64Array, "put f64 array");
-
-impl_get!(get_f64_array, CF64Array, Types::F64Array, "get f64 array");
+impl_put_typed_array!(
+    put_byte_array, CByteArray, Types::ByteArray, "put byte array";
+    put_i32_array, CI32Array, Types::I32Array, "put i32 array";
+    put_i64_array, CI64Array, Types::I64Array, "put i64 array";
+    put_f32_array, CF32Array, Types::F32Array, "put f32 array";
+    put_f64_array, CF64Array, Types::F64Array, "put f64 array";
+);
