@@ -27,7 +27,7 @@ fn integration_test() {
         #[cfg(feature = "encryption")]
         "88C51C536176AD8A8EE4A06F62EE897E",
     );
-    mmkv.clear_data();
+    mmkv.clear_data().unwrap();
     let _ = fs::remove_file("mini_mmkv");
     let _ = fs::remove_file("mini_mmkv.meta");
 }

@@ -32,7 +32,7 @@ impl MemoryMap {
     }
 }
 
-impl<'a, F> Iter<'a, F>
+impl<F> Iter<'_, F>
 where
     F: Fn(&[u8], u32) -> crate::Result<DecodeResult>,
 {
@@ -53,7 +53,7 @@ where
     }
 }
 
-impl<'a, F> Iterator for Iter<'a, F>
+impl<F> Iterator for Iter<'_, F>
 where
     F: Fn(&[u8], u32) -> crate::Result<DecodeResult>,
 {

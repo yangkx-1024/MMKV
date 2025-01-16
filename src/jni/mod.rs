@@ -418,7 +418,7 @@ pub unsafe extern "C" fn Java_net_yangkx_mmkv_MMKV_setLogLevel(
 #[no_mangle]
 pub unsafe extern "C" fn Java_net_yangkx_mmkv_MMKV_clearData(mut env: JNIEnv, obj: JClass) {
     let mmkv = get_mmkv_ptr(&mut env, &obj).as_ref().unwrap();
-    mmkv.clear_data();
+    mmkv.clear_data().unwrap();
 }
 
 #[no_mangle]

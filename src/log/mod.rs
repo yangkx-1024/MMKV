@@ -5,7 +5,7 @@ pub mod logger;
 /**
 See [MMKV::set_logger](crate::MMKV::set_logger)
 
-Logger should be [`Send`], cause it will be moved into io thread
+Logger should be [`Send`], because it will be moved into io thread
  */
 pub trait Logger: Debug + Send + Sync {
     fn verbose(&self, log_str: String);

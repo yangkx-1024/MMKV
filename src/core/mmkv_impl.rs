@@ -19,18 +19,9 @@ const LOG_TAG: &str = "MMKV:Core";
 pub struct MmkvImpl {
     kv_map: HashMap<String, Buffer>,
     is_valid: bool,
-    io_looper: Option<IOLooper<IOWriter>>,
+    io_looper: IOLooper<IOWriter>,
     #[cfg(feature = "encryption")]
     encryptor: Encryptor,
-}
-
-impl Drop for MmkvImpl {
-    fn drop(&mut self) {
-        debug!(LOG_TAG, "drop MmkvImpl");
-        let time_start = Instant::now();
-        drop(self.io_looper.take());
-        debug!(LOG_TAG, "MmkvImpl dropped, cost {:?}", time_start.elapsed());
-    }
 }
 
 impl MmkvImpl {
@@ -56,7 +47,7 @@ impl MmkvImpl {
         let mmkv = MmkvImpl {
             kv_map,
             is_valid: true,
-            io_looper: Some(IOLooper::new(io_writer)),
+            io_looper: IOLooper::new(io_writer),
             #[cfg(feature = "encryption")]
             encryptor,
         };
@@ -78,8 +69,6 @@ impl MmkvImpl {
         let result = self.kv_map.insert(key.to_string(), raw_buffer.clone());
         let duplicated = result.is_some();
         self.io_looper
-            .as_ref()
-            .unwrap()
             .post(move |writer| writer.write(raw_buffer, duplicated))
     }
 
@@ -103,26 +92,25 @@ impl MmkvImpl {
         }
         let buffer = Buffer::deleted_buffer(key);
         self.io_looper
-            .as_ref()
-            .unwrap()
             .post(move |writer| writer.write(buffer, true))
     }
 
-    pub fn clear_data(&mut self) {
+    pub fn clear_data(&mut self) -> Result<()> {
         if !self.is_valid {
             warn!(LOG_TAG, "instance already closed");
-            return;
+            return Ok(());
         }
         self.is_valid = false;
         self.kv_map.clear();
         #[cfg(feature = "encryption")]
         let meta_file = self.encryptor.meta_file_path.clone();
-        self.io_looper.as_mut().unwrap().post_and_kill(|writer| {
+        self.io_looper.post(|writer| {
             writer.remove_file();
             #[cfg(feature = "encryption")]
             let _ = fs::remove_file(meta_file);
             info!(LOG_TAG, "data cleared");
-        });
+        })?;
+        self.io_looper.quit()
     }
 }
 
@@ -195,7 +183,7 @@ mod tests {
         assert_eq!(mm.write_offset(), 127);
 
         mmkv = init(config);
-        mmkv.clear_data();
+        mmkv.clear_data().unwrap();
         assert!(!Path::new(file_path).exists());
     }
 
@@ -238,7 +226,7 @@ mod tests {
         assert_eq!(mm.write_offset(), 128);
 
         mmkv = init(config);
-        mmkv.clear_data();
+        mmkv.clear_data().unwrap();
         assert!(!Path::new(file).exists());
     }
 
@@ -290,7 +278,7 @@ mod tests {
             mmkv.get("test_multi_thread_mmkv_repeat_key"),
             Err(KeyNotFound)
         );
-        mmkv.clear_data();
+        mmkv.clear_data().unwrap();
         assert!(!Path::new(file).exists());
     }
 }
