@@ -307,7 +307,7 @@ pub unsafe extern "C" fn close_instance(ptr: *const c_void) {
 #[no_mangle]
 pub unsafe extern "C" fn clear_data(ptr: *const c_void) {
     let mmkv = (ptr as *const MMKV).as_ref().unwrap();
-    mmkv.clear_data();
+    mmkv.clear_data().unwrap();
 }
 
 #[no_mangle]

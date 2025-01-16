@@ -203,9 +203,12 @@ impl MMKV {
     /**
     Clear all data.
     */
-    pub fn clear_data(&self) {
-        let mut mmkv_impl = self.mmkv_impl.write().unwrap();
-        mmkv_impl.clear_data();
+    pub fn clear_data(&self) -> Result<()> {
+        let mut mmkv_impl = self
+            .mmkv_impl
+            .write()
+            .map_err(|e| LockError(e.to_string()))?;
+        mmkv_impl.clear_data()?;
         let file_path = MMKV::resolve_file_path(&self.path);
         let config = Config::new(file_path.as_path(), page_size() as u64);
         *mmkv_impl = MmkvImpl::new(
@@ -213,6 +216,7 @@ impl MMKV {
             #[cfg(feature = "encryption")]
             &self.key,
         );
+        Ok(())
     }
 
     /**
@@ -349,7 +353,7 @@ mod tests {
         );
         assert_eq!(mmkv.get("first"), Ok("one".to_string()));
         assert_eq!(mmkv.get::<i32>("second"), Err(KeyNotFound));
-        mmkv.clear_data();
+        mmkv.clear_data().unwrap();
         let _ = fs::remove_file("mini_mmkv");
         let _ = fs::remove_file("mini_mmkv.meta");
     }

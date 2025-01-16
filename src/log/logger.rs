@@ -96,6 +96,6 @@ pub fn set_logger(log_impl: Option<Box<dyn Logger>>) {
 }
 
 #[allow(dead_code)]
-pub fn sync() {
+pub fn sync() -> crate::Result<()> {
     LOG_WRAPPER.io_looper.sync()
 }

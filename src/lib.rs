@@ -8,7 +8,7 @@
 //! mmkv.put("key1", 1).unwrap();
 //! assert_eq!(mmkv.get("key1"), Ok(1));
 //! // Not actually needed unless you intend to delete all data
-//! mmkv.clear_data();
+//! mmkv.clear_data().unwrap();
 //! ```
 //! For detailed API doc, see [MMKV]
 pub use crate::core::buffer::{FromBytes, ProvideTypeToken, ToBytes, TypeToken};

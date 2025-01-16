@@ -237,7 +237,7 @@ mod test {
         unsafe {
             ptr.release();
         }
-        logger::sync()
+        logger::sync().unwrap()
     }
 
     #[test]
@@ -247,7 +247,7 @@ mod test {
         unsafe {
             ptr.release();
         }
-        logger::sync();
+        logger::sync().unwrap();
     }
 
     #[test]
@@ -279,6 +279,6 @@ mod test {
         unsafe {
             ptr.release();
         }
-        logger::sync();
+        logger::sync().unwrap();
     }
 }
