@@ -30,7 +30,7 @@ struct Executor {
     join_handle: Option<JoinHandle<()>>,
 }
 
-impl<T: Callback + 'static> IOLooper<T> {
+impl<T: Callback> IOLooper<T> {
     pub fn new(callback: T) -> Self {
         let (sender, receiver) = channel::<Signal>();
         let executor = Executor::new(receiver, callback);
@@ -111,7 +111,7 @@ impl<T> Drop for IOLooper<T> {
 }
 
 impl Executor {
-    pub fn new<T: Callback + 'static>(receiver: Receiver<Signal>, mut callback: T) -> Self {
+    pub fn new<T: Callback>(receiver: Receiver<Signal>, mut callback: T) -> Self {
         let mut buffer: VecDeque<Job> = VecDeque::with_capacity(100);
         let queue: Arc<Mutex<VecDeque<Job>>> = Arc::new(Mutex::new(VecDeque::with_capacity(100)));
         let queue_clone = Arc::clone(&queue);
@@ -154,6 +154,13 @@ mod tests {
     struct SimpleCallback;
 
     impl Callback for SimpleCallback {}
+
+    impl Drop for SimpleCallback {
+        fn drop(&mut self) {
+            info!("MMKV:IO", "Callback dropped")
+        }
+    }
+
     impl SimpleCallback {
         fn print(&self, str: &str) {
             info!("MMKV:IO", "{str}")
@@ -196,6 +203,7 @@ mod tests {
                 *cloned_value.lock().unwrap() = 2;
             })
             .expect("failed to execute job");
+        assert_eq!(*value.lock().unwrap(), 1);
         drop(io_looper);
         assert_eq!(*value.lock().unwrap(), 2);
     }
