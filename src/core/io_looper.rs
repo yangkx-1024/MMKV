@@ -1,6 +1,5 @@
 use crate::Error::{IOError, LockError};
 use crate::Result;
-use std::any::Any;
 use std::collections::VecDeque;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
@@ -10,23 +9,22 @@ use std::time::Instant;
 
 const LOG_TAG: &str = "MMKV:IO";
 
-type Job = Box<dyn FnOnce(&mut dyn Any) + Send + 'static>;
+type Job<T> = Box<dyn FnOnce(&mut T) + Send + 'static>;
 
 enum Signal {
     Next,
     Quit,
 }
 
-pub trait Callback: Send + Any {}
+pub trait Callback: Send + 'static {}
 
 pub struct IOLooper<T> {
     sender: Option<Sender<Signal>>,
-    executor: Executor,
-    _marker: std::marker::PhantomData<T>,
+    executor: Executor<T>,
 }
 
-struct Executor {
-    queue: Arc<Mutex<VecDeque<Job>>>,
+struct Executor<T> {
+    queue: Arc<Mutex<VecDeque<Job<T>>>>,
     join_handle: Option<JoinHandle<()>>,
 }
 
@@ -37,7 +35,6 @@ impl<T: Callback> IOLooper<T> {
         IOLooper {
             sender: Some(sender),
             executor,
-            _marker: std::marker::PhantomData,
         }
     }
 
@@ -61,10 +58,7 @@ impl<T: Callback> IOLooper<T> {
     }
 
     pub fn post<F: FnOnce(&mut T) + Send + 'static>(&self, task: F) -> Result<()> {
-        let job: Job = Box::new(|callback| {
-            let callback = callback.downcast_mut::<T>().unwrap();
-            task(callback)
-        });
+        let job: Job<T> = Box::new(|callback| task(callback));
         self.executor
             .queue
             .lock()
@@ -78,22 +72,21 @@ impl<T: Callback> IOLooper<T> {
                     .send(Signal::Next)
                     .map_err(|e| IOError(e.to_string()))
             })
-            .ok_or(IOError("channel closed unexpected".to_string()))?
+            .ok_or(IOError(
+                "failed to post, channel closed unexpected".to_string(),
+            ))?
     }
 
     #[allow(dead_code)]
     pub fn sync(&self) -> Result<()> {
-        use std::sync::atomic::{AtomicBool, Ordering};
-        let synced = Arc::new(AtomicBool::new(false));
-        let synced_clone = synced.clone();
+        let (sender, receiver) = channel::<()>();
         self.post(move |_| {
-            synced.store(true, Ordering::Release);
+            sender.send(()).unwrap();
         })?;
-        loop {
-            if synced_clone.load(Ordering::Acquire) {
-                return Ok(());
-            }
-        }
+        receiver
+            .recv()
+            .map_err(|_| IOError("failed to sync, channel closed unexpected".to_string()))?;
+        Ok(())
     }
 }
 
@@ -110,10 +103,11 @@ impl<T> Drop for IOLooper<T> {
     }
 }
 
-impl Executor {
-    pub fn new<T: Callback>(receiver: Receiver<Signal>, mut callback: T) -> Self {
-        let mut buffer: VecDeque<Job> = VecDeque::with_capacity(100);
-        let queue: Arc<Mutex<VecDeque<Job>>> = Arc::new(Mutex::new(VecDeque::with_capacity(100)));
+impl<T: Callback> Executor<T> {
+    pub fn new(receiver: Receiver<Signal>, mut callback: T) -> Self {
+        let mut buffer: VecDeque<Job<T>> = VecDeque::with_capacity(100);
+        let queue: Arc<Mutex<VecDeque<Job<T>>>> =
+            Arc::new(Mutex::new(VecDeque::with_capacity(100)));
         let queue_clone = Arc::clone(&queue);
         let handle = thread::spawn(move || loop {
             let signal = receiver.recv();
@@ -134,7 +128,6 @@ impl Executor {
                     break;
                 }
             }
-            thread::yield_now();
         });
         Executor {
             queue: queue_clone,
