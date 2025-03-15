@@ -73,47 +73,47 @@ const struct RawBuffer *delete(const void *ptr, RawCStr key);
 
 const struct RawBuffer *put_str(const void *ptr, RawCStr key, RawCStr value);
 
-const struct RawBuffer *get_str(const void *ptr, RawCStr key);
-
 const struct RawBuffer *put_bool(const void *ptr, RawCStr key, bool value);
-
-const struct RawBuffer *get_bool(const void *ptr, RawCStr key);
 
 const struct RawBuffer *put_i32(const void *ptr, RawCStr key, int32_t value);
 
-const struct RawBuffer *get_i32(const void *ptr, RawCStr key);
-
 const struct RawBuffer *put_i64(const void *ptr, RawCStr key, int64_t value);
-
-const struct RawBuffer *get_i64(const void *ptr, RawCStr key);
 
 const struct RawBuffer *put_f32(const void *ptr, RawCStr key, float value);
 
-const struct RawBuffer *get_f32(const void *ptr, RawCStr key);
-
 const struct RawBuffer *put_f64(const void *ptr, RawCStr key, double value);
 
+const struct RawBuffer *get_str(const void *ptr, RawCStr key);
+
+const struct RawBuffer *get_bool(const void *ptr, RawCStr key);
+
+const struct RawBuffer *get_i32(const void *ptr, RawCStr key);
+
+const struct RawBuffer *get_i64(const void *ptr, RawCStr key);
+
+const struct RawBuffer *get_f32(const void *ptr, RawCStr key);
+
 const struct RawBuffer *get_f64(const void *ptr, RawCStr key);
+
+const struct RawBuffer *get_byte_array(const void *ptr, RawCStr key);
+
+const struct RawBuffer *get_i32_array(const void *ptr, RawCStr key);
+
+const struct RawBuffer *get_i64_array(const void *ptr, RawCStr key);
+
+const struct RawBuffer *get_f32_array(const void *ptr, RawCStr key);
+
+const struct RawBuffer *get_f64_array(const void *ptr, RawCStr key);
 
 const struct RawBuffer *put_byte_array(const void *ptr,
                                        RawCStr key,
                                        CByteArray value,
                                        uintptr_t len);
 
-const struct RawBuffer *get_byte_array(const void *ptr, RawCStr key);
-
 const struct RawBuffer *put_i32_array(const void *ptr, RawCStr key, CI32Array value, uintptr_t len);
-
-const struct RawBuffer *get_i32_array(const void *ptr, RawCStr key);
 
 const struct RawBuffer *put_i64_array(const void *ptr, RawCStr key, CI64Array value, uintptr_t len);
 
-const struct RawBuffer *get_i64_array(const void *ptr, RawCStr key);
-
 const struct RawBuffer *put_f32_array(const void *ptr, RawCStr key, CF32Array value, uintptr_t len);
 
-const struct RawBuffer *get_f32_array(const void *ptr, RawCStr key);
-
 const struct RawBuffer *put_f64_array(const void *ptr, RawCStr key, CF64Array value, uintptr_t len);
-
-const struct RawBuffer *get_f64_array(const void *ptr, RawCStr key);

@@ -6,7 +6,7 @@ use crate::ffi::*;
 use crate::Error;
 
 pub(super) trait Releasable: Debug {
-    unsafe fn release(&mut self);
+    fn release(&mut self);
 }
 
 pub(super) trait Leakable<T: Releasable>: Debug {
@@ -31,10 +31,10 @@ impl<T> Releasable for *mut T
 where
     T: 'static + Debug,
 {
-    unsafe fn release(&mut self) {
+    fn release(&mut self) {
         let ptr = *self;
         let log = format!("{:?}", ptr);
-        let boxed = Box::from_raw(ptr);
+        let boxed = unsafe { Box::from_raw(ptr) };
         if TypeId::of::<T>() != TypeId::of::<ByteSlice>() {
             verbose!(LOG_TAG, "release {:?}, ptr: {}", boxed, log);
         }
@@ -46,9 +46,9 @@ impl<T> Releasable for &mut [T]
 where
     T: 'static + Debug,
 {
-    unsafe fn release(&mut self) {
+    fn release(&mut self) {
         let ptr = self.deref_mut();
-        let boxed = Box::from_raw(ptr);
+        let boxed = unsafe { Box::from_raw(ptr) };
         verbose!(LOG_TAG, "release {:?}, ptr: {:?}", boxed, ptr.as_ptr());
         drop(boxed);
     }
@@ -58,7 +58,7 @@ macro_rules! impl_release_for_primary {
     ($($ident:ident),+) => {
         $(
             impl Releasable for $ident {
-                unsafe fn release(&mut self) {
+                fn release(&mut self) {
                     // Do nothing, we need nothing to be release inside primary type
                 }
             }
@@ -79,7 +79,7 @@ impl ByteSlice {
 }
 
 impl Releasable for ByteSlice {
-    unsafe fn release(&mut self) {
+    fn release(&mut self) {
         unsafe {
             let _ = String::from_raw_parts(self.bytes as *mut u8, self.len, self.len);
         };
@@ -103,12 +103,14 @@ impl RawTypedArray {
 
 macro_rules! release_array {
     ($target:expr, $type:ty) => {{
-        std::slice::from_raw_parts_mut($target.array as *mut $type, $target.len).release();
+        unsafe {
+            std::slice::from_raw_parts_mut($target.array as *mut $type, $target.len).release();
+        }
     }};
 }
 
 impl Releasable for RawTypedArray {
-    unsafe fn release(&mut self) {
+    fn release(&mut self) {
         match self.type_token {
             Types::ByteArray => release_array!(self, u8),
             Types::I32Array => release_array!(self, i32),
@@ -169,9 +171,11 @@ impl RawBuffer {
 }
 
 impl Releasable for RawBuffer {
-    unsafe fn release(&mut self) {
-        self.drop_data();
-        self.drop_error();
+    fn release(&mut self) {
+       unsafe {
+           self.drop_data();
+           self.drop_error();
+       }
     }
 }
 
@@ -210,15 +214,17 @@ impl TryFrom<Error> for InternalError {
 }
 
 impl Releasable for InternalError {
-    unsafe fn release(&mut self) {
+    fn release(&mut self) {
         if !self.reason.is_null() {
-            verbose!(
-                LOG_TAG,
-                "release ByteSlice {{ bytes: {:?}, len: {} }}, ptr: {:?}",
-                (*self.reason).bytes,
-                (*self.reason).len,
-                self.reason
-            );
+            unsafe {
+                verbose!(
+                    LOG_TAG,
+                    "release ByteSlice {{ bytes: {:?}, len: {} }}, ptr: {:?}",
+                    (*self.reason).bytes,
+                    (*self.reason).len,
+                    self.reason
+                );
+            }
             self.reason.cast_mut().release();
         }
     }
@@ -234,9 +240,7 @@ mod test {
     fn test_byte_slice() {
         let str = "Test slice".to_string();
         let mut ptr = ByteSlice::new(str).leak();
-        unsafe {
-            ptr.release();
-        }
+        ptr.release();
         logger::sync().unwrap()
     }
 
@@ -244,9 +248,7 @@ mod test {
     fn test_internal_error() {
         let str = "Test slice".to_string();
         let mut ptr = InternalError::new(0, Some(str)).leak();
-        unsafe {
-            ptr.release();
-        }
+        ptr.release();
         logger::sync().unwrap();
     }
 
@@ -255,30 +257,22 @@ mod test {
         let mut buffer = RawBuffer::new(Types::Bool);
         buffer.set_error(InternalError::new(0, None));
         let mut ptr = buffer.leak();
-        unsafe {
-            ptr.release();
-        }
+        ptr.release();
 
         let mut buffer = RawBuffer::new(Types::Str);
         buffer.set_data(ByteSlice::new("test str".to_string()));
         let mut ptr = buffer.leak();
-        unsafe {
-            ptr.release();
-        }
+        ptr.release();
 
         let mut buffer = RawBuffer::new(Types::I32);
         buffer.set_data(10i32);
         let mut ptr = buffer.leak();
-        unsafe {
-            ptr.release();
-        }
+        ptr.release();
 
         let mut buffer = RawBuffer::new(Types::I32Array);
         buffer.set_data(RawTypedArray::new(vec![1i32, 2, 3], Types::I32Array));
         let mut ptr = buffer.leak();
-        unsafe {
-            ptr.release();
-        }
+        ptr.release();
         logger::sync().unwrap();
     }
 }

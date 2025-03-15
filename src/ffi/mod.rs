@@ -70,9 +70,7 @@ impl NativeLogger {
     fn call_target(&self, log_level: LogLevel, log_str: String) {
         let mut ptr = ByteSlice::new(log_str).leak();
         (self.callback)(self.obj, log_level as i32, ptr);
-        unsafe {
-            ptr.release();
-        }
+        ptr.release();
     }
 }
 
@@ -115,41 +113,43 @@ pub struct InternalError {
     pub reason: *const ByteSlice,
 }
 
-macro_rules! mmkv_put {
-    ($mmkv:ident, $key:expr, $value:expr, RawCStr) => {{
-        let value_str = CStr::from_ptr($value).to_str().unwrap();
-        $mmkv.put($key, value_str)
-    }};
-    ($mmkv:ident, $key:expr, $value:expr, bool) => {
-        $mmkv.put($key, $value)
+macro_rules! to_mmkv_value {
+    ($value:expr, RawCStr) => {
+        unsafe {
+            // SAFETY: we assume ffi caller passed valid c_char
+            CStr::from_ptr($value)
+        }.to_str().unwrap()
     };
-    ($mmkv:ident, $key:expr, $value:expr, i32) => {
-        $mmkv.put($key, $value)
+    ($value:expr, bool) => { $value };
+    ($value:expr, i32) => { $value };
+    ($value:expr, i64) => { $value };
+    ($value:expr, f32) => { $value };
+    ($value:expr, f64) => { $value };
+    ($value:expr, $len:expr, CByteArray) => {
+        unsafe {
+            std::slice::from_raw_parts($value, $len)
+        }
     };
-    ($mmkv:ident, $key:expr, $value:expr, i64) => {
-        $mmkv.put($key, $value)
+    ($value:expr, $len:expr, CI32Array) => {
+        unsafe {
+            std::slice::from_raw_parts($value, $len)
+        }
     };
-    ($mmkv:ident, $key:expr, $value:expr, f32) => {
-        $mmkv.put($key, $value)
+    ($value:expr, $len:expr, CI64Array) => {
+        unsafe {
+            std::slice::from_raw_parts($value, $len)
+        }
     };
-    ($mmkv:ident, $key:expr, $value:expr, f64) => {
-        $mmkv.put($key, $value)
+    ($value:expr, $len:expr, CF32Array) => {
+        unsafe {
+            std::slice::from_raw_parts($value, $len)
+        }
     };
-    ($mmkv:ident, $key:expr, $value:expr, $len:expr, CByteArray) => {
-        $mmkv.put($key, std::slice::from_raw_parts($value, $len))
-    };
-    ($mmkv:ident, $key:expr, $value:expr, $len:expr, CI32Array) => {
-        $mmkv.put($key, std::slice::from_raw_parts($value, $len))
-    };
-    ($mmkv:ident, $key:expr, $value:expr, $len:expr, CI64Array) => {
-        $mmkv.put($key, std::slice::from_raw_parts($value, $len))
-    };
-    ($mmkv:ident, $key:expr, $value:expr, $len:expr, CF32Array) => {
-        $mmkv.put($key, std::slice::from_raw_parts($value, $len))
-    };
-    ($mmkv:ident, $key:expr, $value:expr, $len:expr, CF64Array) => {
-        $mmkv.put($key, std::slice::from_raw_parts($value, $len))
-    };
+    ($value:expr, $len:expr, CF64Array) => {
+        unsafe {
+            std::slice::from_raw_parts($value, $len)
+        }
+    }
 }
 
 macro_rules! mmkv_get {
@@ -210,16 +210,22 @@ fn map_error(key: &str, e: Error, log: &str) -> InternalError {
 macro_rules! impl_put {
     ($($name:ident, $value_type:tt, $type_token:expr, $log:literal;)+) => {
         $(
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         pub unsafe extern "C" fn $name(
             ptr: *const c_void,
             key: RawCStr,
             value: $value_type,
         ) -> *const RawBuffer {
-            let mmkv = (ptr as *const MMKV).as_ref().unwrap();
-            let key_str = CStr::from_ptr(key).to_str().unwrap();
+            let mmkv = unsafe {
+                // SAFETY: we assume ffi caller passed valid mmkv pointer
+                (ptr as *const MMKV).as_ref()
+            }.unwrap();
+            let key_str = unsafe {
+                // SAFETY: we assume ffi caller passed valid c_char
+                CStr::from_ptr(key)
+            }.to_str().unwrap();
             let mut result = RawBuffer::new($type_token);
-            match mmkv_put!(mmkv, key_str, value, $value_type) {
+            match mmkv.put(key_str, to_mmkv_value!(value, $value_type)) {
                 Err(e) => result.set_error(map_error(key_str, e, $log)),
                 Ok(()) => {
                     verbose!(LOG_TAG, "{} for key '{}' success", $log, key_str);
@@ -234,17 +240,23 @@ macro_rules! impl_put {
 macro_rules! impl_put_typed_array {
     ($($name:ident, $value_type:tt, $type_token:expr, $log:literal;)+) => {
         $(
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         pub unsafe extern "C" fn $name(
             ptr: *const c_void,
             key: RawCStr,
             value: $value_type,
             len: usize,
         ) -> *const RawBuffer {
-            let mmkv = (ptr as *const MMKV).as_ref().unwrap();
-            let key_str = CStr::from_ptr(key).to_str().unwrap();
+            let mmkv = unsafe {
+                // SAFETY: we assume ffi caller passed valid mmkv pointer
+                (ptr as *const MMKV).as_ref()
+            }.unwrap();
+            let key_str = unsafe {
+                // SAFETY: we assume ffi caller passed valid c_char
+                CStr::from_ptr(key)
+            }.to_str().unwrap();
             let mut result = RawBuffer::new($type_token);
-            match mmkv_put!(mmkv, key_str, value, len, $value_type) {
+            match mmkv.put(key_str, to_mmkv_value!(value, len, $value_type)) {
                 Err(e) => result.set_error(map_error(key_str, e, $log)),
                 Ok(()) => {
                     verbose!(LOG_TAG, "{} for key '{}' success", $log, key_str);
@@ -259,10 +271,16 @@ macro_rules! impl_put_typed_array {
 macro_rules! impl_get {
     ($($name:ident, $value_type:tt, $type_token:expr, $log:literal;)+) => {
         $(
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         pub unsafe extern "C" fn $name(ptr: *const c_void, key: RawCStr) -> *const RawBuffer {
-            let mmkv = (ptr as *const MMKV).as_ref().unwrap();
-            let key_str = CStr::from_ptr(key).to_str().unwrap();
+            let mmkv = unsafe {
+                // SAFETY: we assume ffi caller passed valid mmkv pointer
+                (ptr as *const MMKV).as_ref()
+            }.unwrap();
+            let key_str = unsafe {
+                // SAFETY: we assume ffi caller passed valid c_char
+                CStr::from_ptr(key)
+            }.to_str().unwrap();
             let mut result = RawBuffer::new($type_token);
             match mmkv_get!(mmkv, key_str, $value_type) {
                 Err(e) => result.set_error(map_error(key_str, e, $log)),
@@ -277,42 +295,53 @@ macro_rules! impl_get {
     };
 }
 
-#[no_mangle]
-pub extern "C" fn new_instance(dir: *const c_char) -> *const c_void {
-    let dir_str = unsafe { CStr::from_ptr(dir) }.to_str().unwrap();
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn new_instance(dir: *const c_char) -> *const c_void {
+    let dir_str = unsafe {
+        // SAFETY: we assume ffi caller passed valid c_char
+        CStr::from_ptr(dir)
+    }.to_str().unwrap();
     let mmkv = MMKV::new(dir_str);
     Box::into_raw(Box::new(mmkv)) as *const c_void
 }
 
-#[no_mangle]
-pub extern "C" fn set_logger(logger: NativeLogger) {
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn set_logger(logger: NativeLogger) {
     MMKV::set_logger(Box::new(logger));
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn set_log_level(log_level: i32) {
     MMKV::set_log_level(log_level.try_into().unwrap())
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn free_buffer(ptr: *const c_void) {
     (ptr as *mut RawBuffer).release();
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn close_instance(ptr: *const c_void) {
-    drop(Box::from_raw(ptr as *mut MMKV));
+    unsafe {
+        // SAFETY: we assume ffi caller passed valid mmkv pointer
+        // Drop ptr
+        let _ = Box::from_raw(ptr as *mut MMKV);
+    };
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn clear_data(ptr: *const c_void) {
-    let mmkv = (ptr as *const MMKV).as_ref().unwrap();
+    let mmkv = unsafe {
+        (ptr as *const MMKV).as_ref()
+    }.unwrap();
     mmkv.clear_data().unwrap();
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn delete(ptr: *const c_void, key: RawCStr) -> *const RawBuffer {
-    let mmkv = (ptr as *const MMKV).as_ref().unwrap();
+    let mmkv = unsafe {
+        (ptr as *const MMKV).as_ref()
+    }.unwrap();
     let key_str = unsafe { CStr::from_ptr(key) }.to_str().unwrap();
     let mut result = RawBuffer::new(Types::Str);
     match mmkv.delete(key_str) {
