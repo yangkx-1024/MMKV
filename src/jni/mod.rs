@@ -146,7 +146,7 @@ macro_rules! mmkv_get {
 
 macro_rules! impl_java_put {
     ($name:ident, $value_type:tt, $log_type:literal) => {
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         #[allow(non_snake_case)]
         pub unsafe extern "C" fn $name(
             mut env: JNIEnv,
@@ -154,7 +154,10 @@ macro_rules! impl_java_put {
             key: JString,
             value: $value_type,
         ) {
-            let mmkv = get_mmkv_ptr(&mut env, &obj).as_ref().unwrap();
+            let mmkv = unsafe {
+                // SAFETY: we assume ffi caller passed valid MMKV ptr
+                get_mmkv_ptr(&mut env, &obj).as_ref()
+            }.unwrap();
             let key = env_str(&mut env, key);
             match mmkv_put!(&mut env, mmkv, key, value, $value_type) {
                 Err(e) => {
@@ -176,10 +179,13 @@ macro_rules! impl_java_put {
 
 macro_rules! impl_java_get {
     ($name:ident, $value_type:tt, $log_type:literal, $default:expr) => {
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         #[allow(non_snake_case)]
         pub unsafe extern "C" fn $name(mut env: JNIEnv, obj: JClass, key: JString) -> $value_type {
-            let mmkv = get_mmkv_ptr(&mut env, &obj).as_ref().unwrap();
+            let mmkv = unsafe {
+                // SAFETY: we assume ffi caller passed valid MMKV ptr
+                get_mmkv_ptr(&mut env, &obj).as_ref()
+            }.unwrap();
             let key = env_str(&mut env, key);
             match mmkv_get!(&mut env, mmkv, key, $value_type) {
                 Ok(value) => {
@@ -262,12 +268,14 @@ impl Logger for AndroidLogger {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
+#[allow(non_snake_case)]
 pub unsafe extern "C" fn Java_net_yangkx_mmkv_MMKV_attachLogger(env: JNIEnv, _: JClass) {
     MMKV::set_logger(Box::new(AndroidLogger::new(env.get_java_vm().unwrap())));
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
+#[allow(non_snake_case)]
 pub unsafe extern "C" fn Java_net_yangkx_mmkv_MMKV_initialize(
     mut env: JNIEnv,
     _: JClass,
@@ -379,13 +387,17 @@ impl_java_get!(
     std::ptr::null_mut()
 );
 
-#[no_mangle]
+#[unsafe(no_mangle)]
+#[allow(non_snake_case)]
 pub unsafe extern "C" fn Java_net_yangkx_mmkv_MMKV_delete(
     mut env: JNIEnv,
     obj: JClass,
     key: JString,
 ) {
-    let mmkv = get_mmkv_ptr(&mut env, &obj).as_ref().unwrap();
+    let mmkv = unsafe {
+        // SAFETY: we assume ffi caller passed valid MMKV ptr
+        get_mmkv_ptr(&mut env, &obj).as_ref()
+    }.unwrap();
     let key = env_str(&mut env, key);
     match mmkv.delete(&key) {
         Ok(()) => verbose!(LOG_TAG, "delete key {} success", &key),
@@ -398,7 +410,8 @@ pub unsafe extern "C" fn Java_net_yangkx_mmkv_MMKV_delete(
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
+#[allow(non_snake_case)]
 pub unsafe extern "C" fn Java_net_yangkx_mmkv_MMKV_setLogLevel(
     mut env: JNIEnv,
     _: JClass,
@@ -415,14 +428,23 @@ pub unsafe extern "C" fn Java_net_yangkx_mmkv_MMKV_setLogLevel(
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
+#[allow(non_snake_case)]
 pub unsafe extern "C" fn Java_net_yangkx_mmkv_MMKV_clearData(mut env: JNIEnv, obj: JClass) {
-    let mmkv = get_mmkv_ptr(&mut env, &obj).as_ref().unwrap();
+    let mmkv = unsafe {
+        // SAFETY: we assume ffi caller passed valid MMKV ptr
+        get_mmkv_ptr(&mut env, &obj).as_ref()
+    }.unwrap();
     mmkv.clear_data().unwrap();
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
+#[allow(non_snake_case)]
 pub unsafe extern "C" fn Java_net_yangkx_mmkv_MMKV_close(_: JNIEnv, _: JClass, ptr: jlong) {
     let ptr = ptr as *mut MMKV;
-    drop(Box::from_raw(ptr));
+    unsafe {
+        // SAFETY: we assume ffi caller passed valid MMKV ptr
+        // Drop instance
+        let _ = Box::from_raw(ptr);
+    }
 }
