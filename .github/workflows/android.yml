@@ -3,8 +3,12 @@ name: Android Build Check
 on:
   push:
     branches: [ "main", "develop" ]
+    paths:
+      - android
   pull_request:
     branches: [ "main", "develop" ]
+    paths:
+      - android
 
 env:
   CARGO_TERM_COLOR: always
