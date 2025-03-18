@@ -49,7 +49,7 @@ object BuildUtil {
         val gpgFile = File(gpgPath)
         if (!gpgFile.exists()) {
             val tmpPath = decodeBase64(System.getenv("GPG_SECRET"))
-            project.exec {
+            providers.exec {
                 commandLine = listOf(
                     "gpg",
                     "-o",
@@ -74,7 +74,7 @@ object BuildUtil {
         } else {
             File(targetPath)
         }
-        exec {
+        providers.exec {
             commandLine = listOf(
                 "base64",
                 "-d",

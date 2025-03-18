@@ -10,12 +10,12 @@ project.loadProperties()
 
 android {
     namespace = "net.yangkx.mmkv.demo"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "net.yangkx.mmkv.demo"
         minSdk = 21
-        targetSdk = 34
+        targetSdk = 35
         versionCode = 1
         versionName = "1.0"
 
@@ -51,11 +51,11 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
     }
     kotlinOptions {
-        jvmTarget = "1.8"
+        jvmTarget = "11"
     }
     buildFeatures {
         viewBinding = true
@@ -83,7 +83,7 @@ val defaultReleaseImplementation: Configuration by configurations.creating
 val encryptionReleaseImplementation: Configuration by configurations.creating
 
 dependencies {
-    implementation(Deps.kotlin)
+    implementation(Deps.KOTLIN)
 
     val composeBom = platform("androidx.compose:compose-bom:2023.01.00")
     implementation(composeBom)
@@ -95,10 +95,10 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.7.0")
     defaultDebugImplementation(project(":library"))
     encryptionDebugImplementation(project(":library-encrypt"))
-    defaultStagingImplementation(Deps.mmkv_snapshot)
-    encryptionStagingImplementation(Deps.mmkv_encrypt_snapshot)
-    defaultReleaseImplementation(Deps.mmkv)
-    encryptionReleaseImplementation(Deps.mmkv_encrypt)
+    defaultStagingImplementation(Deps.MMKV_SNAPSHOT)
+    encryptionStagingImplementation(Deps.MMKV_ENCRYPT_SNAPSHOT)
+    defaultReleaseImplementation(Deps.MMKV)
+    encryptionReleaseImplementation(Deps.MMKV_ENCRYPT)
 
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")

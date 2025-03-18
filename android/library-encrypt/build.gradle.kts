@@ -12,7 +12,7 @@ project.loadProperties()
 
 android {
     namespace = "net.yangkx.mmkv"
-    compileSdk = 33
+    compileSdk = 35
 
     defaultConfig {
         minSdk = 21
@@ -30,11 +30,11 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
     }
     kotlinOptions {
-        jvmTarget = "1.8"
+        jvmTarget = "11"
     }
     publishing {
         singleVariant("release") {
@@ -44,14 +44,14 @@ android {
 }
 
 dependencies {
-    implementation(Deps.kotlin)
+    implementation(Deps.KOTLIN)
 }
 
 publishing {
     val artifactId = "mmkv-encrypt"
     publications {
         register<MavenPublication>("release") {
-            groupId = Configuration.groupId
+            groupId = Configuration.GROUP_ID
             this.artifactId = artifactId
             this.version = Configuration.libVersion
 
@@ -60,7 +60,7 @@ publishing {
             }
             pom {
                 name.set(artifactId)
-                description.set(Configuration.description)
+                description.set(Configuration.DESCRIPTION)
                 licenses {
                     license {
                         name.set(Configuration.licenceApache.first)
@@ -78,7 +78,7 @@ publishing {
                     }
                 }
                 scm {
-                    url.set(Configuration.scmUrl)
+                    url.set(Configuration.SCM_URL)
                 }
             }
         }

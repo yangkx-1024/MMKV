@@ -1,31 +1,31 @@
 object Configuration {
-    const val snapshotVersion = "$version-SNAPSHOT"
-    const val releaseVersion = version
+    const val SNAP_SHOT_VERSION = "$version-SNAPSHOT"
+    const val RELEASE_VERSION = version
     val libVersion: String
         get() = if (System.getenv("CI")?.toBoolean() == true){
-            releaseVersion
+            RELEASE_VERSION
         } else {
-            snapshotVersion
+            SNAP_SHOT_VERSION
         }
-    const val groupId = "net.yangkx"
-    const val description = "Library uses file-based mmap to store key-values"
-    private const val releasesRepoUrl = "https://s01.oss.sonatype.org/content/repositories/releases/"
-    private const val snapshotsRepoUrl = "https://s01.oss.sonatype.org/content/repositories/snapshots/"
+    const val GROUP_ID = "net.yangkx"
+    const val DESCRIPTION = "Library uses file-based mmap to store key-values"
+    private const val RELEASES_REPO_URL = "https://s01.oss.sonatype.org/content/repositories/releases/"
+    private const val SNAPSHOTS_REPO_URL = "https://s01.oss.sonatype.org/content/repositories/snapshots/"
     val publishUrl = if (System.getenv("CI")?.toBoolean() == true) {
-        releasesRepoUrl
+        RELEASES_REPO_URL
     } else {
-        snapshotsRepoUrl
+        SNAPSHOTS_REPO_URL
     }
     val licenceApache = "The Apache License, Version 2.0" to "http://www.apache.org/licenses/LICENSE-2.0.txt"
     val licenceMit = "The MIT License" to "https://opensource.org/licenses/MIT"
     val developer = "Kexuan Yang" to "kexuan.yang@gmail.com"
-    const val scmUrl = "https://github.com/yangkx-1024/MMKV"
+    const val SCM_URL = "https://github.com/yangkx-1024/MMKV"
 }
 
 object Deps {
-    const val kotlin = "androidx.core:core-ktx:1.10.1"
-    const val mmkv_snapshot = "net.yangkx:mmkv:${Configuration.snapshotVersion}"
-    const val mmkv_encrypt_snapshot = "net.yangkx:mmkv-encrypt:${Configuration.snapshotVersion}"
-    const val mmkv = "net.yangkx:mmkv:${Configuration.releaseVersion}"
-    const val mmkv_encrypt = "net.yangkx:mmkv-encrypt:${Configuration.releaseVersion}"
+    const val KOTLIN = "androidx.core:core-ktx:1.10.1"
+    const val MMKV_SNAPSHOT = "net.yangkx:mmkv:${Configuration.SNAP_SHOT_VERSION}"
+    const val MMKV_ENCRYPT_SNAPSHOT = "net.yangkx:mmkv-encrypt:${Configuration.SNAP_SHOT_VERSION}"
+    const val MMKV = "net.yangkx:mmkv:${Configuration.RELEASE_VERSION}"
+    const val MMKV_ENCRYPT = "net.yangkx:mmkv-encrypt:${Configuration.RELEASE_VERSION}"
 }
