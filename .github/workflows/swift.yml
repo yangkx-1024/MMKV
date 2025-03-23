@@ -4,13 +4,13 @@ on:
   push:
     branches: [ "main", "develop" ]
     paths:
-      - ios
-      - Package.swift
+      - 'ios/**'
+      - 'Package.swift'
   pull_request:
     branches: [ "main", "develop" ]
     paths:
-      - ios
-      - Package.swift
+      - 'ios/**'
+      - 'Package.swift'
 
 env:
   CARGO_TERM_COLOR: always

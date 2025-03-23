@@ -4,17 +4,17 @@ on:
   push:
     branches: [ "main", "develop" ]
     paths:
-      - src
-      - tests
-      - Cargo.toml
-      - build.rs
+      - 'src/**'
+      - 'tests/**'
+      - 'Cargo.toml'
+      - 'build.rs'
   pull_request:
     branches: [ "main", "develop" ]
     paths:
-      - src
-      - tests
-      - Cargo.toml
-      - build.rs
+      - 'src/**'
+      - 'tests/**'
+      - 'Cargo.toml'
+      - 'build.rs'
 
 env:
   CARGO_TERM_COLOR: always
