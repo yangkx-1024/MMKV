@@ -9,8 +9,8 @@ object Configuration {
         }
     const val GROUP_ID = "net.yangkx"
     const val DESCRIPTION = "Library uses file-based mmap to store key-values"
-    private const val RELEASES_REPO_URL = "https://s01.oss.sonatype.org/content/repositories/releases/"
-    private const val SNAPSHOTS_REPO_URL = "https://s01.oss.sonatype.org/content/repositories/snapshots/"
+    private const val RELEASES_REPO_URL = "https://central.sonatype.com/api/v1/publisher"
+    private const val SNAPSHOTS_REPO_URL = "https://central.sonatype.com/repository/maven-snapshots"
     val publishUrl = if (System.getenv("CI")?.toBoolean() == true) {
         RELEASES_REPO_URL
     } else {
