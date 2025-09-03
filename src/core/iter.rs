@@ -16,7 +16,7 @@ where
 }
 
 impl MemoryMap {
-    pub fn iter<F>(&self, decode: F) -> Iter<F>
+    pub fn iter<F>(&self, decode: F) -> Iter<'_, F>
     where
         F: Fn(&[u8], u32) -> crate::Result<DecodeResult>,
     {
