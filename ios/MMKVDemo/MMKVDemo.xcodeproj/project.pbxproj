@@ -22,7 +22,6 @@
 		2B237B592AFBC699006CA835 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		2B237B5B2AFBC69B006CA835 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		2B237B5E2AFBC69B006CA835 /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
-		2B2DF9AA2B2DF308002D1AEE /* mmkv */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = mmkv; path = ../..; sourceTree = "<group>"; };
 		2BB59D082B049877006ED8BF /* LogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogView.swift; sourceTree = "<group>"; };
 		A12C90472BDFC88900AE6E98 /* MMKVManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MMKVManager.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -44,7 +43,6 @@
 			children = (
 				2B237B562AFBC699006CA835 /* MMKVDemo */,
 				2B237B552AFBC699006CA835 /* Products */,
-				2BB146542B26F90B00C8CF41 /* Frameworks */,
 			);
 			sourceTree = "<group>";
 		};
@@ -75,14 +73,6 @@
 				2B237B5E2AFBC69B006CA835 /* Preview Assets.xcassets */,
 			);
 			path = "Preview Content";
-			sourceTree = "<group>";
-		};
-		2BB146542B26F90B00C8CF41 /* Frameworks */ = {
-			isa = PBXGroup;
-			children = (
-				2B2DF9AA2B2DF308002D1AEE /* mmkv */,
-			);
-			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -116,7 +106,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 1500;
-				LastUpgradeCheck = 1500;
+				LastUpgradeCheck = 2620;
 				TargetAttributes = {
 					2B237B532AFBC699006CA835 = {
 						CreatedOnToolsVersion = 15.0.1;
@@ -133,6 +123,7 @@
 			);
 			mainGroup = 2B237B4B2AFBC699006CA835;
 			packageReferences = (
+				2B2DF9AD2B2DF32A002D1AEE /* XCRemoteSwiftPackageReference "MMKV" */,
 			);
 			productRefGroup = 2B237B552AFBC699006CA835 /* Products */;
 			projectDirPath = "";
@@ -205,6 +196,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = U2858ENVTH;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -228,6 +220,7 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -268,6 +261,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = U2858ENVTH;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -284,6 +278,7 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				VALIDATE_PRODUCT = YES;
 			};
@@ -298,7 +293,6 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "";
-				DEVELOPMENT_TEAM = U2858ENVTH;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -328,7 +322,6 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "";
-				DEVELOPMENT_TEAM = U2858ENVTH;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -372,9 +365,21 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		2B2DF9AD2B2DF32A002D1AEE /* XCRemoteSwiftPackageReference "MMKV" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/yangkx-1024/MMKV";
+			requirement = {
+				branch = main;
+				kind = branch;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		2B2DF9AB2B2DF314002D1AEE /* MMKV */ = {
 			isa = XCSwiftPackageProductDependency;
+			package = 2B2DF9AD2B2DF32A002D1AEE /* XCRemoteSwiftPackageReference "MMKV" */;
 			productName = MMKV;
 		};
 /* End XCSwiftPackageProductDependency section */

@@ -1,0 +1,15 @@
+{
+  "originHash" : "23a7c085dc2982d809b02f29da886aaab1ed59b88d600ff03e40921a0bfd307b",
+  "pins" : [
+    {
+      "identity" : "mmkv",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/yangkx-1024/MMKV",
+      "state" : {
+        "branch" : "main",
+        "revision" : "5402436cf39f97a4443f848456b101b7cac6bc6d"
+      }
+    }
+  ],
+  "version" : 3
+}
