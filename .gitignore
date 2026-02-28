@@ -9,4 +9,7 @@ mini_mmkv.meta
 .vscode
 ios/MMKV/RustMMKV.xcframework.zip
 android/library/src/main/jniLibs/
+android/library/src/debug/jniLibs/
 android/library-encrypt/src/main/jniLibs/
+android/library-encrypt/src/debug/jniLibs/
+ios/MMKV/Sources/RustMMKV.xcframework.zip
