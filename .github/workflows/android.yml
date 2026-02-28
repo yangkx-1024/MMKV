@@ -5,10 +5,16 @@ on:
     branches: [ "main", "develop" ]
     paths:
       - 'android/**'
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'build.rs'
   pull_request:
     branches: [ "main", "develop" ]
     paths:
       - 'android/**'
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'build.rs'
 
 env:
   CARGO_TERM_COLOR: always
