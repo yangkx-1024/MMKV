@@ -1,11 +1,11 @@
 object Configuration {
-    const val SNAP_SHOT_VERSION = "$version-SNAPSHOT"
+    const val SNAPSHOT_VERSION = "$version-SNAPSHOT"
     const val RELEASE_VERSION = version
     val libVersion: String
         get() = if (System.getenv("CI")?.toBoolean() == true){
             RELEASE_VERSION
         } else {
-            SNAP_SHOT_VERSION
+            SNAPSHOT_VERSION
         }
     const val GROUP_ID = "net.yangkx"
     const val DESCRIPTION = "Library uses file-based mmap to store key-values"
@@ -23,9 +23,9 @@ object Configuration {
 }
 
 object Deps {
-    const val KOTLIN = "androidx.core:core-ktx:1.10.1"
-    const val MMKV_SNAPSHOT = "net.yangkx:mmkv:${Configuration.SNAP_SHOT_VERSION}"
-    const val MMKV_ENCRYPT_SNAPSHOT = "net.yangkx:mmkv-encrypt:${Configuration.SNAP_SHOT_VERSION}"
+    const val KOTLIN = "androidx.core:core-ktx:1.17.0"
+    const val MMKV_SNAPSHOT = "net.yangkx:mmkv:${Configuration.SNAPSHOT_VERSION}"
+    const val MMKV_ENCRYPT_SNAPSHOT = "net.yangkx:mmkv-encrypt:${Configuration.SNAPSHOT_VERSION}"
     const val MMKV = "net.yangkx:mmkv:${Configuration.RELEASE_VERSION}"
     const val MMKV_ENCRYPT = "net.yangkx:mmkv-encrypt:${Configuration.RELEASE_VERSION}"
 }

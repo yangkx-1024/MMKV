@@ -1,21 +1,22 @@
 import BuildUtil.loadProperties
+import com.android.build.api.dsl.ApplicationExtension
 import org.gradle.api.artifacts.Configuration
 
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
 }
 
 project.loadProperties()
 
-android {
+configure<ApplicationExtension> {
     namespace = "net.yangkx.mmkv.demo"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "net.yangkx.mmkv.demo"
         minSdk = 21
-        targetSdk = 35
+        targetSdk = 36
         versionCode = 1
         versionName = "1.0"
 
@@ -54,15 +55,9 @@ android {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
-    kotlinOptions {
-        jvmTarget = "11"
-    }
     buildFeatures {
         viewBinding = true
         compose = true
-    }
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.8"
     }
     flavorDimensions += "feature"
     productFlavors {
@@ -85,14 +80,14 @@ val encryptionReleaseImplementation: Configuration by configurations.creating
 dependencies {
     implementation(Deps.KOTLIN)
 
-    val composeBom = platform("androidx.compose:compose-bom:2023.01.00")
+    val composeBom = platform("androidx.compose:compose-bom:2026.02.01")
     implementation(composeBom)
     androidTestImplementation(composeBom)
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.ui:ui-tooling-preview")
     debugImplementation("androidx.compose.ui:ui-tooling")
 
-    implementation("androidx.appcompat:appcompat:1.7.0")
+    implementation("androidx.appcompat:appcompat:1.7.1")
     defaultDebugImplementation(project(":library"))
     encryptionDebugImplementation(project(":library-encrypt"))
     defaultStagingImplementation(Deps.MMKV_SNAPSHOT)
@@ -101,8 +96,8 @@ dependencies {
     encryptionReleaseImplementation(Deps.MMKV_ENCRYPT)
 
     testImplementation("junit:junit:4.13.2")
-    androidTestImplementation("androidx.test.ext:junit:1.2.1")
-    androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
 }
 //
 //tasks.register("launchEmulator", Exec::class) {

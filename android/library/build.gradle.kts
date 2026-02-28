@@ -1,18 +1,18 @@
 import BuildUtil.loadProperties
+import com.android.build.api.dsl.LibraryExtension
 import java.net.URI
 
 plugins {
     id("com.android.library")
-    id("org.jetbrains.kotlin.android")
     id("maven-publish")
     id("signing")
 }
 
 project.loadProperties()
 
-android {
+configure<LibraryExtension> {
     namespace = "net.yangkx.mmkv"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         minSdk = 21
@@ -32,9 +32,6 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
-    }
-    kotlinOptions {
-        jvmTarget = "11"
     }
     publishing {
         singleVariant("release") {
