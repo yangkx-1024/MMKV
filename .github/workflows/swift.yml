@@ -5,12 +5,16 @@ on:
     branches: [ "main", "develop" ]
     paths:
       - 'ios/**'
-      - 'Package.swift'
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'build.rs'
   pull_request:
     branches: [ "main", "develop" ]
     paths:
       - 'ios/**'
-      - 'Package.swift'
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'build.rs'
 
 env:
   CARGO_TERM_COLOR: always
@@ -26,12 +30,7 @@ jobs:
       - name: Build
         run: |
           ./build_apple.sh
-          python3 -c "
-import re, sys
-c = open('Package.swift').read()
-c = re.sub(r'\.binaryTarget\(name: \"RustMMKV\".*?\)', '.binaryTarget(name: \"RustMMKV\", path: \"ios/MMKV/RustMMKV.xcframework.zip\")', c, flags=re.DOTALL)
-open('Package.swift', 'w').write(c)
-"
+          perl -0777 -i -pe 's/\.binaryTarget\(name: "RustMMKV".*?\)/.binaryTarget(name: "RustMMKV", path: "ios\/MMKV\/RustMMKV.xcframework.zip")/gs' Package.swift
           cd ios/MMKV && swift build
       - name: Run tests
         run: |
