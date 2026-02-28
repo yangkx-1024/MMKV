@@ -24,6 +24,21 @@ jobs:
           echo ${ENCODED_KEYSTORE} | base64 -d > ./android/app/keystore.jks
           echo ${GPG_SECRET} | base64 -d | gpg --dearmor > ./android/secret.gpg
 
+      - name: Install Rust targets for Android
+        run: |
+          rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
+
+      - uses: nttld/setup-ndk@v1
+        id: setup-ndk
+        with:
+          ndk-version: r27c
+          add-to-path: false
+
+      - name: Build Rust .so files
+        run: ./build_android.sh
+        env:
+          ANDROID_NDK_TOOLCHAINS_PATH: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin
+
       - name: Android publish
         env:
           SIGN_KEY_STORE_PATH: keystore.jks

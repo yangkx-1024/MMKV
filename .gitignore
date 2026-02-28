@@ -7,3 +7,6 @@ mini_mmkv.meta
 .swiftpm
 .build
 .vscode
+ios/MMKV/RustMMKV.xcframework.zip
+android/library/src/main/jniLibs/
+android/library-encrypt/src/main/jniLibs/

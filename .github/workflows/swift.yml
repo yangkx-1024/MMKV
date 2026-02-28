@@ -26,8 +26,13 @@ jobs:
       - name: Build
         run: |
           ./build_apple.sh
-          cd ios/MMKV
-          swift build
+          python3 -c "
+import re, sys
+c = open('Package.swift').read()
+c = re.sub(r'\.binaryTarget\(name: \"RustMMKV\".*?\)', '.binaryTarget(name: \"RustMMKV\", path: \"ios/MMKV/RustMMKV.xcframework.zip\")', c, flags=re.DOTALL)
+open('Package.swift', 'w').write(c)
+"
+          cd ios/MMKV && swift build
       - name: Run tests
         run: |
           cd ios/MMKV
