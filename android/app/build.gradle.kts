@@ -15,7 +15,7 @@ configure<ApplicationExtension> {
 
     defaultConfig {
         applicationId = "net.yangkx.mmkv.demo"
-        minSdk = 21
+        minSdk = 23
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
