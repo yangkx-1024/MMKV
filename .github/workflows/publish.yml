@@ -133,23 +133,26 @@ jobs:
         run: |
           echo "value=$(swift package compute-checksum ios/MMKV/RustMMKV.xcframework.zip)" >> "$GITHUB_OUTPUT"
 
-      - name: Patch Package.swift for release tag
+      - name: Patch release version files
         run: |
           tag='${{ steps.prepare.outputs.new_tag }}'
+          version="${tag#v}"
           checksum='${{ steps.checksum.outputs.value }}'
           url="https://github.com/${{ github.repository }}/releases/download/${tag}/RustMMKV.xcframework.zip"
           replacement=".binaryTarget(name: \"RustMMKV\", url: \"${url}\", checksum: \"${checksum}\")"
           REPLACEMENT="$replacement" perl -0777 -i -pe 's/\.binaryTarget\(name: "RustMMKV".*?\)/$ENV{REPLACEMENT}/gs' Package.swift
+          sed -i.bak -E "s/^const val version = \".*\"$/const val version = \"${version}\"/" android/buildSrc/src/main/java/Version.kt
+          rm -f android/buildSrc/src/main/java/Version.kt.bak
 
-      - name: Commit and push Package.swift
+      - name: Commit and push release version files
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Package.swift
+          git add Package.swift android/buildSrc/src/main/java/Version.kt
           if git diff --cached --quiet; then
-            echo "No Package.swift changes to commit"
+            echo "No release version file changes to commit"
           else
-            git commit -m "chore: prepare Swift package for ${{ steps.prepare.outputs.new_tag }}"
+            git commit -m "chore: prepare release files for ${{ steps.prepare.outputs.new_tag }}"
             git push origin main
           fi
 
