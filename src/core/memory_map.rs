@@ -111,7 +111,7 @@ impl MemoryMap {
         Ok(MemoryMap(raw_mmap))
     }
 
-    pub fn append(&mut self, value: Vec<u8>) -> Result<()> {
+    pub fn append(&mut self, value: &[u8]) -> Result<()> {
         let data_len = value.len();
         let start = self.write_offset();
         let content_len = start - LEN_OFFSET;
@@ -131,7 +131,7 @@ impl MemoryMap {
             .checked_add(data_len)
             .ok_or_else(|| IOError("append overflowed content length".to_string()))?;
         self.0[0..LEN_OFFSET].copy_from_slice(new_content_len.to_be_bytes().as_slice());
-        self.0[start..end].copy_from_slice(value.as_slice());
+        self.0[start..end].copy_from_slice(value);
         Ok(())
     }
 
@@ -166,7 +166,7 @@ mod tests {
 
     use crate::Error::IOError;
 
-    use super::{MemoryMap, LEN_OFFSET};
+    use super::{LEN_OFFSET, MemoryMap};
 
     #[test]
     fn test_mmap() {
@@ -181,8 +181,8 @@ mod tests {
         file.set_len(1024).unwrap();
         let mut mm = MemoryMap::new(&file, 1024).unwrap();
         assert_eq!(mm.write_offset(), LEN_OFFSET);
-        mm.append(vec![1, 2, 3]).unwrap();
-        mm.append(vec![4]).unwrap();
+        mm.append(&[1, 2, 3]).unwrap();
+        mm.append(&[4]).unwrap();
         assert_eq!(mm.write_offset(), 12);
 
         let read = mm.read(8..10);
@@ -193,7 +193,7 @@ mod tests {
         assert_eq!(read[0], 4);
 
         mm.reset();
-        mm.append(vec![5, 4, 3, 2, 1]).unwrap();
+        mm.append(&[5, 4, 3, 2, 1]).unwrap();
         assert_eq!(mm.write_offset(), 13);
         let read = mm.read(8..9);
         assert_eq!(read[0], 5);
@@ -216,7 +216,7 @@ mod tests {
         file.set_len((LEN_OFFSET + 1) as u64).unwrap();
         let mut mm = MemoryMap::new(&file, LEN_OFFSET + 1).unwrap();
 
-        let err = mm.append(vec![1, 2]).unwrap_err();
+        let err = mm.append(&[1, 2]).unwrap_err();
         assert_eq!(
             err,
             IOError(format!(

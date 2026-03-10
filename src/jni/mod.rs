@@ -1,11 +1,14 @@
-use jni::objects::{JByteArray, JClass, JDoubleArray, JFloatArray, JIntArray, JLongArray, JPrimitiveArray, JString, JValue, TypeArray};
+use jni::objects::{
+    JByteArray, JClass, JDoubleArray, JFloatArray, JIntArray, JLongArray, JPrimitiveArray, JString,
+    JValue, TypeArray,
+};
 use jni::refs::Global;
 use jni::strings::JNIString;
 use jni::sys::{
     jboolean, jbyteArray, jdouble, jdoubleArray, jfloat, jfloatArray, jint, jintArray, jlong,
     jlongArray, jstring,
 };
-use jni::{jni_sig, jni_str, Env, EnvUnowned, JavaVM};
+use jni::{Env, EnvUnowned, JavaVM, jni_sig, jni_str};
 use std::fmt::{Debug, Formatter};
 use std::sync::RwLock;
 
@@ -30,7 +33,11 @@ fn get_mmkv_ptr(env: &mut Env<'_>, obj: &JClass) -> *mut MMKV {
         .unwrap() as *mut MMKV
 }
 
-fn jprimary_array_to_native<T: TypeArray>(env: &Env<'_>, array: JPrimitiveArray<T>, default: T) -> Vec<T> {
+fn jprimary_array_to_native<T: TypeArray>(
+    env: &Env<'_>,
+    array: JPrimitiveArray<T>,
+    default: T,
+) -> Vec<T> {
     let len = array.len(env).unwrap();
     let mut vec = Vec::new();
     vec.resize(len, default);
@@ -71,17 +78,19 @@ macro_rules! mmkv_put {
         let byte_array: Vec<u8> = vec.into_iter().map(|item| item as u8).collect();
         $mmkv.put(&$key, byte_array.as_slice())
     }};
-    ($env:expr, $mmkv:ident, $key:expr, $value:expr, JIntArray) => {{
-        $mmkv.put(&$key, jprimary_array_to_native($env, $value, 0).as_slice())
-    }};
-    ($env:expr, $mmkv:ident, $key:expr, $value:expr, JLongArray) => {{
-        $mmkv.put(&$key, jprimary_array_to_native($env, $value, 0).as_slice())
-    }};
+    ($env:expr, $mmkv:ident, $key:expr, $value:expr, JIntArray) => {{ $mmkv.put(&$key, jprimary_array_to_native($env, $value, 0).as_slice()) }};
+    ($env:expr, $mmkv:ident, $key:expr, $value:expr, JLongArray) => {{ $mmkv.put(&$key, jprimary_array_to_native($env, $value, 0).as_slice()) }};
     ($env:expr, $mmkv:ident, $key:expr, $value:expr, JFloatArray) => {{
-        $mmkv.put(&$key, jprimary_array_to_native($env, $value, 0.0).as_slice())
+        $mmkv.put(
+            &$key,
+            jprimary_array_to_native($env, $value, 0.0).as_slice(),
+        )
     }};
     ($env:expr, $mmkv:ident, $key:expr, $value:expr, JDoubleArray) => {{
-        $mmkv.put(&$key, jprimary_array_to_native($env, $value, 0.0).as_slice())
+        $mmkv.put(
+            &$key,
+            jprimary_array_to_native($env, $value, 0.0).as_slice(),
+        )
     }};
 }
 
@@ -144,30 +153,34 @@ macro_rules! impl_java_put {
             key: JString,
             value: $value_type,
         ) {
-            let _ = env.with_env_no_catch(|env| -> jni::errors::Result<()> {
-                let mmkv = unsafe {
-                    // SAFETY: we assume ffi caller passed valid MMKV ptr
-                    get_mmkv_ptr(env, &obj).as_ref()
-                }.unwrap();
-                let key = env_str(env, key);
-                match mmkv_put!(env, mmkv, key, value, $value_type) {
-                    Err(e) => {
-                        let log_str = format!(
-                            "failed to put {} for key {}, reason {:?}",
-                            $log_type, key, e
-                        );
-                        error!(LOG_TAG, "{}", &log_str);
-                        env.throw_new(
-                            JNIString::from(ANDROID_NATIVE_EXCEPTION),
-                            JNIString::from(log_str),
-                        ).expect("throw");
+            let _ = env
+                .with_env_no_catch(|env| -> jni::errors::Result<()> {
+                    let mmkv = unsafe {
+                        // SAFETY: we assume ffi caller passed valid MMKV ptr
+                        get_mmkv_ptr(env, &obj).as_ref()
                     }
-                    Ok(()) => {
-                        verbose!(LOG_TAG, "put {} for key '{}' success", $log_type, key);
-                    }
-                };
-                Ok(())
-            }).into_outcome();
+                    .unwrap();
+                    let key = env_str(env, key);
+                    match mmkv_put!(env, mmkv, key, value, $value_type) {
+                        Err(e) => {
+                            let log_str = format!(
+                                "failed to put {} for key {}, reason {:?}",
+                                $log_type, key, e
+                            );
+                            error!(LOG_TAG, "{}", &log_str);
+                            env.throw_new(
+                                JNIString::from(ANDROID_NATIVE_EXCEPTION),
+                                JNIString::from(log_str),
+                            )
+                            .expect("throw");
+                        }
+                        Ok(()) => {
+                            verbose!(LOG_TAG, "put {} for key '{}' success", $log_type, key);
+                        }
+                    };
+                    Ok(())
+                })
+                .into_outcome();
         }
     };
 }
@@ -176,33 +189,41 @@ macro_rules! impl_java_get {
     ($name:ident, $value_type:tt, $log_type:literal, $default:expr) => {
         #[unsafe(no_mangle)]
         #[allow(non_snake_case)]
-        pub unsafe extern "C" fn $name(mut env: EnvUnowned, obj: JClass, key: JString) -> $value_type {
-            let outcome = env.with_env_no_catch(|env| -> jni::errors::Result<$value_type> {
-                let mmkv = unsafe {
-                    // SAFETY: we assume ffi caller passed valid MMKV ptr
-                    get_mmkv_ptr(env, &obj).as_ref()
-                }.unwrap();
-                let key = env_str(env, key);
-                let result = match mmkv_get!(env, mmkv, key, $value_type) {
-                    Ok(value) => {
-                        verbose!(LOG_TAG, "found {} with key '{}'", $log_type, key);
-                        value
+        pub unsafe extern "C" fn $name(
+            mut env: EnvUnowned,
+            obj: JClass,
+            key: JString,
+        ) -> $value_type {
+            let outcome = env
+                .with_env_no_catch(|env| -> jni::errors::Result<$value_type> {
+                    let mmkv = unsafe {
+                        // SAFETY: we assume ffi caller passed valid MMKV ptr
+                        get_mmkv_ptr(env, &obj).as_ref()
                     }
-                    Err(e) => {
-                        let log_str = format!(
-                            "get {} for key '{}' failed, reason: {:?}",
-                            $log_type, key, e
-                        );
-                        error!(LOG_TAG, "{}", &log_str);
-                        env.throw_new(
-                            JNIString::from(ANDROID_KEY_NOT_FOUND_EXCEPTION),
-                            JNIString::from(log_str),
-                        ).expect("throw");
-                        $default
-                    }
-                };
-                Ok(result)
-            }).into_outcome();
+                    .unwrap();
+                    let key = env_str(env, key);
+                    let result = match mmkv_get!(env, mmkv, key, $value_type) {
+                        Ok(value) => {
+                            verbose!(LOG_TAG, "found {} with key '{}'", $log_type, key);
+                            value
+                        }
+                        Err(e) => {
+                            let log_str = format!(
+                                "get {} for key '{}' failed, reason: {:?}",
+                                $log_type, key, e
+                            );
+                            error!(LOG_TAG, "{}", &log_str);
+                            env.throw_new(
+                                JNIString::from(ANDROID_KEY_NOT_FOUND_EXCEPTION),
+                                JNIString::from(log_str),
+                            )
+                            .expect("throw");
+                            $default
+                        }
+                    };
+                    Ok(result)
+                })
+                .into_outcome();
             match outcome {
                 jni::Outcome::Ok(v) => v,
                 _ => $default,
@@ -224,25 +245,28 @@ impl AndroidLogger {
             let global_ref = env.new_global_ref(clz)?;
             JAVA_CLASS.write().unwrap().replace(global_ref);
             Ok(())
-        }).unwrap();
+        })
+        .unwrap();
         AndroidLogger { jvm }
     }
 
     fn call_java(&self, method: &str, param: String) {
-        self.jvm.attach_current_thread(|env| -> jni::errors::Result<()> {
-            let local_ref = {
-                let lock = JAVA_CLASS.read().unwrap();
-                env.new_local_ref(lock.as_ref().unwrap())?
-            };
-            let param = env.new_string(&param)?;
-            env.call_static_method(
-                local_ref,
-                JNIString::from(method),
-                jni_sig!("(Ljava/lang/String;)V"),
-                &[JValue::Object(&param)],
-            )?;
-            Ok(())
-        }).unwrap();
+        self.jvm
+            .attach_current_thread(|env| -> jni::errors::Result<()> {
+                let local_ref = {
+                    let lock = JAVA_CLASS.read().unwrap();
+                    env.new_local_ref(lock.as_ref().unwrap())?
+                };
+                let param = env.new_string(&param)?;
+                env.call_static_method(
+                    local_ref,
+                    JNIString::from(method),
+                    jni_sig!("(Ljava/lang/String;)V"),
+                    &[JValue::Object(&param)],
+                )?;
+                Ok(())
+            })
+            .unwrap();
     }
 }
 
@@ -277,11 +301,13 @@ impl Logger for AndroidLogger {
 #[unsafe(no_mangle)]
 #[allow(non_snake_case)]
 pub unsafe extern "C" fn Java_net_yangkx_mmkv_MMKV_attachLogger(mut env: EnvUnowned, _: JClass) {
-    let _ = env.with_env_no_catch(|env| -> jni::errors::Result<()> {
-        let jvm = env.get_java_vm()?;
-        MMKV::set_logger(Box::new(AndroidLogger::new(jvm)));
-        Ok(())
-    }).into_outcome();
+    let _ = env
+        .with_env_no_catch(|env| -> jni::errors::Result<()> {
+            let jvm = env.get_java_vm()?;
+            MMKV::set_logger(Box::new(AndroidLogger::new(jvm)));
+            Ok(())
+        })
+        .into_outcome();
 }
 
 #[unsafe(no_mangle)]
@@ -292,28 +318,34 @@ pub unsafe extern "C" fn Java_net_yangkx_mmkv_MMKV_initialize(
     dir: JString,
     #[cfg(feature = "encryption")] key: JString,
 ) -> jlong {
-    let outcome = env.with_env_no_catch(|env| -> jni::errors::Result<jlong> {
-        let path: String = dir.try_to_string(env)?;
-        #[cfg(feature = "encryption")]
-        let key: String = key.try_to_string(env)?;
-        let mmkv = match MMKV::new(
-            &path,
+    let outcome = env
+        .with_env_no_catch(|env| -> jni::errors::Result<jlong> {
+            let path: String = dir.try_to_string(env)?;
             #[cfg(feature = "encryption")]
-            &key,
-        ) {
-            Ok(mmkv) => mmkv,
-            Err(e) => {
-                let log_str = format!("failed to initialize MMKV for path '{}', reason {:?}", path, e);
-                error!(LOG_TAG, "{}", &log_str);
-                env.throw_new(
-                    JNIString::from(ANDROID_NATIVE_EXCEPTION),
-                    JNIString::from(log_str),
-                ).expect("throw");
-                return Ok(0);
-            }
-        };
-        Ok(Box::into_raw(Box::new(mmkv)) as jlong)
-    }).into_outcome();
+            let key: String = key.try_to_string(env)?;
+            let mmkv = match MMKV::new(
+                &path,
+                #[cfg(feature = "encryption")]
+                &key,
+            ) {
+                Ok(mmkv) => mmkv,
+                Err(e) => {
+                    let log_str = format!(
+                        "failed to initialize MMKV for path '{}', reason {:?}",
+                        path, e
+                    );
+                    error!(LOG_TAG, "{}", &log_str);
+                    env.throw_new(
+                        JNIString::from(ANDROID_NATIVE_EXCEPTION),
+                        JNIString::from(log_str),
+                    )
+                    .expect("throw");
+                    return Ok(0);
+                }
+            };
+            Ok(Box::into_raw(Box::new(mmkv)) as jlong)
+        })
+        .into_outcome();
     match outcome {
         jni::Outcome::Ok(v) => v,
         _ => 0,
@@ -421,25 +453,29 @@ pub unsafe extern "C" fn Java_net_yangkx_mmkv_MMKV_delete(
     obj: JClass,
     key: JString,
 ) {
-    let _ = env.with_env_no_catch(|env| -> jni::errors::Result<()> {
-        let mmkv = unsafe {
-            // SAFETY: we assume ffi caller passed valid MMKV ptr
-            get_mmkv_ptr(env, &obj).as_ref()
-        }.unwrap();
-        let key = env_str(env, key);
-        match mmkv.delete(&key) {
-            Ok(()) => verbose!(LOG_TAG, "delete key {} success", &key),
-            Err(e) => {
-                let log_str = format!("failed to delete key {}, reason: {:?}", &key, e);
-                error!(LOG_TAG, "{}", &log_str);
-                env.throw_new(
-                    JNIString::from(ANDROID_KEY_NOT_FOUND_EXCEPTION),
-                    JNIString::from(log_str),
-                ).expect("throw");
+    let _ = env
+        .with_env_no_catch(|env| -> jni::errors::Result<()> {
+            let mmkv = unsafe {
+                // SAFETY: we assume ffi caller passed valid MMKV ptr
+                get_mmkv_ptr(env, &obj).as_ref()
             }
-        }
-        Ok(())
-    }).into_outcome();
+            .unwrap();
+            let key = env_str(env, key);
+            match mmkv.delete(&key) {
+                Ok(()) => verbose!(LOG_TAG, "delete key {} success", &key),
+                Err(e) => {
+                    let log_str = format!("failed to delete key {}, reason: {:?}", &key, e);
+                    error!(LOG_TAG, "{}", &log_str);
+                    env.throw_new(
+                        JNIString::from(ANDROID_KEY_NOT_FOUND_EXCEPTION),
+                        JNIString::from(log_str),
+                    )
+                    .expect("throw");
+                }
+            }
+            Ok(())
+        })
+        .into_outcome();
 }
 
 #[unsafe(no_mangle)]
@@ -449,30 +485,36 @@ pub unsafe extern "C" fn Java_net_yangkx_mmkv_MMKV_setLogLevel(
     _: JClass,
     level: jint,
 ) {
-    let _ = env.with_env_no_catch(|env| -> jni::errors::Result<()> {
-        if let Ok(level) = level.try_into() {
-            MMKV::set_log_level(level);
-        } else {
-            env.throw_new(
-                JNIString::from(ANDROID_NATIVE_EXCEPTION),
-                JNIString::from(format!("invalid log level '{}'", level)),
-            ).expect("throw");
-        }
-        Ok(())
-    }).into_outcome();
+    let _ = env
+        .with_env_no_catch(|env| -> jni::errors::Result<()> {
+            if let Ok(level) = level.try_into() {
+                MMKV::set_log_level(level);
+            } else {
+                env.throw_new(
+                    JNIString::from(ANDROID_NATIVE_EXCEPTION),
+                    JNIString::from(format!("invalid log level '{}'", level)),
+                )
+                .expect("throw");
+            }
+            Ok(())
+        })
+        .into_outcome();
 }
 
 #[unsafe(no_mangle)]
 #[allow(non_snake_case)]
 pub unsafe extern "C" fn Java_net_yangkx_mmkv_MMKV_clearData(mut env: EnvUnowned, obj: JClass) {
-    let _ = env.with_env_no_catch(|env| -> jni::errors::Result<()> {
-        let mmkv = unsafe {
-            // SAFETY: we assume ffi caller passed valid MMKV ptr
-            get_mmkv_ptr(env, &obj).as_ref()
-        }.unwrap();
-        mmkv.clear_data().unwrap();
-        Ok(())
-    }).into_outcome();
+    let _ = env
+        .with_env_no_catch(|env| -> jni::errors::Result<()> {
+            let mmkv = unsafe {
+                // SAFETY: we assume ffi caller passed valid MMKV ptr
+                get_mmkv_ptr(env, &obj).as_ref()
+            }
+            .unwrap();
+            mmkv.clear_data().unwrap();
+            Ok(())
+        })
+        .into_outcome();
 }
 
 #[unsafe(no_mangle)]

@@ -1,7 +1,7 @@
-use crate::core::buffer::{Buffer, DecodeResult, Decoder, Encoder};
 use crate::Error::{DataInvalid, DecodeFailed};
 use crate::Result;
-use crc::{Crc, CRC_8_AUTOSAR};
+use crate::core::buffer::{Buffer, DecodeResult, Decoder, Encoder};
+use crc::{CRC_8_AUTOSAR, Crc};
 use std::mem::size_of;
 
 const LOG_TAG: &str = "MMKV:Crc";

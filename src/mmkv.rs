@@ -6,11 +6,11 @@ use std::sync::{Arc, RwLock, Weak};
 
 use once_cell::sync::Lazy;
 
+use crate::Error::{IOError, LockError};
 use crate::core::buffer::{Buffer, FromBytes, ProvideTypeToken, ToBytes};
 use crate::core::config::Config;
 use crate::core::mmkv_impl::MmkvImpl;
 use crate::log::logger;
-use crate::Error::{IOError, LockError};
 use crate::{LogLevel, Result};
 
 const LOG_TAG: &str = "MMKV:Core";

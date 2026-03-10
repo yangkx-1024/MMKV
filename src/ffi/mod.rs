@@ -3,7 +3,7 @@ mod ffi_buffer;
 use crate::{Error, LogLevel, Logger, MMKV};
 use ffi_buffer::{Leakable, Releasable};
 use mmkv_proc_macro_lib::Leakable;
-use std::ffi::{c_void, CStr};
+use std::ffi::{CStr, c_void};
 use std::fmt::Debug;
 use std::os::raw::c_char;
 
@@ -118,38 +118,40 @@ macro_rules! to_mmkv_value {
         unsafe {
             // SAFETY: we assume ffi caller passed valid c_char
             CStr::from_ptr($value)
-        }.to_str().unwrap()
-    };
-    ($value:expr, bool) => { $value };
-    ($value:expr, i32) => { $value };
-    ($value:expr, i64) => { $value };
-    ($value:expr, f32) => { $value };
-    ($value:expr, f64) => { $value };
-    ($value:expr, $len:expr, CByteArray) => {
-        unsafe {
-            std::slice::from_raw_parts($value, $len)
         }
+        .to_str()
+        .unwrap()
+    };
+    ($value:expr, bool) => {
+        $value
+    };
+    ($value:expr, i32) => {
+        $value
+    };
+    ($value:expr, i64) => {
+        $value
+    };
+    ($value:expr, f32) => {
+        $value
+    };
+    ($value:expr, f64) => {
+        $value
+    };
+    ($value:expr, $len:expr, CByteArray) => {
+        unsafe { std::slice::from_raw_parts($value, $len) }
     };
     ($value:expr, $len:expr, CI32Array) => {
-        unsafe {
-            std::slice::from_raw_parts($value, $len)
-        }
+        unsafe { std::slice::from_raw_parts($value, $len) }
     };
     ($value:expr, $len:expr, CI64Array) => {
-        unsafe {
-            std::slice::from_raw_parts($value, $len)
-        }
+        unsafe { std::slice::from_raw_parts($value, $len) }
     };
     ($value:expr, $len:expr, CF32Array) => {
-        unsafe {
-            std::slice::from_raw_parts($value, $len)
-        }
+        unsafe { std::slice::from_raw_parts($value, $len) }
     };
     ($value:expr, $len:expr, CF64Array) => {
-        unsafe {
-            std::slice::from_raw_parts($value, $len)
-        }
-    }
+        unsafe { std::slice::from_raw_parts($value, $len) }
+    };
 }
 
 macro_rules! mmkv_get {
@@ -300,11 +302,16 @@ pub unsafe extern "C" fn new_instance(dir: *const c_char) -> *const c_void {
     let dir_str = unsafe {
         // SAFETY: we assume ffi caller passed valid c_char
         CStr::from_ptr(dir)
-    }.to_str().unwrap();
+    }
+    .to_str()
+    .unwrap();
     match MMKV::new(dir_str) {
         Ok(mmkv) => Box::into_raw(Box::new(mmkv)) as *const c_void,
         Err(e) => {
-            error!(LOG_TAG, "failed to create MMKV instance for '{}': {:?}", dir_str, e);
+            error!(
+                LOG_TAG,
+                "failed to create MMKV instance for '{}': {:?}", dir_str, e
+            );
             std::ptr::null()
         }
     }
@@ -336,9 +343,7 @@ pub unsafe extern "C" fn close_instance(ptr: *const c_void) {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn clear_data(ptr: *const c_void) {
-    let mmkv = unsafe {
-        (ptr as *const MMKV).as_ref()
-    }.unwrap();
+    let mmkv = unsafe { (ptr as *const MMKV).as_ref() }.unwrap();
     if let Err(e) = mmkv.clear_data() {
         error!(LOG_TAG, "failed to clear MMKV data: {:?}", e);
     }
@@ -346,9 +351,7 @@ pub unsafe extern "C" fn clear_data(ptr: *const c_void) {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn delete(ptr: *const c_void, key: RawCStr) -> *const RawBuffer {
-    let mmkv = unsafe {
-        (ptr as *const MMKV).as_ref()
-    }.unwrap();
+    let mmkv = unsafe { (ptr as *const MMKV).as_ref() }.unwrap();
     let key_str = unsafe { CStr::from_ptr(key) }.to_str().unwrap();
     let mut result = RawBuffer::new(Types::Str);
     match mmkv.delete(key_str) {

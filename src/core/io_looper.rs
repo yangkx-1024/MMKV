@@ -1,8 +1,8 @@
-use crate::Error::{IOError, LockError};
+use crate::Error::IOError;
 use crate::Result;
-use std::collections::VecDeque;
-use std::sync::mpsc::{channel, Receiver, Sender};
-use std::sync::{Arc, Mutex};
+use crossbeam_channel::{Receiver, Sender, bounded, unbounded};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::Instant;
@@ -11,26 +11,26 @@ const LOG_TAG: &str = "MMKV:IO";
 
 type Job<T> = Box<dyn FnOnce(&mut T) -> Result<()> + Send + 'static>;
 
-enum Signal {
-    Next,
+enum Message<T> {
+    Job(Job<T>),
     Quit,
 }
 
 pub trait Callback: Send + 'static {}
 
 pub struct IOLooper<T> {
-    sender: Option<Sender<Signal>>,
-    executor: Executor<T>,
+    sender: Option<Sender<Message<T>>>,
+    executor: Executor,
 }
 
-struct Executor<T> {
-    queue: Arc<Mutex<VecDeque<Job<T>>>>,
+struct Executor {
+    pending_jobs: Arc<AtomicUsize>,
     join_handle: Option<JoinHandle<()>>,
 }
 
 impl<T: Callback> IOLooper<T> {
     pub fn new(callback: T) -> Self {
-        let (sender, receiver) = channel::<Signal>();
+        let (sender, receiver) = unbounded::<Message<T>>();
         let executor = Executor::new(receiver, callback);
         IOLooper {
             sender: Some(sender),
@@ -43,7 +43,7 @@ impl<T: Callback> IOLooper<T> {
             .take()
             .map(|sender| {
                 sender
-                    .send(Signal::Quit)
+                    .send(Message::Quit)
                     .map_err(|e| IOError(e.to_string()))
             })
             .transpose()?;
@@ -57,28 +57,20 @@ impl<T: Callback> IOLooper<T> {
     }
 
     pub fn post<F: FnOnce(&mut T) -> Result<()> + Send + 'static>(&self, task: F) -> Result<()> {
-        let job: Job<T> = Box::new(task);
-        self.executor
-            .queue
-            .lock()
-            .map(|mut queue| queue.push_back(job))
-            .map_err(|e| LockError(e.to_string()))?;
-
-        self.sender
-            .as_ref()
-            .map(|sender| {
-                sender
-                    .send(Signal::Next)
-                    .map_err(|e| IOError(e.to_string()))
-            })
-            .ok_or(IOError(
-                "failed to post, channel closed unexpected".to_string(),
-            ))?
+        let sender = self.sender.as_ref().ok_or(IOError(
+            "failed to post, channel closed unexpected".to_string(),
+        ))?;
+        self.executor.pending_jobs.fetch_add(1, Ordering::Relaxed);
+        let send_result = sender.send(Message::Job(Box::new(task)));
+        if send_result.is_err() {
+            self.executor.pending_jobs.fetch_sub(1, Ordering::Relaxed);
+        }
+        send_result.map_err(|e| IOError(e.to_string()))
     }
 
     #[allow(dead_code)]
     pub fn sync(&self) -> Result<()> {
-        let (sender, receiver) = channel::<()>();
+        let (sender, receiver) = bounded::<()>(0);
         self.post(move |_| {
             sender
                 .send(())
@@ -106,67 +98,63 @@ impl<T> Drop for IOLooper<T> {
     }
 }
 
-impl<T: Callback> Executor<T> {
-    fn drain_pending_jobs(
-        queue: &Arc<Mutex<VecDeque<Job<T>>>>,
-        buffer: &mut VecDeque<Job<T>>,
-        callback: &mut T,
-    ) -> Result<()> {
-        let mut current_queue = queue.lock().map_err(|e| LockError(e.to_string()))?;
-        std::mem::swap(buffer, &mut *current_queue);
-        drop(current_queue);
+impl Executor {
+    fn run_job<T>(job: Job<T>, callback: &mut T, pending_jobs: &AtomicUsize) {
+        if let Err(e) = job(callback) {
+            error!(LOG_TAG, "failed to execute io job: {:?}", e);
+        }
+        pending_jobs.fetch_sub(1, Ordering::Relaxed);
+    }
 
-        let mut first_error = None;
-        while let Some(job) = buffer.pop_front() {
-            if let Err(e) = job(callback) {
-                error!(LOG_TAG, "failed to execute io job: {:?}", e);
-                if first_error.is_none() {
-                    first_error = Some(e);
+    fn drain_pending_jobs<T>(
+        receiver: &Receiver<Message<T>>,
+        callback: &mut T,
+        pending_jobs: &AtomicUsize,
+        reason: &str,
+    ) {
+        while let Ok(message) = receiver.try_recv() {
+            match message {
+                Message::Job(job) => Self::run_job(job, callback, pending_jobs),
+                Message::Quit => {
+                    debug!(LOG_TAG, "stop draining pending jobs: {}", reason);
+                    break;
                 }
             }
         }
-        match first_error {
-            Some(err) => Err(err),
-            None => Ok(()),
-        }
     }
 
-    pub fn new(receiver: Receiver<Signal>, mut callback: T) -> Self {
-        let mut buffer: VecDeque<Job<T>> = VecDeque::with_capacity(100);
-        let queue: Arc<Mutex<VecDeque<Job<T>>>> =
-            Arc::new(Mutex::new(VecDeque::with_capacity(100)));
-        let queue_clone = Arc::clone(&queue);
-        let handle = thread::spawn(move || loop {
-            let signal = receiver.recv();
-
-            match signal {
-                Ok(Signal::Quit) => {
-                    if let Err(e) =
-                        Executor::drain_pending_jobs(&queue, &mut buffer, &mut callback)
-                    {
-                        error!(LOG_TAG, "failed to drain pending jobs before quit: {:?}", e);
+    pub fn new<T: Callback>(receiver: Receiver<Message<T>>, mut callback: T) -> Self {
+        let pending_jobs = Arc::new(AtomicUsize::new(0));
+        let pending_jobs_clone = Arc::clone(&pending_jobs);
+        let handle = thread::spawn(move || {
+            loop {
+                match receiver.recv() {
+                    Ok(Message::Job(job)) => Self::run_job(job, &mut callback, &pending_jobs),
+                    Ok(Message::Quit) => {
+                        debug!(LOG_TAG, "received quit signal, draining pending jobs");
+                        Self::drain_pending_jobs(
+                            &receiver,
+                            &mut callback,
+                            &pending_jobs,
+                            "quit signal received while draining",
+                        );
+                        break;
                     }
-                    break;
-                }
-                Ok(Signal::Next) => {
-                    if let Err(e) =
-                        Executor::drain_pending_jobs(&queue, &mut buffer, &mut callback)
-                    {
-                        error!(LOG_TAG, "failed to execute queued jobs: {:?}", e);
+                    Err(_) => {
+                        debug!(LOG_TAG, "io channel closed, draining pending jobs");
+                        Self::drain_pending_jobs(
+                            &receiver,
+                            &mut callback,
+                            &pending_jobs,
+                            "channel closed while draining",
+                        );
+                        break;
                     }
-                }
-                Err(_) => {
-                    if let Err(e) =
-                        Executor::drain_pending_jobs(&queue, &mut buffer, &mut callback)
-                    {
-                        error!(LOG_TAG, "failed to drain pending jobs after channel close: {:?}", e);
-                    }
-                    break;
                 }
             }
         });
         Executor {
-            queue: queue_clone,
+            pending_jobs: pending_jobs_clone,
             join_handle: Some(handle),
         }
     }
@@ -216,7 +204,7 @@ mod tests {
             })
             .expect("failed to execute job");
         assert!(io_looper.sender.is_some());
-        assert_eq!(io_looper.executor.queue.lock().unwrap().len(), 2);
+        assert_eq!(io_looper.executor.pending_jobs.load(Ordering::Relaxed), 2);
         assert!(io_looper.executor.join_handle.is_some());
         thread::sleep(Duration::from_millis(50));
         io_looper
@@ -227,7 +215,7 @@ mod tests {
             .unwrap();
         io_looper.quit().unwrap();
         assert!(io_looper.sender.is_none());
-        assert!(io_looper.executor.queue.lock().unwrap().is_empty());
+        assert_eq!(io_looper.executor.pending_jobs.load(Ordering::Relaxed), 0);
         assert!(io_looper.executor.join_handle.is_none());
         drop(io_looper);
         let value = Arc::new(Mutex::new(1));
@@ -303,7 +291,11 @@ mod tests {
 
         assert_eq!(accepted_sorted, executed);
         assert_eq!(
-            accepted_sorted.iter().copied().collect::<HashSet<_>>().len(),
+            accepted_sorted
+                .iter()
+                .copied()
+                .collect::<HashSet<_>>()
+                .len(),
             accepted_sorted.len()
         );
     }

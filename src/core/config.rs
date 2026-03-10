@@ -24,7 +24,12 @@ impl Config {
             .map_err(|e| IOError(format!("failed to open {}: {e}", path.display())))?;
         let mut file_len = file
             .metadata()
-            .map_err(|e| IOError(format!("failed to get metadata for {}: {e}", path.display())))?
+            .map_err(|e| {
+                IOError(format!(
+                    "failed to get metadata for {}: {e}",
+                    path.display()
+                ))
+            })?
             .len();
         if file_len == 0 {
             file_len += page_size;
@@ -76,7 +81,12 @@ impl Config {
     pub fn file_size(&self) -> Result<u64> {
         self.file
             .metadata()
-            .map_err(|e| IOError(format!("failed to get metadata for {}: {e}", self.path.display())))
+            .map_err(|e| {
+                IOError(format!(
+                    "failed to get metadata for {}: {e}",
+                    self.path.display()
+                ))
+            })
             .map(|metadata| metadata.len())
     }
 
@@ -97,7 +107,10 @@ impl Config {
             page_size: self.page_size,
             path: self.path.clone(),
             file: self.file.try_clone().map_err(|e| {
-                IOError(format!("failed to clone config file {}: {e}", self.path.display()))
+                IOError(format!(
+                    "failed to clone config file {}: {e}",
+                    self.path.display()
+                ))
             })?,
         })
     }

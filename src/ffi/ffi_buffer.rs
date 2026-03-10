@@ -2,8 +2,8 @@ use std::any::TypeId;
 use std::fmt::Debug;
 use std::ops::DerefMut;
 
-use crate::ffi::*;
 use crate::Error;
+use crate::ffi::*;
 
 pub(super) trait Releasable: Debug {
     fn release(&mut self);
@@ -172,10 +172,10 @@ impl RawBuffer {
 
 impl Releasable for RawBuffer {
     fn release(&mut self) {
-       unsafe {
-           self.drop_data();
-           self.drop_error();
-       }
+        unsafe {
+            self.drop_data();
+            self.drop_error();
+        }
     }
 }
 

@@ -1,8 +1,8 @@
+use crate::Result;
 use crate::core::buffer::{Buffer, Decoder, Encoder};
 use crate::core::config::Config;
 use crate::core::io_looper::Callback;
 use crate::core::memory_map::MemoryMap;
-use crate::Result;
 use std::time::Instant;
 
 const LOG_TAG: &str = "MMKV:IO";
@@ -38,17 +38,14 @@ impl IOWriter {
 
     // Flash the data to file, always running in one io thread, so don't need lock here
     pub fn write(&mut self, buffer: Buffer, duplicated: bool) -> Result<()> {
-        let data = self
-            .encoder
-            .encode_to_bytes(&buffer, self.position)
-            ?;
+        let data = self.encoder.encode_to_bytes(&buffer, self.position)?;
         let target_end = data.len() + self.mm.write_offset();
         let max_len = self.mm.len();
         if duplicated {
             self.need_trim = true;
         }
         if target_end <= max_len {
-            self.mm.append(data)?;
+            self.mm.append(&data)?;
             self.position += 1;
             return Ok(());
         }
@@ -60,7 +57,7 @@ impl IOWriter {
                 "start trim, current len {}",
                 self.mm.write_offset()
             );
-            info!(LOG_TAG,"start take snapshot");
+            info!(LOG_TAG, "start take snapshot");
             let (mut snapshot, _) = self
                 .mm
                 .iter(|bytes, position| self.decoder.decode_bytes(bytes, position))
@@ -70,7 +67,7 @@ impl IOWriter {
             } else {
                 snapshot.insert(buffer.key().to_string(), buffer);
             }
-            info!(LOG_TAG,"snapshot finished in {:?}", time_start.elapsed());
+            info!(LOG_TAG, "snapshot finished in {:?}", time_start.elapsed());
             self.mm.reset();
             self.position = 0;
             for buffer in snapshot.values() {
@@ -78,7 +75,7 @@ impl IOWriter {
                 if self.mm.write_offset() + bytes.len() > max_len {
                     self.expand()?;
                 }
-                self.mm.append(bytes)?;
+                self.mm.append(&bytes)?;
                 self.position += 1;
             }
             self.need_trim = false;
@@ -92,7 +89,7 @@ impl IOWriter {
         } else {
             // expand and write
             self.expand()?;
-            self.mm.append(data)?;
+            self.mm.append(&data)?;
             self.position += 1;
         }
         Ok(())

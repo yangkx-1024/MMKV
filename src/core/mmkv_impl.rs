@@ -1,3 +1,4 @@
+use crate::Error::InstanceClosed;
 use crate::core::buffer::{Buffer, Decoder};
 use crate::core::config::Config;
 #[cfg(not(feature = "encryption"))]
@@ -7,7 +8,6 @@ use crate::core::encrypt::Encryptor;
 use crate::core::io_looper::IOLooper;
 use crate::core::memory_map::MemoryMap;
 use crate::core::writer::IOWriter;
-use crate::Error::InstanceClosed;
 use crate::{Error, Result};
 use std::collections::HashMap;
 #[cfg(feature = "encryption")]
@@ -121,13 +121,13 @@ mod tests {
     use std::sync::RwLock;
     use std::{fs, thread};
 
+    use crate::Error::KeyNotFound;
+    use crate::LogLevel::Debug;
+    use crate::MMKV;
     use crate::core::buffer::Buffer;
     use crate::core::config::Config;
     use crate::core::memory_map::MemoryMap;
     use crate::core::mmkv_impl::MmkvImpl;
-    use crate::Error::KeyNotFound;
-    use crate::LogLevel::Debug;
-    use crate::MMKV;
 
     #[cfg(feature = "encryption")]
     const TEST_KEY: &str = "88C51C536176AD8A8EE4A06F62EE897E";

@@ -25,6 +25,7 @@ hex = { version = "0.4.3", optional = true }
 mmkv-proc-macro-lib = { version = "0.0.3" }
 chrono = { version = "0.4.44" }
 once_cell = { version = "1.21.3" }
+crossbeam-channel = "0.5.15"
 
 [build-dependencies]
 protobuf-codegen = "3.7.2"

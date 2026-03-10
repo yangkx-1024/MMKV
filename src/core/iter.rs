@@ -85,10 +85,10 @@ mod tests {
     use std::fs::OpenOptions;
     use std::mem::size_of;
 
-    use crate::core::buffer::{Buffer, DecodeResult, Decoder, Encoder};
-    use crate::core::memory_map::MemoryMap;
     use crate::Error::DataInvalid;
     use crate::Result;
+    use crate::core::buffer::{Buffer, DecodeResult, Decoder, Encoder};
+    use crate::core::memory_map::MemoryMap;
 
     const LOG_TAG: &str = "MMKV:IterTest";
 
@@ -141,7 +141,7 @@ mod tests {
         let test_encoder = &TestEncoderDecoder;
         for i in 0..10 {
             let buffer = Buffer::new(&i.to_string(), i);
-            mm.append(test_encoder.encode_to_bytes(&buffer, i as u32).unwrap())
+            mm.append(&test_encoder.encode_to_bytes(&buffer, i as u32).unwrap())
                 .unwrap();
             buffers.push(buffer);
         }
