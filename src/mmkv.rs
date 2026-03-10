@@ -9,7 +9,7 @@ use crate::core::buffer::{Buffer, FromBytes, ProvideTypeToken, ToBytes};
 use crate::core::config::Config;
 use crate::core::mmkv_impl::MmkvImpl;
 use crate::log::logger;
-use crate::Error::LockError;
+use crate::Error::{IOError, LockError};
 use crate::{LogLevel, Result};
 
 const LOG_TAG: &str = "MMKV:Core";
@@ -67,16 +67,16 @@ impl MMKV {
 
     `88C51C536176AD8A8EE4A06F62EE897E`
     */
-    pub fn new(dir: &str, #[cfg(feature = "encryption")] key: &str) -> Self {
+    pub fn new(dir: &str, #[cfg(feature = "encryption")] key: &str) -> Result<Self> {
         let instance_map = INSTANCE_MAP.read().unwrap();
         if let Some(mmkv) = instance_map.get(dir).and_then(|mmkv| mmkv.upgrade()) {
             debug!(LOG_TAG, "new MMKV from existing instance");
-            return MMKV {
+            return Ok(MMKV {
                 path: dir.to_string(),
                 #[cfg(feature = "encryption")]
                 key: key.to_string(),
                 mmkv_impl: mmkv,
-            };
+            });
         }
         drop(instance_map);
 
@@ -87,42 +87,42 @@ impl MMKV {
                 LOG_TAG,
                 "new MMKV from existing instance after double check"
             );
-            return MMKV {
+            return Ok(MMKV {
                 path: dir.to_string(),
                 #[cfg(feature = "encryption")]
                 key: key.to_string(),
                 mmkv_impl: mmkv.clone(),
-            };
+            });
         }
         // Init a new instance
-        let file_path = MMKV::resolve_file_path(dir);
-        let config = Config::new(file_path.as_path(), page_size() as u64);
+        let file_path = MMKV::resolve_file_path(dir)?;
+        let config = Config::new(file_path.as_path(), page_size() as u64)?;
         let mmkv_impl = Arc::new(RwLock::new(MmkvImpl::new(
             config,
             #[cfg(feature = "encryption")]
             key,
-        )));
+        )?));
         instance_map.insert(dir.to_string(), Arc::downgrade(&mmkv_impl));
-        MMKV {
+        Ok(MMKV {
             path: dir.to_string(),
             #[cfg(feature = "encryption")]
             key: key.to_string(),
             mmkv_impl,
-        }
+        })
     }
 
-    fn resolve_file_path(dir: &str) -> PathBuf {
+    fn resolve_file_path(dir: &str) -> Result<PathBuf> {
         let path = Path::new(dir);
         if !path.is_dir() {
-            panic!("path {}, is not dir", dir);
+            return Err(IOError(format!("path {dir} is not dir")));
         }
         let metadata = path
             .metadata()
-            .unwrap_or_else(|_| panic!("failed to get attr of dir {}", dir));
+            .map_err(|e| IOError(format!("failed to get attr of dir {dir}: {e}")))?;
         if metadata.permissions().readonly() {
-            panic!("path {}, is readonly", dir);
+            return Err(IOError(format!("path {dir} is readonly")));
         }
-        path.join(DEFAULT_FILE_NAME)
+        Ok(path.join(DEFAULT_FILE_NAME))
     }
 
     /**
@@ -168,7 +168,7 @@ impl MMKV {
     }
 
     let temp_dir = std::env::temp_dir();
-    let mmkv = MMKV::new(temp_dir.to_str().unwrap(), #[cfg(feature = "encryption")] "88C51C536176AD8A8EE4A06F62EE897E");
+    let mmkv = MMKV::new(temp_dir.to_str().unwrap(), #[cfg(feature = "encryption")] "88C51C536176AD8A8EE4A06F62EE897E").unwrap();
     let my_struct = MyStruct {
         int_value: 1,
         str_value: "abc".to_string(),
@@ -209,13 +209,13 @@ impl MMKV {
             .write()
             .map_err(|e| LockError(e.to_string()))?;
         mmkv_impl.clear_data()?;
-        let file_path = MMKV::resolve_file_path(&self.path);
-        let config = Config::new(file_path.as_path(), page_size() as u64);
+        let file_path = MMKV::resolve_file_path(&self.path)?;
+        let config = Config::new(file_path.as_path(), page_size() as u64)?;
         *mmkv_impl = MmkvImpl::new(
             config,
             #[cfg(feature = "encryption")]
             &self.key,
-        );
+        )?;
         Ok(())
     }
 
@@ -290,13 +290,15 @@ mod tests {
             ".",
             #[cfg(feature = "encryption")]
             "88C51C536176AD8A8EE4A06F62EE897E",
-        );
+        )
+        .unwrap();
         debug!(LOG_TAG, "---------------");
         mmkv = MMKV::new(
             ".",
             #[cfg(feature = "encryption")]
             "88C51C536176AD8A8EE4A06F62EE897E",
-        );
+        )
+        .unwrap();
         mmkv.put("first", 1i32).unwrap();
         mmkv.put("second", 2i32).unwrap();
         assert_eq!(mmkv.get("first"), Ok(1));
@@ -350,7 +352,8 @@ mod tests {
             ".",
             #[cfg(feature = "encryption")]
             "88C51C536176AD8A8EE4A06F62EE897E",
-        );
+        )
+        .unwrap();
         assert_eq!(mmkv.get("first"), Ok("one".to_string()));
         assert_eq!(mmkv.get::<i32>("second"), Err(KeyNotFound));
         mmkv.clear_data().unwrap();

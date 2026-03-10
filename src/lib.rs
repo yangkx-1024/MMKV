@@ -4,7 +4,7 @@
 //! use mmkv::MMKV;
 //!
 //! let temp_dir = std::env::temp_dir();
-//! let mmkv = MMKV::new(temp_dir.to_str().unwrap(), #[cfg(feature = "encryption")] "88C51C536176AD8A8EE4A06F62EE897E");
+//! let mmkv = MMKV::new(temp_dir.to_str().unwrap(), #[cfg(feature = "encryption")] "88C51C536176AD8A8EE4A06F62EE897E").unwrap();
 //! mmkv.put("key1", 1).unwrap();
 //! assert_eq!(mmkv.get("key1"), Ok(1));
 //! // Not actually needed unless you intend to delete all data

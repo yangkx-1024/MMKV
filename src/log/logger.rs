@@ -56,6 +56,7 @@ impl LogWrapper {
         self.io_looper
             .post(move |writer| {
                 writer.write(level, time, pid, tid, log_str);
+                Ok(())
             })
             .unwrap();
     }
@@ -91,6 +92,7 @@ pub fn set_logger(log_impl: Option<Box<dyn Logger>>) {
         .post(|writer| {
             drop(writer.inner_logger.take());
             writer.inner_logger = log_impl;
+            Ok(())
         })
         .unwrap();
 }

@@ -296,11 +296,22 @@ pub unsafe extern "C" fn Java_net_yangkx_mmkv_MMKV_initialize(
         let path: String = dir.try_to_string(env)?;
         #[cfg(feature = "encryption")]
         let key: String = key.try_to_string(env)?;
-        let mmkv = MMKV::new(
+        let mmkv = match MMKV::new(
             &path,
             #[cfg(feature = "encryption")]
             &key,
-        );
+        ) {
+            Ok(mmkv) => mmkv,
+            Err(e) => {
+                let log_str = format!("failed to initialize MMKV for path '{}', reason {:?}", path, e);
+                error!(LOG_TAG, "{}", &log_str);
+                env.throw_new(
+                    JNIString::from(ANDROID_NATIVE_EXCEPTION),
+                    JNIString::from(log_str),
+                ).expect("throw");
+                return Ok(0);
+            }
+        };
         Ok(Box::into_raw(Box::new(mmkv)) as jlong)
     }).into_outcome();
     match outcome {

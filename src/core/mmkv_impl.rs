@@ -25,7 +25,7 @@ pub struct MmkvImpl {
 }
 
 impl MmkvImpl {
-    pub fn new(config: Config, #[cfg(feature = "encryption")] key: &str) -> Self {
+    pub fn new(config: Config, #[cfg(feature = "encryption")] key: &str) -> Result<Self> {
         let time_start = Instant::now();
         #[cfg(feature = "encryption")]
         let encryptor = Encryptor::init(&config.path, key);
@@ -33,7 +33,7 @@ impl MmkvImpl {
         let encoder = Box::new(encryptor.clone());
         #[cfg(not(feature = "encryption"))]
         let encoder = Box::new(CrcEncoderDecoder);
-        let mm = MemoryMap::new(&config.file, config.file_size() as usize);
+        let mm = MemoryMap::new(&config.file, config.file_size()? as usize)?;
         #[cfg(feature = "encryption")]
         let decoder = Box::new(encryptor.clone());
         #[cfg(not(feature = "encryption"))]
@@ -59,7 +59,7 @@ impl MmkvImpl {
             file_size,
             time_start.elapsed()
         );
-        mmkv
+        Ok(mmkv)
     }
 
     pub fn put(&mut self, key: &str, raw_buffer: Buffer) -> Result<()> {
@@ -105,10 +105,11 @@ impl MmkvImpl {
         #[cfg(feature = "encryption")]
         let meta_file = self.encryptor.meta_file_path.clone();
         self.io_looper.post(|writer| {
-            writer.remove_file();
+            writer.remove_file()?;
             #[cfg(feature = "encryption")]
             let _ = fs::remove_file(meta_file);
             info!(LOG_TAG, "data cleared");
+            Ok(())
         })?;
         self.io_looper.quit()
     }
@@ -134,10 +135,11 @@ mod tests {
     fn init(config: &Config) -> MmkvImpl {
         MMKV::set_log_level(Debug);
         MmkvImpl::new(
-            config.clone(),
+            config.try_clone().unwrap(),
             #[cfg(feature = "encryption")]
             TEST_KEY,
         )
+        .unwrap()
     }
 
     #[test]
@@ -147,8 +149,8 @@ mod tests {
         let _ = fs::remove_file(file_path);
         assert!(!Path::new(file_path).exists());
         let _ = fs::remove_file(format!("{}.meta", file_path));
-        let config = &Config::new(Path::new(file_path), 100);
-        let mm = MemoryMap::new(&config.file, 200);
+        let config = &Config::new(Path::new(file_path), 100).unwrap();
+        let mm = MemoryMap::new(&config.file, 200).unwrap();
         let mut mmkv = init(config);
         mmkv.put("key1", Buffer::new("key1", 1)).unwrap(); // + 17
         drop(mmkv);
@@ -175,7 +177,7 @@ mod tests {
         mmkv.put("key6", Buffer::new("key6", 6)).unwrap(); // expand, 110
         drop(mmkv);
         assert_eq!(mm.write_offset(), 110);
-        assert_eq!(config.file_size(), 200);
+        assert_eq!(config.file_size().unwrap(), 200);
 
         mmkv = init(config);
         mmkv.put("key7", Buffer::new("key7", 7)).unwrap();
@@ -193,8 +195,8 @@ mod tests {
         let file = "test_trim_and_expand_encrypt";
         let _ = fs::remove_file(file);
         let _ = fs::remove_file(format!("{file}.meta"));
-        let config = &Config::new(Path::new(file), 100);
-        let mm = MemoryMap::new(&config.file, 200);
+        let config = &Config::new(Path::new(file), 100).unwrap();
+        let mm = MemoryMap::new(&config.file, 200).unwrap();
         let mut mmkv = init(config);
         mmkv.put("key1", Buffer::new("key1", 1)).unwrap(); // + 24
         drop(mmkv);
@@ -218,7 +220,7 @@ mod tests {
         mmkv.put("key4", Buffer::new("key4", 4)).unwrap(); // + 24
         drop(mmkv);
         assert_eq!(mm.write_offset(), 104);
-        assert_eq!(config.file_size(), 200);
+        assert_eq!(config.file_size().unwrap(), 200);
 
         mmkv = init(config);
         mmkv.put("key5", Buffer::new("key5", 5)).unwrap(); // + 24
@@ -235,7 +237,7 @@ mod tests {
         let file = "test_multi_thread_mmkv";
         let _ = fs::remove_file(file);
         let _ = fs::remove_file(format!("{}.meta", file));
-        let config = &Config::new(Path::new(file), 4096);
+        let config = &Config::new(Path::new(file), 4096).unwrap();
         let mmkv = RwLock::new(Some(init(config)));
         let loop_count = 1000;
         let action = |thread_id: &str| {

@@ -9,7 +9,7 @@ use std::time::Instant;
 
 const LOG_TAG: &str = "MMKV:IO";
 
-type Job<T> = Box<dyn FnOnce(&mut T) + Send + 'static>;
+type Job<T> = Box<dyn FnOnce(&mut T) -> Result<()> + Send + 'static>;
 
 enum Signal {
     Next,
@@ -57,8 +57,8 @@ impl<T: Callback> IOLooper<T> {
         Ok(())
     }
 
-    pub fn post<F: FnOnce(&mut T) + Send + 'static>(&self, task: F) -> Result<()> {
-        let job: Job<T> = Box::new(|callback| task(callback));
+    pub fn post<F: FnOnce(&mut T) -> Result<()> + Send + 'static>(&self, task: F) -> Result<()> {
+        let job: Job<T> = Box::new(task);
         self.executor
             .queue
             .lock()
@@ -81,7 +81,9 @@ impl<T: Callback> IOLooper<T> {
     pub fn sync(&self) -> Result<()> {
         let (sender, receiver) = channel::<()>();
         self.post(move |_| {
-            sender.send(()).unwrap();
+            sender
+                .send(())
+                .map_err(|e| IOError(format!("failed to sync, sender dropped: {e}")))
         })?;
         receiver
             .recv()
@@ -96,14 +98,40 @@ impl<T> Drop for IOLooper<T> {
         drop(self.sender.take());
 
         if let Some(handle) = self.executor.join_handle.take() {
-            handle.join().unwrap();
-            verbose!(LOG_TAG, "io thread finished");
+            match handle.join() {
+                Ok(()) => verbose!(LOG_TAG, "io thread finished"),
+                Err(_) => error!(LOG_TAG, "failed to join io thread while dropping IOLooper"),
+            }
         }
         debug!(LOG_TAG, "IOLooper dropped, cost {:?}", time_start.elapsed());
     }
 }
 
 impl<T: Callback> Executor<T> {
+    fn drain_pending_jobs(
+        queue: &Arc<Mutex<VecDeque<Job<T>>>>,
+        buffer: &mut VecDeque<Job<T>>,
+        callback: &mut T,
+    ) -> Result<()> {
+        let mut current_queue = queue.lock().map_err(|e| LockError(e.to_string()))?;
+        std::mem::swap(buffer, &mut *current_queue);
+        drop(current_queue);
+
+        let mut first_error = None;
+        while let Some(job) = buffer.pop_front() {
+            if let Err(e) = job(callback) {
+                error!(LOG_TAG, "failed to execute io job: {:?}", e);
+                if first_error.is_none() {
+                    first_error = Some(e);
+                }
+            }
+        }
+        match first_error {
+            Some(err) => Err(err),
+            None => Ok(()),
+        }
+    }
+
     pub fn new(receiver: Receiver<Signal>, mut callback: T) -> Self {
         let mut buffer: VecDeque<Job<T>> = VecDeque::with_capacity(100);
         let queue: Arc<Mutex<VecDeque<Job<T>>>> =
@@ -114,17 +142,26 @@ impl<T: Callback> Executor<T> {
 
             match signal {
                 Ok(Signal::Quit) => {
+                    if let Err(e) =
+                        Executor::drain_pending_jobs(&queue, &mut buffer, &mut callback)
+                    {
+                        error!(LOG_TAG, "failed to drain pending jobs before quit: {:?}", e);
+                    }
                     break;
                 }
                 Ok(Signal::Next) => {
-                    let mut current_queue = queue.lock().unwrap();
-                    std::mem::swap(&mut buffer, &mut *current_queue);
-                    drop(current_queue);
-                    while let Some(job) = buffer.pop_front() {
-                        job(&mut callback);
+                    if let Err(e) =
+                        Executor::drain_pending_jobs(&queue, &mut buffer, &mut callback)
+                    {
+                        error!(LOG_TAG, "failed to execute queued jobs: {:?}", e);
                     }
                 }
                 Err(_) => {
+                    if let Err(e) =
+                        Executor::drain_pending_jobs(&queue, &mut buffer, &mut callback)
+                    {
+                        error!(LOG_TAG, "failed to drain pending jobs after channel close: {:?}", e);
+                    }
                     break;
                 }
             }
@@ -166,13 +203,15 @@ mod tests {
         io_looper
             .post(|callback| {
                 thread::sleep(Duration::from_millis(100));
-                callback.print("first job")
+                callback.print("first job");
+                Ok(())
             })
             .expect("failed to execute job");
         io_looper
             .post(|callback| {
                 thread::sleep(Duration::from_millis(100));
-                callback.print("second job")
+                callback.print("second job");
+                Ok(())
             })
             .expect("failed to execute job");
         assert!(io_looper.sender.is_some());
@@ -180,7 +219,10 @@ mod tests {
         assert!(io_looper.executor.join_handle.is_some());
         thread::sleep(Duration::from_millis(50));
         io_looper
-            .post(|callback| callback.print("last job"))
+            .post(|callback| {
+                callback.print("last job");
+                Ok(())
+            })
             .unwrap();
         io_looper.quit().unwrap();
         assert!(io_looper.sender.is_none());
@@ -194,6 +236,7 @@ mod tests {
             .post(move |_| {
                 thread::sleep(Duration::from_millis(100));
                 *cloned_value.lock().unwrap() = 2;
+                Ok(())
             })
             .expect("failed to execute job");
         assert_eq!(*value.lock().unwrap(), 1);

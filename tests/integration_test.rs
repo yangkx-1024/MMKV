@@ -12,7 +12,8 @@ fn integration_test() {
             ".",
             #[cfg(feature = "encryption")]
             "88C51C536176AD8A8EE4A06F62EE897E",
-        );
+        )
+        .unwrap();
         let result = mmkv.get("integration_test");
         if i == 0 {
             assert_eq!(result, Err(KeyNotFound));
@@ -26,7 +27,8 @@ fn integration_test() {
         ".",
         #[cfg(feature = "encryption")]
         "88C51C536176AD8A8EE4A06F62EE897E",
-    );
+    )
+    .unwrap();
     mmkv.clear_data().unwrap();
     let _ = fs::remove_file("mini_mmkv");
     let _ = fs::remove_file("mini_mmkv.meta");

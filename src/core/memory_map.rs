@@ -1,9 +1,12 @@
+use crate::Error::IOError;
+use crate::Result;
 use std::fs::File;
 use std::ops::{Deref, DerefMut, Range};
 use std::os::fd::{AsRawFd, RawFd};
 use std::ptr::NonNull;
 use std::{io, ptr, slice};
 
+const LOG_TAG: &str = "MMKV:MemoryMap";
 const LEN_OFFSET: usize = 8;
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -34,7 +37,8 @@ impl RawMmap {
             } else {
                 libc::madvise(ptr, len, libc::MADV_WILLNEED);
                 Ok(RawMmap {
-                    ptr: NonNull::new(ptr).unwrap(),
+                    ptr: NonNull::new(ptr)
+                        .ok_or_else(|| io::Error::other("mmap returned null pointer"))?,
                     len,
                 })
             }
@@ -84,24 +88,51 @@ pub struct MemoryMap(RawMmap);
 
 impl Drop for MemoryMap {
     fn drop(&mut self) {
-        self.0.flush(self.write_offset()).unwrap();
+        let flush_len = self.write_offset();
+        if flush_len > self.len() {
+            error!(
+                LOG_TAG,
+                "skip flushing invalid mmap range, flush len {}, max len {}",
+                flush_len,
+                self.len()
+            );
+            return;
+        }
+        if let Err(e) = self.0.flush(flush_len) {
+            error!(LOG_TAG, "failed to flush mmap on drop: {e}");
+        }
     }
 }
 
 impl MemoryMap {
-    pub fn new(file: &File, len: usize) -> Self {
-        let raw_mmap = RawMmap::new(file.as_raw_fd(), len).unwrap();
-        MemoryMap(raw_mmap)
+    pub fn new(file: &File, len: usize) -> Result<Self> {
+        let raw_mmap = RawMmap::new(file.as_raw_fd(), len)
+            .map_err(|e| IOError(format!("failed to create mmap with len {len}: {e}")))?;
+        Ok(MemoryMap(raw_mmap))
     }
 
-    pub fn append(&mut self, value: Vec<u8>) {
+    pub fn append(&mut self, value: Vec<u8>) -> Result<()> {
         let data_len = value.len();
         let start = self.write_offset();
         let content_len = start - LEN_OFFSET;
-        let end = data_len + start;
-        let new_content_len = data_len + content_len;
+        let end = start
+            .checked_add(data_len)
+            .ok_or_else(|| IOError("append overflowed target offset".to_string()))?;
+        if end > self.len() {
+            return Err(IOError(format!(
+                "append out of bounds, start {}, data len {}, end {}, mmap len {}",
+                start,
+                data_len,
+                end,
+                self.len()
+            )));
+        }
+        let new_content_len = content_len
+            .checked_add(data_len)
+            .ok_or_else(|| IOError("append overflowed content length".to_string()))?;
         self.0[0..LEN_OFFSET].copy_from_slice(new_content_len.to_be_bytes().as_slice());
         self.0[start..end].copy_from_slice(value.as_slice());
+        Ok(())
     }
 
     pub fn reset(&mut self) {
@@ -133,6 +164,8 @@ mod tests {
     use std::fs;
     use std::fs::OpenOptions;
 
+    use crate::Error::IOError;
+
     use super::{MemoryMap, LEN_OFFSET};
 
     #[test]
@@ -146,10 +179,10 @@ mod tests {
             .open("test_mmap")
             .unwrap();
         file.set_len(1024).unwrap();
-        let mut mm = MemoryMap::new(&file, 1024);
+        let mut mm = MemoryMap::new(&file, 1024).unwrap();
         assert_eq!(mm.write_offset(), LEN_OFFSET);
-        mm.append(vec![1, 2, 3]);
-        mm.append(vec![4]);
+        mm.append(vec![1, 2, 3]).unwrap();
+        mm.append(vec![4]).unwrap();
         assert_eq!(mm.write_offset(), 12);
 
         let read = mm.read(8..10);
@@ -160,7 +193,7 @@ mod tests {
         assert_eq!(read[0], 4);
 
         mm.reset();
-        mm.append(vec![5, 4, 3, 2, 1]);
+        mm.append(vec![5, 4, 3, 2, 1]).unwrap();
         assert_eq!(mm.write_offset(), 13);
         let read = mm.read(8..9);
         assert_eq!(read[0], 5);
@@ -168,5 +201,33 @@ mod tests {
         let read = mm.read(9..10);
         assert_eq!(read[0], 4);
         let _ = fs::remove_file("test_mmap");
+    }
+
+    #[test]
+    fn test_mmap_append_out_of_bounds() {
+        let _ = fs::remove_file("test_mmap_append_out_of_bounds");
+        let file = OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .read(true)
+            .open("test_mmap_append_out_of_bounds")
+            .unwrap();
+        file.set_len((LEN_OFFSET + 1) as u64).unwrap();
+        let mut mm = MemoryMap::new(&file, LEN_OFFSET + 1).unwrap();
+
+        let err = mm.append(vec![1, 2]).unwrap_err();
+        assert_eq!(
+            err,
+            IOError(format!(
+                "append out of bounds, start {}, data len {}, end {}, mmap len {}",
+                LEN_OFFSET,
+                2,
+                LEN_OFFSET + 2,
+                LEN_OFFSET + 1
+            ))
+        );
+
+        let _ = fs::remove_file("test_mmap_append_out_of_bounds");
     }
 }

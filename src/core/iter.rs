@@ -136,12 +136,13 @@ mod tests {
             .open(file_name)
             .unwrap();
         file.set_len(1024).unwrap();
-        let mut mm = MemoryMap::new(&file, 1024);
+        let mut mm = MemoryMap::new(&file, 1024).unwrap();
         let mut buffers: Vec<Buffer> = vec![];
         let test_encoder = &TestEncoderDecoder;
         for i in 0..10 {
             let buffer = Buffer::new(&i.to_string(), i);
-            mm.append(test_encoder.encode_to_bytes(&buffer, i as u32).unwrap());
+            mm.append(test_encoder.encode_to_bytes(&buffer, i as u32).unwrap())
+                .unwrap();
             buffers.push(buffer);
         }
         let decoder = &TestEncoderDecoder;

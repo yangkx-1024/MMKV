@@ -301,8 +301,13 @@ pub unsafe extern "C" fn new_instance(dir: *const c_char) -> *const c_void {
         // SAFETY: we assume ffi caller passed valid c_char
         CStr::from_ptr(dir)
     }.to_str().unwrap();
-    let mmkv = MMKV::new(dir_str);
-    Box::into_raw(Box::new(mmkv)) as *const c_void
+    match MMKV::new(dir_str) {
+        Ok(mmkv) => Box::into_raw(Box::new(mmkv)) as *const c_void,
+        Err(e) => {
+            error!(LOG_TAG, "failed to create MMKV instance for '{}': {:?}", dir_str, e);
+            std::ptr::null()
+        }
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -334,7 +339,9 @@ pub unsafe extern "C" fn clear_data(ptr: *const c_void) {
     let mmkv = unsafe {
         (ptr as *const MMKV).as_ref()
     }.unwrap();
-    mmkv.clear_data().unwrap();
+    if let Err(e) = mmkv.clear_data() {
+        error!(LOG_TAG, "failed to clear MMKV data: {:?}", e);
+    }
 }
 
 #[unsafe(no_mangle)]
