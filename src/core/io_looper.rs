@@ -49,7 +49,6 @@ impl<T: Callback> IOLooper<T> {
             .transpose()?;
         if let Some(handle) = self.executor.join_handle.take() {
             debug!(LOG_TAG, "waiting for remain tasks to finish");
-            drop(self.sender.take());
             handle
                 .join()
                 .map_err(|_| IOError("io thread dead unexpected".to_string()))?;
@@ -175,6 +174,8 @@ impl<T: Callback> Executor<T> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
@@ -242,5 +243,68 @@ mod tests {
         assert_eq!(*value.lock().unwrap(), 1);
         drop(io_looper);
         assert_eq!(*value.lock().unwrap(), 2);
+    }
+
+    #[test]
+    fn test_concurrent_post_and_quit_does_not_drop_accepted_jobs() {
+        struct CountingCallback {
+            executed: Arc<Mutex<Vec<usize>>>,
+        }
+
+        impl Callback for CountingCallback {}
+
+        let executed = Arc::new(Mutex::new(Vec::new()));
+        let io_looper = Arc::new(Mutex::new(IOLooper::new(CountingCallback {
+            executed: Arc::clone(&executed),
+        })));
+        let accepted = Arc::new(Mutex::new(Vec::new()));
+        let next_id = Arc::new(AtomicUsize::new(0));
+
+        let producer_count = 6;
+        let jobs_per_producer = 200;
+        let mut producers = Vec::with_capacity(producer_count);
+        for _ in 0..producer_count {
+            let io_looper = Arc::clone(&io_looper);
+            let accepted = Arc::clone(&accepted);
+            let next_id = Arc::clone(&next_id);
+            producers.push(thread::spawn(move || {
+                for _ in 0..jobs_per_producer {
+                    let job_id = next_id.fetch_add(1, Ordering::Relaxed);
+                    let result = io_looper.lock().unwrap().post(move |callback| {
+                        callback.executed.lock().unwrap().push(job_id);
+                        Ok(())
+                    });
+                    if result.is_ok() {
+                        accepted.lock().unwrap().push(job_id);
+                    } else {
+                        break;
+                    }
+                }
+            }));
+        }
+
+        let quit_looper = Arc::clone(&io_looper);
+        let quitter = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(2));
+            quit_looper.lock().unwrap().quit().unwrap();
+        });
+
+        for producer in producers {
+            producer.join().unwrap();
+        }
+        quitter.join().unwrap();
+
+        let accepted = accepted.lock().unwrap().clone();
+        let mut executed = executed.lock().unwrap().clone();
+        executed.sort_unstable();
+
+        let mut accepted_sorted = accepted.clone();
+        accepted_sorted.sort_unstable();
+
+        assert_eq!(accepted_sorted, executed);
+        assert_eq!(
+            accepted_sorted.iter().copied().collect::<HashSet<_>>().len(),
+            accepted_sorted.len()
+        );
     }
 }

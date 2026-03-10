@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock, Weak};
@@ -30,11 +31,11 @@ fn page_size() -> usize {
     }
 }
 
-static INSTANCE_MAP: Lazy<RwLock<HashMap<String, Weak<RwLock<MmkvImpl>>>>> =
+static INSTANCE_MAP: Lazy<RwLock<HashMap<PathBuf, Weak<RwLock<MmkvImpl>>>>> =
     Lazy::new(|| RwLock::new(HashMap::new()));
 
 pub struct MMKV {
-    path: String,
+    path: PathBuf,
     #[cfg(feature = "encryption")]
     key: String,
     mmkv_impl: Arc<RwLock<MmkvImpl>>,
@@ -68,11 +69,12 @@ impl MMKV {
     `88C51C536176AD8A8EE4A06F62EE897E`
     */
     pub fn new(dir: &str, #[cfg(feature = "encryption")] key: &str) -> Result<Self> {
+        let dir = MMKV::resolve_dir_path(dir)?;
         let instance_map = INSTANCE_MAP.read().unwrap();
-        if let Some(mmkv) = instance_map.get(dir).and_then(|mmkv| mmkv.upgrade()) {
+        if let Some(mmkv) = instance_map.get(&dir).and_then(|mmkv| mmkv.upgrade()) {
             debug!(LOG_TAG, "new MMKV from existing instance");
             return Ok(MMKV {
-                path: dir.to_string(),
+                path: dir.clone(),
                 #[cfg(feature = "encryption")]
                 key: key.to_string(),
                 mmkv_impl: mmkv,
@@ -82,47 +84,53 @@ impl MMKV {
 
         let mut instance_map = INSTANCE_MAP.write().unwrap();
         // Double check if other thread completed init
-        if let Some(mmkv) = instance_map.get(dir).and_then(|mmkv| mmkv.upgrade()) {
+        if let Some(mmkv) = instance_map.get(&dir).and_then(|mmkv| mmkv.upgrade()) {
             debug!(
                 LOG_TAG,
                 "new MMKV from existing instance after double check"
             );
             return Ok(MMKV {
-                path: dir.to_string(),
+                path: dir.clone(),
                 #[cfg(feature = "encryption")]
                 key: key.to_string(),
                 mmkv_impl: mmkv.clone(),
             });
         }
         // Init a new instance
-        let file_path = MMKV::resolve_file_path(dir)?;
+        let file_path = MMKV::resolve_file_path(&dir);
         let config = Config::new(file_path.as_path(), page_size() as u64)?;
         let mmkv_impl = Arc::new(RwLock::new(MmkvImpl::new(
             config,
             #[cfg(feature = "encryption")]
             key,
         )?));
-        instance_map.insert(dir.to_string(), Arc::downgrade(&mmkv_impl));
+        instance_map.insert(dir.clone(), Arc::downgrade(&mmkv_impl));
         Ok(MMKV {
-            path: dir.to_string(),
+            path: dir.clone(),
             #[cfg(feature = "encryption")]
             key: key.to_string(),
             mmkv_impl,
         })
     }
 
-    fn resolve_file_path(dir: &str) -> Result<PathBuf> {
+    fn resolve_dir_path(dir: &str) -> Result<PathBuf> {
         let path = Path::new(dir);
         if !path.is_dir() {
             return Err(IOError(format!("path {dir} is not dir")));
         }
-        let metadata = path
+        let canonical_dir = fs::canonicalize(path)
+            .map_err(|e| IOError(format!("failed to canonicalize dir {dir}: {e}")))?;
+        let metadata = canonical_dir
             .metadata()
             .map_err(|e| IOError(format!("failed to get attr of dir {dir}: {e}")))?;
         if metadata.permissions().readonly() {
             return Err(IOError(format!("path {dir} is readonly")));
         }
-        Ok(path.join(DEFAULT_FILE_NAME))
+        Ok(canonical_dir)
+    }
+
+    fn resolve_file_path(dir: &Path) -> PathBuf {
+        dir.join(DEFAULT_FILE_NAME)
     }
 
     /**
@@ -209,7 +217,7 @@ impl MMKV {
             .write()
             .map_err(|e| LockError(e.to_string()))?;
         mmkv_impl.clear_data()?;
-        let file_path = MMKV::resolve_file_path(&self.path)?;
+        let file_path = MMKV::resolve_file_path(&self.path);
         let config = Config::new(file_path.as_path(), page_size() as u64)?;
         *mmkv_impl = MmkvImpl::new(
             config,
@@ -276,6 +284,8 @@ impl MMKV {
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::sync::Arc;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     use crate::Error::KeyNotFound;
 
@@ -359,5 +369,36 @@ mod tests {
         mmkv.clear_data().unwrap();
         let _ = fs::remove_file("mini_mmkv");
         let _ = fs::remove_file("mini_mmkv.meta");
+    }
+
+    #[test]
+    fn test_instance_cache_uses_canonical_dir() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("mmkv_canonical_{unique}"));
+        fs::create_dir_all(&dir).unwrap();
+
+        let dir_with_trailing_slash = format!("{}/", dir.display());
+        let mmkv = MMKV::new(
+            dir.to_str().unwrap(),
+            #[cfg(feature = "encryption")]
+            "88C51C536176AD8A8EE4A06F62EE897E",
+        )
+        .unwrap();
+        let mmkv_same_dir = MMKV::new(
+            &dir_with_trailing_slash,
+            #[cfg(feature = "encryption")]
+            "88C51C536176AD8A8EE4A06F62EE897E",
+        )
+        .unwrap();
+
+        assert!(Arc::ptr_eq(&mmkv.mmkv_impl, &mmkv_same_dir.mmkv_impl));
+
+        mmkv.clear_data().unwrap();
+        drop(mmkv_same_dir);
+        drop(mmkv);
+        let _ = fs::remove_dir_all(&dir);
     }
 }
