@@ -267,4 +267,4 @@ jobs:
           } >> local.properties
           chmod +x gradlew
           ./gradlew clean
-          ./gradlew publish
+          ./gradlew publishAggregationToCentralPortal

@@ -1,25 +1,15 @@
 object Configuration {
     const val SNAPSHOT_VERSION = "$version-SNAPSHOT"
     const val RELEASE_VERSION = version
-    val libVersion: String
-        get() = if (System.getenv("CI")?.toBoolean() == true){
-            RELEASE_VERSION
-        } else {
-            SNAPSHOT_VERSION
-        }
     const val GROUP_ID = "net.yangkx"
     const val DESCRIPTION = "Library uses file-based mmap to store key-values"
-    private const val RELEASES_REPO_URL = "https://central.sonatype.com/api/v1/publisher"
-    private const val SNAPSHOTS_REPO_URL = "https://central.sonatype.com/repository/maven-snapshots"
-    val publishUrl = if (System.getenv("CI")?.toBoolean() == true) {
-        RELEASES_REPO_URL
-    } else {
-        SNAPSHOTS_REPO_URL
-    }
+    const val PROJECT_URL = "https://github.com/yangkx-1024/MMKV"
     val licenceApache = "The Apache License, Version 2.0" to "http://www.apache.org/licenses/LICENSE-2.0.txt"
     val licenceMit = "The MIT License" to "https://opensource.org/licenses/MIT"
     val developer = "Kexuan Yang" to "kexuan.yang@gmail.com"
-    const val SCM_URL = "https://github.com/yangkx-1024/MMKV"
+    const val SCM_URL = PROJECT_URL
+    const val SCM_CONNECTION = "scm:git:https://github.com/yangkx-1024/MMKV.git"
+    const val SCM_DEVELOPER_CONNECTION = "scm:git:ssh://git@github.com/yangkx-1024/MMKV.git"
 }
 
 object Deps {

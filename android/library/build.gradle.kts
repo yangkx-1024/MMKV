@@ -1,14 +1,22 @@
 import BuildUtil.loadProperties
+import BuildUtil.isCentralSnapshotsPublish
 import com.android.build.api.dsl.LibraryExtension
-import java.net.URI
 
 plugins {
     id("com.android.library")
     id("maven-publish")
     id("signing")
+    id("com.gradleup.nmcp")
+    id("com.gradleup.nmcp.aggregation")
 }
 
-project.loadProperties()
+loadProperties()
+
+val publicationVersion = if (isCentralSnapshotsPublish()) {
+    Configuration.SNAPSHOT_VERSION
+} else {
+    Configuration.RELEASE_VERSION
+}
 
 configure<LibraryExtension> {
     namespace = "net.yangkx.mmkv"
@@ -40,9 +48,8 @@ configure<LibraryExtension> {
     }
 }
 
-dependencies {
-    implementation(Deps.KOTLIN)
-}
+group = Configuration.GROUP_ID
+version = publicationVersion
 
 publishing {
     val artifactId = "mmkv"
@@ -50,7 +57,7 @@ publishing {
         register<MavenPublication>("release") {
             groupId = Configuration.GROUP_ID
             this.artifactId = artifactId
-            this.version = Configuration.libVersion
+            this.version = publicationVersion
 
             afterEvaluate {
                 from(components["release"])
@@ -58,6 +65,7 @@ publishing {
             pom {
                 name.set(artifactId)
                 description.set(Configuration.DESCRIPTION)
+                url.set(Configuration.PROJECT_URL)
                 licenses {
                     license {
                         name.set(Configuration.licenceApache.first)
@@ -76,18 +84,9 @@ publishing {
                 }
                 scm {
                     url.set(Configuration.SCM_URL)
+                    connection.set(Configuration.SCM_CONNECTION)
+                    developerConnection.set(Configuration.SCM_DEVELOPER_CONNECTION)
                 }
-            }
-        }
-    }
-    repositories {
-        maven {
-            url = URI(
-                Configuration.publishUrl
-            )
-            credentials {
-                username = project.ext.get("sonatypeUsername") as String?
-                password = project.ext.get("sonatypePassword") as String?
             }
         }
     }
@@ -95,4 +94,17 @@ publishing {
 
 signing {
     sign(publishing.publications)
+}
+
+nmcpAggregation {
+    centralPortal {
+        username.set(project.ext.get("sonatypeUsername")?.toString() ?: System.getenv("SONATYPEUSERNAME") ?: "")
+        password.set(project.ext.get("sonatypePassword")?.toString() ?: System.getenv("SONATYPEPASSWORD") ?: "")
+        publishingType = "AUTOMATIC"
+    }
+}
+
+dependencies {
+    implementation(Deps.KOTLIN)
+    nmcpAggregation(project)
 }
