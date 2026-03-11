@@ -30,11 +30,14 @@ class MMKVTest {
     @After
     fun clean() {
         mmkv?.clearData()
+        mmkv?.close()
+        mmkv = null
     }
 
     private fun initSdk() {
-        mmkv = null
-        System.runFinalization()
+        // Use explicit close instead of relying on JVM finalization so reopen tests
+        // actually exercise data persisted to disk.
+        mmkv?.close()
         mmkv = MMKVInitializer.init(appContext)
     }
 
@@ -168,6 +171,7 @@ class MMKVTest {
     @Test
     fun testMultiThread() {
         clean()
+        initSdk()
         MMKV.setLogLevel(LogLevel.VERBOSE)
         val threadArray = mutableListOf<Thread>()
         val repeatCount = 1000

@@ -8,7 +8,7 @@ import net.yangkx.mmkv.log.LoggerWrapper
  * @param dir a writeable directory, for example:
  * `context.getDir("mmkv", Context.MODE_PRIVATE)`
  */
-class MMKV(dir: String, key: String) {
+class MMKV(dir: String, key: String) : AutoCloseable {
     companion object {
 
         init {
@@ -23,7 +23,7 @@ class MMKV(dir: String, key: String) {
         private external fun initialize(dir: String, key: String): Long
 
         @JvmStatic
-        private external fun close(obj: Long): Long
+        private external fun close(obj: Long)
 
         @JvmStatic
         private external fun setLogLevel(int: Int)
@@ -46,10 +46,22 @@ class MMKV(dir: String, key: String) {
         }
     }
 
-    private val nativeObj: Long = initialize(dir, key)
+    @Volatile
+    private var nativeObj: Long = initialize(dir, key)
 
+    @Synchronized
+    override fun close() {
+        val ptr = nativeObj
+        if (ptr == 0L) {
+            return
+        }
+        nativeObj = 0L
+        close(ptr)
+    }
+
+    @Throws(Throwable::class)
     protected fun finalize() {
-        close(nativeObj)
+        close()
     }
 
     @Throws(NativeException::class)
