@@ -73,7 +73,7 @@ class MMKV(private val dir: String) : AutoCloseable {
     fun getString(key: String, default: String): String {
         return try {
             getString(key)
-        } catch (e: KeyNotFoundException) {
+        } catch (_: KeyNotFoundException) {
             default
         }
     }
@@ -87,7 +87,7 @@ class MMKV(private val dir: String) : AutoCloseable {
     fun getInt(key: String, default: Int): Int {
         return try {
             getInt(key)
-        } catch (e: KeyNotFoundException) {
+        } catch (_: KeyNotFoundException) {
             default
         }
     }
@@ -101,7 +101,7 @@ class MMKV(private val dir: String) : AutoCloseable {
     fun getBool(key: String, default: Boolean): Boolean {
         return try {
             getBool(key)
-        } catch (e: KeyNotFoundException) {
+        } catch (_: KeyNotFoundException) {
             default
         }
     }
@@ -115,7 +115,7 @@ class MMKV(private val dir: String) : AutoCloseable {
     fun getLong(key: String, default: Long): Long {
         return try {
             getLong(key)
-        } catch (e: KeyNotFoundException) {
+        } catch (_: KeyNotFoundException) {
             default
         }
     }
@@ -129,7 +129,7 @@ class MMKV(private val dir: String) : AutoCloseable {
     fun getFloat(key: String, default: Float): Float {
         return try {
             getFloat(key)
-        } catch (e: KeyNotFoundException) {
+        } catch (_: KeyNotFoundException) {
             default
         }
     }
@@ -143,7 +143,7 @@ class MMKV(private val dir: String) : AutoCloseable {
     fun getDouble(key: String, default: Double): Double {
         return try {
             getDouble(key)
-        } catch (e: KeyNotFoundException) {
+        } catch (_: KeyNotFoundException) {
             default
         }
     }
@@ -157,7 +157,7 @@ class MMKV(private val dir: String) : AutoCloseable {
     fun getByteArray(key: String, default: ByteArray): ByteArray {
         return try {
             getByteArray(key)
-        } catch (e: KeyNotFoundException) {
+        } catch (_: KeyNotFoundException) {
             default
         }
     }
@@ -171,7 +171,7 @@ class MMKV(private val dir: String) : AutoCloseable {
     fun getIntArray(key: String, default: IntArray): IntArray {
         return try {
             getIntArray(key)
-        } catch (e: KeyNotFoundException) {
+        } catch (_: KeyNotFoundException) {
             default
         }
     }
@@ -185,7 +185,7 @@ class MMKV(private val dir: String) : AutoCloseable {
     fun getLongArray(key: String, default: LongArray): LongArray {
         return try {
             getLongArray(key)
-        } catch (e: KeyNotFoundException) {
+        } catch (_: KeyNotFoundException) {
             default
         }
     }
@@ -199,7 +199,7 @@ class MMKV(private val dir: String) : AutoCloseable {
     fun getFloatArray(key: String, default: FloatArray): FloatArray {
         return try {
             getFloatArray(key)
-        } catch (e: KeyNotFoundException) {
+        } catch (_: KeyNotFoundException) {
             default
         }
     }
@@ -213,7 +213,7 @@ class MMKV(private val dir: String) : AutoCloseable {
     fun getDoubleArray(key: String, default: DoubleArray): DoubleArray {
         return try {
             getDoubleArray(key)
-        } catch (e: KeyNotFoundException) {
+        } catch (_: KeyNotFoundException) {
             default
         }
     }

@@ -1,8 +1,8 @@
 use crate::Logger;
 use crate::MMKV;
 use jni::objects::{
-    JByteArray, JClass, JDoubleArray, JFloatArray, JIntArray, JLongArray, JPrimitiveArray, JString,
-    JValue, TypeArray,
+    JByteArray, JClass, JDoubleArray, JFloatArray, JIntArray, JLongArray, JObject, JPrimitiveArray,
+    JString, JValue, TypeArray,
 };
 use jni::refs::Global;
 use jni::strings::JNIString;
@@ -12,7 +12,7 @@ use jni::sys::{
 };
 use jni::{jni_sig, jni_str, Env, EnvUnowned, JavaVM};
 use std::fmt::{Debug, Formatter};
-use std::sync::RwLock;
+use std::sync::OnceLock;
 
 const LOG_TAG: &str = "MMKV:Android";
 
@@ -25,13 +25,16 @@ fn env_str(env: &mut Env<'_>, name: JString) -> jni::errors::Result<String> {
     name.try_to_string(env)
 }
 
-fn get_mmkv<'obj>(env: &mut Env<'_>, obj: &JClass<'obj>) -> jni::errors::Result<&'obj MMKV> {
+fn get_mmkv<'obj>(env: &mut Env<'_>, obj: &JObject<'obj>) -> jni::errors::Result<&'obj MMKV> {
     let j_value = env.get_field(obj, jni_str!("nativeObj"), jni_sig!("J"))?;
-    let j = j_value.j()?;
-    let ptr = j as *mut MMKV;
-    unsafe {
-        // SAFETY: we assume ffi caller passed valid MMKV ptr
-        Ok(ptr.as_ref().unwrap())
+    let handle = j_value.j()?;
+    if handle == 0 {
+        Err(jni::errors::Error::NullPtr("invalid mmkv ptr"))
+    } else {
+        unsafe {
+            // SAFETY: we assume ffi caller passed valid MMKV ptr
+            Ok(&*(handle as *mut MMKV))
+        }
     }
 }
 
@@ -55,122 +58,192 @@ macro_rules! native_to_jarray {
     }};
 }
 
-macro_rules! mmkv_put {
-    ($env:expr, $mmkv:ident, $key:expr, $value:expr, JString) => {
-        $mmkv.put(&$key, env_str($env, $value)?.as_str())
+trait JniPutValue {
+    fn put_into(
+        self,
+        env: &mut Env<'_>,
+        mmkv: &MMKV,
+        key: &str,
+    ) -> jni::errors::Result<crate::Result<()>>;
+}
+
+macro_rules! impl_jni_put_passthrough {
+    ($($ty:ty),+ $(,)?) => {
+        $(
+            impl JniPutValue for $ty {
+                fn put_into(
+                    self,
+                    _: &mut Env<'_>,
+                    mmkv: &MMKV,
+                    key: &str,
+                ) -> jni::errors::Result<crate::Result<()>> {
+                    Ok(mmkv.put(key, self))
+                }
+            }
+        )+
     };
-    ($env:expr, $mmkv:ident, $key:expr, $value:expr, jint) => {
-        $mmkv.put(&$key, $value)
+}
+
+impl_jni_put_passthrough!(jint, jboolean, jlong, jfloat, jdouble);
+
+impl<'local> JniPutValue for JString<'local> {
+    fn put_into(
+        self,
+        env: &mut Env<'_>,
+        mmkv: &MMKV,
+        key: &str,
+    ) -> jni::errors::Result<crate::Result<()>> {
+        let value = env_str(env, self)?;
+        Ok(mmkv.put(key, value.as_str()))
+    }
+}
+
+macro_rules! impl_jni_put_primitive_array {
+    ($jni_type:ty, $default:expr) => {
+        impl<'local> JniPutValue for $jni_type {
+            fn put_into(
+                self,
+                env: &mut Env<'_>,
+                mmkv: &MMKV,
+                key: &str,
+            ) -> jni::errors::Result<crate::Result<()>> {
+                let values = jprimary_array_to_native(env, self, $default)?;
+                Ok(mmkv.put(key, values.as_slice()))
+            }
+        }
     };
-    ($env:expr, $mmkv:ident, $key:expr, $value:expr, jboolean) => {
-        $mmkv.put(&$key, $value)
-    };
-    ($env:expr, $mmkv:ident, $key:expr, $value:expr, jlong) => {
-        $mmkv.put(&$key, $value)
-    };
-    ($env:expr, $mmkv:ident, $key:expr, $value:expr, jfloat) => {
-        $mmkv.put(&$key, $value)
-    };
-    ($env:expr, $mmkv:ident, $key:expr, $value:expr, jdouble) => {
-        $mmkv.put(&$key, $value)
-    };
-    ($env:expr, $mmkv:ident, $key:expr, $value:expr, JByteArray) => {{
-        let vec = jprimary_array_to_native($env, $value, 0)?;
+}
+
+impl<'local> JniPutValue for JByteArray<'local> {
+    fn put_into(
+        self,
+        env: &mut Env<'_>,
+        mmkv: &MMKV,
+        key: &str,
+    ) -> jni::errors::Result<crate::Result<()>> {
+        let vec = jprimary_array_to_native(env, self, 0)?;
         let byte_array: Vec<u8> = vec.into_iter().map(|item| item as u8).collect();
-        $mmkv.put(&$key, byte_array.as_slice())
-    }};
-    ($env:expr, $mmkv:ident, $key:expr, $value:expr, JIntArray) => {
-        $mmkv.put(&$key, jprimary_array_to_native($env, $value, 0)?.as_slice())
-    };
-    ($env:expr, $mmkv:ident, $key:expr, $value:expr, JLongArray) => {
-        $mmkv.put(&$key, jprimary_array_to_native($env, $value, 0)?.as_slice())
-    };
-    ($env:expr, $mmkv:ident, $key:expr, $value:expr, JFloatArray) => {
-        $mmkv.put(
-            &$key,
-            jprimary_array_to_native($env, $value, 0.0)?.as_slice(),
-        )
-    };
-    ($env:expr, $mmkv:ident, $key:expr, $value:expr, JDoubleArray) => {
-        $mmkv.put(
-            &$key,
-            jprimary_array_to_native($env, $value, 0.0)?.as_slice(),
-        )
+        Ok(mmkv.put(key, byte_array.as_slice()))
+    }
+}
+
+impl_jni_put_primitive_array!(JIntArray<'local>, 0);
+impl_jni_put_primitive_array!(JLongArray<'local>, 0);
+impl_jni_put_primitive_array!(JFloatArray<'local>, 0.0);
+impl_jni_put_primitive_array!(JDoubleArray<'local>, 0.0);
+
+trait JniGetKind {
+    type JniType;
+    type Stored;
+
+    fn get_from(mmkv: &MMKV, key: &str) -> crate::Result<Self::Stored>;
+    fn build_jni(env: &mut Env<'_>, value: Self::Stored) -> jni::errors::Result<Self::JniType>;
+}
+
+struct JniStringKind;
+struct JniIntKind;
+struct JniBoolKind;
+struct JniLongKind;
+struct JniFloatKind;
+struct JniDoubleKind;
+struct JniByteArrayKind;
+struct JniIntArrayKind;
+struct JniLongArrayKind;
+struct JniFloatArrayKind;
+struct JniDoubleArrayKind;
+
+macro_rules! impl_jni_get_passthrough {
+    ($($kind:ty, $jni_type:ty, $stored_type:ty),+ $(,)?) => {
+        $(
+            impl JniGetKind for $kind {
+                type JniType = $jni_type;
+                type Stored = $stored_type;
+
+                fn get_from(mmkv: &MMKV, key: &str) -> crate::Result<Self::Stored> {
+                    mmkv.get::<$stored_type>(key)
+                }
+
+                fn build_jni(
+                    _: &mut Env<'_>,
+                    value: Self::Stored,
+                ) -> jni::errors::Result<Self::JniType> {
+                    Ok(value as $jni_type)
+                }
+            }
+        )+
     };
 }
 
-macro_rules! mmkv_get {
-    ($env:expr, $mmkv:ident, $key:expr, jstring) => {
-        $mmkv.get::<String>(&$key)
-    };
-    ($env:expr, $mmkv:ident, $key:expr, jint) => {
-        $mmkv.get::<i32>(&$key)
-    };
-    ($env:expr, $mmkv:ident, $key:expr, jboolean) => {
-        $mmkv.get::<bool>(&$key)
-    };
-    ($env:expr, $mmkv:ident, $key:expr, jlong) => {
-        $mmkv.get::<i64>(&$key)
-    };
-    ($env:expr, $mmkv:ident, $key:expr, jfloat) => {
-        $mmkv.get::<f32>(&$key)
-    };
-    ($env:expr, $mmkv:ident, $key:expr, jdouble) => {
-        $mmkv.get::<f64>(&$key)
-    };
-    ($env:expr, $mmkv:ident, $key:expr, jbyteArray) => {
-        $mmkv.get::<Vec<u8>>(&$key)
-    };
-    ($env:expr, $mmkv:ident, $key:expr, jintArray) => {
-        $mmkv.get::<Vec<i32>>(&$key)
-    };
-    ($env:expr, $mmkv:ident, $key:expr, jlongArray) => {
-        $mmkv.get::<Vec<i64>>(&$key)
-    };
-    ($env:expr, $mmkv:ident, $key:expr, jfloatArray) => {
-        $mmkv.get::<Vec<f32>>(&$key)
-    };
-    ($env:expr, $mmkv:ident, $key:expr, jdoubleArray) => {
-        $mmkv.get::<Vec<f64>>(&$key)
+impl JniGetKind for JniStringKind {
+    type JniType = jstring;
+    type Stored = String;
+
+    fn get_from(mmkv: &MMKV, key: &str) -> crate::Result<Self::Stored> {
+        mmkv.get::<String>(key)
+    }
+
+    fn build_jni(env: &mut Env<'_>, value: Self::Stored) -> jni::errors::Result<Self::JniType> {
+        Ok(env.new_string(&value)?.into_raw())
+    }
+}
+
+impl_jni_get_passthrough!(
+    JniIntKind,
+    jint,
+    i32,
+    JniBoolKind,
+    jboolean,
+    bool,
+    JniLongKind,
+    jlong,
+    i64,
+    JniFloatKind,
+    jfloat,
+    f32,
+    JniDoubleKind,
+    jdouble,
+    f64
+);
+
+macro_rules! impl_jni_get_array {
+    ($kind:ty, $jni_type:ty, $stored_type:ty, $new_op:ident) => {
+        impl JniGetKind for $kind {
+            type JniType = $jni_type;
+            type Stored = Vec<$stored_type>;
+
+            fn get_from(mmkv: &MMKV, key: &str) -> crate::Result<Self::Stored> {
+                mmkv.get::<Vec<$stored_type>>(key)
+            }
+
+            fn build_jni(
+                env: &mut Env<'_>,
+                value: Self::Stored,
+            ) -> jni::errors::Result<Self::JniType> {
+                let value: Vec<$stored_type> = value;
+                Ok(native_to_jarray!(env, value, $new_op))
+            }
+        }
     };
 }
 
-macro_rules! transform_value {
-    ($env:expr, jstring, $value:expr) => {
-        $env.new_string($value)?.into_raw()
-    };
-    ($env:expr, jint, $value:expr) => {
-        $value as jint
-    };
-    ($env:expr, jboolean, $value:expr) => {
-        $value as jboolean
-    };
-    ($env:expr, jlong, $value:expr) => {
-        $value as jlong
-    };
-    ($env:expr, jfloat, $value:expr) => {
-        $value as jfloat
-    };
-    ($env:expr, jdouble, $value:expr) => {
-        $value as jdouble
-    };
-    ($env:expr, jbyteArray, $value:expr) => {{
-        let vec: Vec<i8> = $value.into_iter().map(|item| item as i8).collect();
-        native_to_jarray!($env, vec, new_byte_array)
-    }};
-    ($env:expr, jintArray, $value:expr) => {
-        native_to_jarray!($env, $value, new_int_array)
-    };
-    ($env:expr, jlongArray, $value:expr) => {
-        native_to_jarray!($env, $value, new_long_array)
-    };
-    ($env:expr, jfloatArray, $value:expr) => {
-        native_to_jarray!($env, $value, new_float_array)
-    };
-    ($env:expr, jdoubleArray, $value:expr) => {
-        native_to_jarray!($env, $value, new_double_array)
-    };
+impl JniGetKind for JniByteArrayKind {
+    type JniType = jbyteArray;
+    type Stored = Vec<u8>;
+
+    fn get_from(mmkv: &MMKV, key: &str) -> crate::Result<Self::Stored> {
+        mmkv.get::<Vec<u8>>(key)
+    }
+
+    fn build_jni(env: &mut Env<'_>, value: Self::Stored) -> jni::errors::Result<Self::JniType> {
+        let vec: Vec<i8> = value.into_iter().map(|item| item as i8).collect();
+        Ok(native_to_jarray!(env, vec, new_byte_array))
+    }
 }
+
+impl_jni_get_array!(JniIntArrayKind, jintArray, i32, new_int_array);
+impl_jni_get_array!(JniLongArrayKind, jlongArray, i64, new_long_array);
+impl_jni_get_array!(JniFloatArrayKind, jfloatArray, f32, new_float_array);
+impl_jni_get_array!(JniDoubleArrayKind, jdoubleArray, f64, new_double_array);
 
 macro_rules! impl_java_put {
     ($name:ident, $value_type:tt, $log_type:literal) => {
@@ -178,7 +251,7 @@ macro_rules! impl_java_put {
         #[allow(non_snake_case)]
         pub unsafe extern "C" fn $name(
             mut env: EnvUnowned,
-            obj: JClass,
+            obj: JObject,
             key: JString,
             value: $value_type,
         ) {
@@ -186,7 +259,7 @@ macro_rules! impl_java_put {
                 .with_env_no_catch(|env| -> jni::errors::Result<()> {
                     let mmkv = get_mmkv(env, &obj)?;
                     let key = env_str(env, key)?;
-                    match mmkv_put!(env, mmkv, key, value, $value_type) {
+                    match value.put_into(env, &mmkv, &key)? {
                         Err(e) => {
                             let log_str = format!(
                                 "failed to put {} for key {}, reason {:?}",
@@ -210,22 +283,22 @@ macro_rules! impl_java_put {
 }
 
 macro_rules! impl_java_get {
-    ($name:ident, $value_type:tt, $log_type:literal, $default:expr) => {
+    ($name:ident, $value_type:tt, $get_kind:ty, $log_type:literal, $default:expr) => {
         #[unsafe(no_mangle)]
         #[allow(non_snake_case)]
         pub unsafe extern "C" fn $name(
             mut env: EnvUnowned,
-            obj: JClass,
+            obj: JObject,
             key: JString,
         ) -> $value_type {
             let outcome = env
                 .with_env_no_catch(|env| -> jni::errors::Result<$value_type> {
                     let mmkv = get_mmkv(env, &obj)?;
                     let key = env_str(env, key)?;
-                    match mmkv_get!(env, mmkv, key, $value_type) {
+                    match <$get_kind as JniGetKind>::get_from(&mmkv, &key) {
                         Ok(value) => {
                             verbose!(LOG_TAG, "found {} with key '{}'", $log_type, key);
-                            Ok(transform_value!(env, $value_type, value))
+                            <$get_kind as JniGetKind>::build_jni(env, value)
                         }
                         Err(e) => {
                             let log_str = format!(
@@ -250,34 +323,151 @@ macro_rules! impl_java_get {
     };
 }
 
-static JAVA_CLASS: RwLock<Option<Global<JClass<'static>>>> = RwLock::new(None);
+macro_rules! for_each_mmkv_type {
+    ($macro:ident) => {
+        $macro!(
+            Java_net_yangkx_mmkv_MMKV_putString,
+            Java_net_yangkx_mmkv_MMKV_getString,
+            JString,
+            jstring,
+            JniStringKind,
+            "string",
+            std::ptr::null_mut()
+        );
+        $macro!(
+            Java_net_yangkx_mmkv_MMKV_putInt,
+            Java_net_yangkx_mmkv_MMKV_getInt,
+            jint,
+            jint,
+            JniIntKind,
+            "int",
+            0
+        );
+        $macro!(
+            Java_net_yangkx_mmkv_MMKV_putBool,
+            Java_net_yangkx_mmkv_MMKV_getBool,
+            jboolean,
+            jboolean,
+            JniBoolKind,
+            "bool",
+            false
+        );
+        $macro!(
+            Java_net_yangkx_mmkv_MMKV_putLong,
+            Java_net_yangkx_mmkv_MMKV_getLong,
+            jlong,
+            jlong,
+            JniLongKind,
+            "long",
+            0
+        );
+        $macro!(
+            Java_net_yangkx_mmkv_MMKV_putFloat,
+            Java_net_yangkx_mmkv_MMKV_getFloat,
+            jfloat,
+            jfloat,
+            JniFloatKind,
+            "float",
+            0.0
+        );
+        $macro!(
+            Java_net_yangkx_mmkv_MMKV_putDouble,
+            Java_net_yangkx_mmkv_MMKV_getDouble,
+            jdouble,
+            jdouble,
+            JniDoubleKind,
+            "double",
+            0.0
+        );
+        $macro!(
+            Java_net_yangkx_mmkv_MMKV_putByteArray,
+            Java_net_yangkx_mmkv_MMKV_getByteArray,
+            JByteArray,
+            jbyteArray,
+            JniByteArrayKind,
+            "byte array",
+            std::ptr::null_mut()
+        );
+        $macro!(
+            Java_net_yangkx_mmkv_MMKV_putIntArray,
+            Java_net_yangkx_mmkv_MMKV_getIntArray,
+            JIntArray,
+            jintArray,
+            JniIntArrayKind,
+            "int array",
+            std::ptr::null_mut()
+        );
+        $macro!(
+            Java_net_yangkx_mmkv_MMKV_putLongArray,
+            Java_net_yangkx_mmkv_MMKV_getLongArray,
+            JLongArray,
+            jlongArray,
+            JniLongArrayKind,
+            "long array",
+            std::ptr::null_mut()
+        );
+        $macro!(
+            Java_net_yangkx_mmkv_MMKV_putFloatArray,
+            Java_net_yangkx_mmkv_MMKV_getFloatArray,
+            JFloatArray,
+            jfloatArray,
+            JniFloatArrayKind,
+            "float array",
+            std::ptr::null_mut()
+        );
+        $macro!(
+            Java_net_yangkx_mmkv_MMKV_putDoubleArray,
+            Java_net_yangkx_mmkv_MMKV_getDoubleArray,
+            JDoubleArray,
+            jdoubleArray,
+            JniDoubleArrayKind,
+            "double array",
+            std::ptr::null_mut()
+        );
+    };
+}
+
+macro_rules! define_java_accessors {
+    (
+        $put_name:ident,
+        $get_name:ident,
+        $put_type:tt,
+        $get_type:tt,
+        $get_kind:ty,
+        $log_type:literal,
+        $default:expr
+    ) => {
+        impl_java_put!($put_name, $put_type, $log_type);
+        impl_java_get!($get_name, $get_type, $get_kind, $log_type, $default);
+    };
+}
+
+static JAVA_LOGGER_CLASS: OnceLock<Global<JClass<'static>>> = OnceLock::new();
 
 struct AndroidLogger {
     jvm: JavaVM,
 }
 
 impl AndroidLogger {
-    fn new(jvm: JavaVM) -> Self {
+    fn new(jvm: JavaVM) -> jni::errors::Result<Self> {
         jvm.attach_current_thread(|env| -> jni::errors::Result<()> {
             let clz = env.find_class(JNIString::from(ANDROID_LOGGER_CLASS_NAME))?;
             let global_ref = env.new_global_ref(clz)?;
-            JAVA_CLASS.write().unwrap().replace(global_ref);
+            let _ = JAVA_LOGGER_CLASS.set(global_ref);
             Ok(())
-        })
-        .unwrap();
-        AndroidLogger { jvm }
+        })?;
+        Ok(AndroidLogger { jvm })
     }
 
     fn call_java(&self, method: &str, param: String) {
         self.jvm
             .attach_current_thread(|env| -> jni::errors::Result<()> {
-                let local_ref = {
-                    let lock = JAVA_CLASS.read().unwrap();
-                    env.new_local_ref(lock.as_ref().unwrap())?
-                };
+                let class = JAVA_LOGGER_CLASS
+                    .get()
+                    .ok_or(jni::errors::Error::NullPtr("Call attachLogger first"))?;
                 let param = env.new_string(&param)?;
                 env.call_static_method(
-                    local_ref,
+                    class,
                     JNIString::from(method),
                     jni_sig!("(Ljava/lang/String;)V"),
                     &[JValue::Object(&param)],
@@ -322,7 +512,7 @@ pub unsafe extern "C" fn Java_net_yangkx_mmkv_MMKV_attachLogger(mut env: EnvUnow
     let _ = env
         .with_env_no_catch(|env| -> jni::errors::Result<()> {
             let jvm = env.get_java_vm()?;
-            MMKV::set_logger(Box::new(AndroidLogger::new(jvm)));
+            MMKV::set_logger(Box::new(AndroidLogger::new(jvm)?));
             Ok(())
         })
         .into_outcome();
@@ -368,105 +558,13 @@ pub unsafe extern "C" fn Java_net_yangkx_mmkv_MMKV_initialize(
     }
 }
 
-impl_java_put!(Java_net_yangkx_mmkv_MMKV_putString, JString, "string");
-
-impl_java_put!(Java_net_yangkx_mmkv_MMKV_putInt, jint, "i32");
-
-impl_java_put!(Java_net_yangkx_mmkv_MMKV_putBool, jboolean, "bool");
-
-impl_java_put!(Java_net_yangkx_mmkv_MMKV_putLong, jlong, "long");
-
-impl_java_put!(Java_net_yangkx_mmkv_MMKV_putFloat, jfloat, "float");
-
-impl_java_put!(Java_net_yangkx_mmkv_MMKV_putDouble, jdouble, "double");
-
-impl_java_put!(
-    Java_net_yangkx_mmkv_MMKV_putByteArray,
-    JByteArray,
-    "byte array"
-);
-
-impl_java_put!(
-    Java_net_yangkx_mmkv_MMKV_putIntArray,
-    JIntArray,
-    "int array"
-);
-
-impl_java_put!(
-    Java_net_yangkx_mmkv_MMKV_putLongArray,
-    JLongArray,
-    "long array"
-);
-
-impl_java_put!(
-    Java_net_yangkx_mmkv_MMKV_putFloatArray,
-    JFloatArray,
-    "float array"
-);
-
-impl_java_put!(
-    Java_net_yangkx_mmkv_MMKV_putDoubleArray,
-    JDoubleArray,
-    "double array"
-);
-
-impl_java_get!(
-    Java_net_yangkx_mmkv_MMKV_getString,
-    jstring,
-    "string",
-    std::ptr::null_mut()
-);
-
-impl_java_get!(Java_net_yangkx_mmkv_MMKV_getInt, jint, "int", 0);
-
-impl_java_get!(Java_net_yangkx_mmkv_MMKV_getBool, jboolean, "bool", false);
-
-impl_java_get!(Java_net_yangkx_mmkv_MMKV_getLong, jlong, "long", 0);
-
-impl_java_get!(Java_net_yangkx_mmkv_MMKV_getFloat, jfloat, "float", 0.0);
-
-impl_java_get!(Java_net_yangkx_mmkv_MMKV_getDouble, jdouble, "double", 0.0);
-
-impl_java_get!(
-    Java_net_yangkx_mmkv_MMKV_getByteArray,
-    jbyteArray,
-    "byte array",
-    std::ptr::null_mut()
-);
-
-impl_java_get!(
-    Java_net_yangkx_mmkv_MMKV_getIntArray,
-    jintArray,
-    "int array",
-    std::ptr::null_mut()
-);
-
-impl_java_get!(
-    Java_net_yangkx_mmkv_MMKV_getLongArray,
-    jlongArray,
-    "long array",
-    std::ptr::null_mut()
-);
-
-impl_java_get!(
-    Java_net_yangkx_mmkv_MMKV_getFloatArray,
-    jfloatArray,
-    "float array",
-    std::ptr::null_mut()
-);
-
-impl_java_get!(
-    Java_net_yangkx_mmkv_MMKV_getDoubleArray,
-    jdoubleArray,
-    "double array",
-    std::ptr::null_mut()
-);
+for_each_mmkv_type!(define_java_accessors);
 
 #[unsafe(no_mangle)]
 #[allow(non_snake_case)]
 pub unsafe extern "C" fn Java_net_yangkx_mmkv_MMKV_delete(
     mut env: EnvUnowned,
-    obj: JClass,
+    obj: JObject,
     key: JString,
 ) {
     let _ = env
@@ -515,7 +613,7 @@ pub unsafe extern "C" fn Java_net_yangkx_mmkv_MMKV_setLogLevel(
 
 #[unsafe(no_mangle)]
 #[allow(non_snake_case)]
-pub unsafe extern "C" fn Java_net_yangkx_mmkv_MMKV_clearData(mut env: EnvUnowned, obj: JClass) {
+pub unsafe extern "C" fn Java_net_yangkx_mmkv_MMKV_clearData(mut env: EnvUnowned, obj: JObject) {
     let _ = env
         .with_env_no_catch(|env| -> jni::errors::Result<()> {
             let mmkv = get_mmkv(env, &obj)?;
