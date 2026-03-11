@@ -13,7 +13,7 @@ on:
           - minor
           - major
       version:
-        description: "Optional explicit version (e.g. 1.2.3 or v1.2.3)"
+        description: "Optional explicit version (e.g. 1.2.3)"
         required: false
         type: string
       prerelease:
@@ -45,9 +45,8 @@ jobs:
 
           git fetch --tags --force
 
-          latest_tag="$(git tag --list 'v*' --sort=-version:refname | head -n 1 || true)"
+          latest_tag="$(git tag --list --sort=-version:refname | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 || true)"
           if [ -n "$latest_tag" ]; then
-            base="${latest_tag#v}"
             range="${latest_tag}..HEAD"
           else
             base="0.0.0"
@@ -64,7 +63,6 @@ jobs:
 
           if [ -n "${{ inputs.version }}" ]; then
             explicit="${{ inputs.version }}"
-            explicit="${explicit#v}"
             if [[ ! "$explicit" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
               echo "Invalid explicit version: $explicit"
               exit 1
@@ -93,7 +91,7 @@ jobs:
             next="${major}.${minor}.${patch}"
           fi
 
-          new_tag="v${next}"
+          new_tag="${next}"
           if git rev-parse "$new_tag" >/dev/null 2>&1; then
             echo "Tag already exists: $new_tag"
             exit 1
@@ -136,7 +134,7 @@ jobs:
       - name: Patch release version files
         run: |
           tag='${{ steps.prepare.outputs.new_tag }}'
-          version="${tag#v}"
+          version="${tag}"
           checksum='${{ steps.checksum.outputs.value }}'
           url="https://github.com/${{ github.repository }}/releases/download/${tag}/RustMMKV.xcframework.zip"
           replacement=".binaryTarget(name: \"RustMMKV\", url: \"${url}\", checksum: \"${checksum}\")"
