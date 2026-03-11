@@ -47,6 +47,7 @@ jobs:
 
           latest_tag="$(git tag --list --sort=-version:refname | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 || true)"
           if [ -n "$latest_tag" ]; then
+            base="$latest_tag"
             range="${latest_tag}..HEAD"
           else
             base="0.0.0"
