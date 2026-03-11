@@ -30,7 +30,7 @@ jobs:
       - name: Build
         run: |
           ./build_apple.sh
-          perl -0777 -i -pe 's/\.binaryTarget\(name: "RustMMKV".*?\)/.binaryTarget(name: "RustMMKV", path: "ios\/MMKV\/RustMMKV.xcframework.zip")/gs' Package.swift
+          perl -0777 -i -pe 's/\.binaryTarget\(\s*name:\s*"RustMMKV".*?\)/.binaryTarget(name: "RustMMKV", path: "ios\/MMKV\/RustMMKV.xcframework.zip")/gs' Package.swift
           cd ios/MMKV && swift build
       - name: Run tests
         run: |

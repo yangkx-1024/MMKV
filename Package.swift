@@ -17,8 +17,8 @@ let package = Package(
         // Targets can depend on other targets in this package and products from dependencies.
         .binaryTarget(
             name: "RustMMKV",
-            url: "https://github.com/yangkx-1024/MMKV/releases/download/0.6.0/RustMMKV.xcframework.zip",
-            checksum: "2d7ebfddd72c2efa2d3b71bbd3a7c758504dfdfe9b305de9a9b1428e66d91c5b"
+            url: "https://github.com/yangkx-1024/MMKV/releases/download/0.7.0/RustMMKV.xcframework.zip",
+            checksum: "66002849b50d9e8de0252a5b2bbd40edc2252351502dcfcf763e54fc263b2ceb"
         ),
         .target(
             name: "MMKV",

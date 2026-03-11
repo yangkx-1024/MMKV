@@ -148,7 +148,7 @@ jobs:
           checksum='${{ steps.checksum.outputs.value }}'
           url="https://github.com/${{ github.repository }}/releases/download/${tag}/RustMMKV.xcframework.zip"
           replacement=".binaryTarget(name: \"RustMMKV\", url: \"${url}\", checksum: \"${checksum}\")"
-          REPLACEMENT="$replacement" perl -0777 -i -pe 's/\.binaryTarget\(name: "RustMMKV".*?\)/$ENV{REPLACEMENT}/gs' Package.swift
+          REPLACEMENT="$replacement" perl -0777 -i -pe 's/\.binaryTarget\(\s*name:\s*"RustMMKV".*?\)/$ENV{REPLACEMENT}/gs' Package.swift
 
       - name: Commit and push release version files
         run: |
