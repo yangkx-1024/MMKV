@@ -3,7 +3,7 @@ mod ffi_buffer;
 use crate::{Error, LogLevel, Logger, MMKV};
 use ffi_buffer::{Leakable, Releasable};
 use mmkv_proc_macro_lib::Leakable;
-use std::ffi::{CStr, c_void};
+use std::ffi::{c_void, CStr};
 use std::fmt::Debug;
 use std::os::raw::c_char;
 
@@ -222,15 +222,24 @@ macro_rules! impl_put {
                 // SAFETY: we assume ffi caller passed valid mmkv pointer
                 (ptr as *const MMKV).as_ref()
             }.unwrap();
-            let key_str = unsafe {
+            let key_str_result = unsafe {
                 // SAFETY: we assume ffi caller passed valid c_char
                 CStr::from_ptr(key)
-            }.to_str().unwrap();
+            }.to_str();
             let mut result = RawBuffer::new($type_token);
-            match mmkv.put(key_str, to_mmkv_value!(value, $value_type)) {
-                Err(e) => result.set_error(map_error(key_str, e, $log)),
-                Ok(()) => {
-                    verbose!(LOG_TAG, "{} for key '{}' success", $log, key_str);
+            match key_str_result {
+                Ok(key_str) => {
+                    match mmkv.put(key_str, to_mmkv_value!(value, $value_type)) {
+                        Err(e) => result.set_error(map_error(key_str, e, $log)),
+                        Ok(()) => {
+                            verbose!(LOG_TAG, "{} for key '{}' success", $log, key_str);
+                        }
+                    }
+                },
+                Err(e) => {
+                    let log_str = format!("Invalid key: {:?}", e);
+                    error!(LOG_TAG, "{}", &log_str);
+                    result.set_error(InternalError::new(-1, Some(log_str)));
                 }
             }
             result.leak()
@@ -253,15 +262,24 @@ macro_rules! impl_put_typed_array {
                 // SAFETY: we assume ffi caller passed valid mmkv pointer
                 (ptr as *const MMKV).as_ref()
             }.unwrap();
-            let key_str = unsafe {
+            let key_str_result = unsafe {
                 // SAFETY: we assume ffi caller passed valid c_char
                 CStr::from_ptr(key)
-            }.to_str().unwrap();
+            }.to_str();
             let mut result = RawBuffer::new($type_token);
-            match mmkv.put(key_str, to_mmkv_value!(value, len, $value_type)) {
-                Err(e) => result.set_error(map_error(key_str, e, $log)),
-                Ok(()) => {
-                    verbose!(LOG_TAG, "{} for key '{}' success", $log, key_str);
+            match key_str_result {
+                Ok(key_str) => {
+                    match mmkv.put(key_str, to_mmkv_value!(value, len, $value_type)) {
+                        Err(e) => result.set_error(map_error(key_str, e, $log)),
+                        Ok(()) => {
+                            verbose!(LOG_TAG, "{} for key '{}' success", $log, key_str);
+                        }
+                    }
+                },
+                Err(e) => {
+                    let log_str = format!("Invalid key: {:?}", e);
+                    error!(LOG_TAG, "{}", &log_str);
+                    result.set_error(InternalError::new(-1, Some(log_str)));
                 }
             }
             result.leak()
@@ -279,16 +297,25 @@ macro_rules! impl_get {
                 // SAFETY: we assume ffi caller passed valid mmkv pointer
                 (ptr as *const MMKV).as_ref()
             }.unwrap();
-            let key_str = unsafe {
+            let key_str_result = unsafe {
                 // SAFETY: we assume ffi caller passed valid c_char
                 CStr::from_ptr(key)
-            }.to_str().unwrap();
+            }.to_str();
             let mut result = RawBuffer::new($type_token);
-            match mmkv_get!(mmkv, key_str, $value_type) {
-                Err(e) => result.set_error(map_error(key_str, e, $log)),
-                Ok(value) => {
-                    verbose!(LOG_TAG, "{} for key '{}' success", $log, key_str);
-                    result.set_data(value);
+            match key_str_result {
+                Ok(key_str) => {
+                    match mmkv_get!(mmkv, key_str, $value_type) {
+                        Err(e) => result.set_error(map_error(key_str, e, $log)),
+                        Ok(value) => {
+                            verbose!(LOG_TAG, "{} for key '{}' success", $log, key_str);
+                            result.set_data(value);
+                        }
+                    }
+                }
+                Err(e) => {
+                    let log_str = format!("Invalid key: {:?}", e);
+                    error!(LOG_TAG, "{}", &log_str);
+                    result.set_error(InternalError::new(-1, Some(log_str)));
                 }
             }
             return result.leak();
@@ -299,12 +326,18 @@ macro_rules! impl_get {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn new_instance(dir: *const c_char) -> *const c_void {
-    let dir_str = unsafe {
+    let dir_str_result = unsafe {
         // SAFETY: we assume ffi caller passed valid c_char
         CStr::from_ptr(dir)
     }
-    .to_str()
-    .unwrap();
+    .to_str();
+    let dir_str = match dir_str_result {
+        Ok(dir_str) => dir_str,
+        Err(e) => {
+            error!(LOG_TAG, "Invalid dir name: {:?}", e);
+            return std::ptr::null();
+        }
+    };
     match MMKV::new(dir_str) {
         Ok(mmkv) => Box::into_raw(Box::new(mmkv)) as *const c_void,
         Err(e) => {
@@ -343,7 +376,11 @@ pub unsafe extern "C" fn close_instance(ptr: *const c_void) {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn clear_data(ptr: *const c_void) {
-    let mmkv = unsafe { (ptr as *const MMKV).as_ref() }.unwrap();
+    let mmkv = unsafe {
+        // SAFETY: we assume ffi caller passed valid mmkv pointer
+        (ptr as *const MMKV).as_ref()
+    }
+    .unwrap();
     if let Err(e) = mmkv.clear_data() {
         error!(LOG_TAG, "failed to clear MMKV data: {:?}", e);
     }
@@ -351,12 +388,27 @@ pub unsafe extern "C" fn clear_data(ptr: *const c_void) {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn delete(ptr: *const c_void, key: RawCStr) -> *const RawBuffer {
-    let mmkv = unsafe { (ptr as *const MMKV).as_ref() }.unwrap();
-    let key_str = unsafe { CStr::from_ptr(key) }.to_str().unwrap();
+    let mmkv = unsafe {
+        // SAFETY: we assume ffi caller passed valid mmkv pointer
+        (ptr as *const MMKV).as_ref()
+    }
+    .unwrap();
     let mut result = RawBuffer::new(Types::Str);
-    match mmkv.delete(key_str) {
-        Err(e) => result.set_error(map_error(key_str, e, "delete")),
-        Ok(()) => verbose!(LOG_TAG, "delete key {} success", key_str),
+    let key_str_result = unsafe {
+        // SAFETY: we assume ffi caller passed valid c_char
+        CStr::from_ptr(key)
+    }
+    .to_str();
+    match key_str_result {
+        Ok(key_str) => match mmkv.delete(key_str) {
+            Err(e) => result.set_error(map_error(key_str, e, "delete")),
+            Ok(()) => verbose!(LOG_TAG, "delete key {} success", key_str),
+        },
+        Err(e) => {
+            let log_str = format!("Invalid key: {:?}", e);
+            error!(LOG_TAG, "{}", &log_str);
+            result.set_error(InternalError::new(-1, Some(log_str)));
+        }
     }
     result.leak()
 }
