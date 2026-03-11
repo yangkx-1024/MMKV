@@ -120,6 +120,14 @@ jobs:
           echo "new_tag=$new_tag" >> "$GITHUB_OUTPUT"
           echo "notes_file=$changelog_file" >> "$GITHUB_OUTPUT"
 
+      - name: Patch package versions
+        run: |
+          version='${{ steps.prepare.outputs.new_tag }}'
+          sed -i.bak -E "s/^version = \".*\"$/version = \"${version}\"/" Cargo.toml
+          sed -i.bak -E "s/^const val version = \".*\"$/const val version = \"${version}\"/" android/buildSrc/src/main/java/Version.kt
+          rm -f Cargo.toml.bak
+          rm -f android/buildSrc/src/main/java/Version.kt.bak
+
       - name: Install Rust Apple targets
         run: |
           rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios aarch64-apple-darwin x86_64-apple-darwin
@@ -132,18 +140,13 @@ jobs:
         run: |
           echo "value=$(swift package compute-checksum ios/MMKV/RustMMKV.xcframework.zip)" >> "$GITHUB_OUTPUT"
 
-      - name: Patch release version files
+      - name: Patch Swift package manifest
         run: |
           tag='${{ steps.prepare.outputs.new_tag }}'
-          version="${tag}"
           checksum='${{ steps.checksum.outputs.value }}'
           url="https://github.com/${{ github.repository }}/releases/download/${tag}/RustMMKV.xcframework.zip"
           replacement=".binaryTarget(name: \"RustMMKV\", url: \"${url}\", checksum: \"${checksum}\")"
           REPLACEMENT="$replacement" perl -0777 -i -pe 's/\.binaryTarget\(name: "RustMMKV".*?\)/$ENV{REPLACEMENT}/gs' Package.swift
-          sed -i.bak -E "s/^version = \".*\"$/version = \"${version}\"/" Cargo.toml
-          sed -i.bak -E "s/^const val version = \".*\"$/const val version = \"${version}\"/" android/buildSrc/src/main/java/Version.kt
-          rm -f Cargo.toml.bak
-          rm -f android/buildSrc/src/main/java/Version.kt.bak
 
       - name: Commit and push release version files
         run: |
