@@ -141,14 +141,16 @@ jobs:
           url="https://github.com/${{ github.repository }}/releases/download/${tag}/RustMMKV.xcframework.zip"
           replacement=".binaryTarget(name: \"RustMMKV\", url: \"${url}\", checksum: \"${checksum}\")"
           REPLACEMENT="$replacement" perl -0777 -i -pe 's/\.binaryTarget\(name: "RustMMKV".*?\)/$ENV{REPLACEMENT}/gs' Package.swift
+          sed -i.bak -E "s/^version = \".*\"$/version = \"${version}\"/" Cargo.toml
           sed -i.bak -E "s/^const val version = \".*\"$/const val version = \"${version}\"/" android/buildSrc/src/main/java/Version.kt
+          rm -f Cargo.toml.bak
           rm -f android/buildSrc/src/main/java/Version.kt.bak
 
       - name: Commit and push release version files
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Package.swift android/buildSrc/src/main/java/Version.kt
+          git add Package.swift Cargo.toml android/buildSrc/src/main/java/Version.kt
           if git diff --cached --quiet; then
             echo "No release version file changes to commit"
           else
@@ -218,8 +220,8 @@ jobs:
           ENCODED_KEYSTORE: ${{ secrets.KEYSTORE }}
           GPG_SECRET: ${{ secrets.GPG_SECRET }}
         run: |
-          echo ${ENCODED_KEYSTORE} | base64 -d > ./android/app/keystore.jks
-          echo ${GPG_SECRET} | base64 -d | gpg --dearmor > ./android/secret.gpg
+          printf '%s' "$ENCODED_KEYSTORE" | base64 -d > ./android/app/keystore.jks
+          printf '%s' "$GPG_SECRET" | base64 -d | gpg --dearmor > ./android/secret.gpg
 
       - name: Install Rust targets for Android
         run: |
@@ -248,15 +250,17 @@ jobs:
           GPG_PWD: ${{ secrets.GPG_PWD }}
         run: |
           cd ./android
-          echo SIGN_KEY_STORE_PATH=keystore.jks >> local.properties
-          echo SIGN_STORE_PASSWORD=${SIGN_STORE_PASSWORD} >> local.properties
-          echo SIGN_KEY_ALIAS=${SIGN_KEY_ALIAS} >> local.properties
-          echo SIGN_KEY_PASSWORD=${SIGN_KEY_PASSWORD} >> local.properties
-          echo sonatypeUsername=${SONATYPEUSERNAME} >> local.properties
-          echo sonatypePassword=${SONATYPEPASSWORD} >> local.properties
-          echo signing.keyId=${GPG_KEY_ID} >> local.properties
-          echo signing.password=${GPG_PWD} >> local.properties
-          echo signing.secretKeyRingFile=../secret.gpg >> local.properties
+          {
+            printf 'SIGN_KEY_STORE_PATH=%s\n' "$SIGN_KEY_STORE_PATH"
+            printf 'SIGN_STORE_PASSWORD=%s\n' "$SIGN_STORE_PASSWORD"
+            printf 'SIGN_KEY_ALIAS=%s\n' "$SIGN_KEY_ALIAS"
+            printf 'SIGN_KEY_PASSWORD=%s\n' "$SIGN_KEY_PASSWORD"
+            printf 'sonatypeUsername=%s\n' "$SONATYPEUSERNAME"
+            printf 'sonatypePassword=%s\n' "$SONATYPEPASSWORD"
+            printf 'signing.keyId=%s\n' "$GPG_KEY_ID"
+            printf 'signing.password=%s\n' "$GPG_PWD"
+            printf 'signing.secretKeyRingFile=%s\n' "../secret.gpg"
+          } >> local.properties
           chmod +x gradlew
           ./gradlew clean
           ./gradlew publish
