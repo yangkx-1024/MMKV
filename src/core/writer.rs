@@ -1,8 +1,8 @@
-use crate::Result;
 use crate::core::buffer::{Buffer, Decoder, Encoder};
 use crate::core::config::Config;
 use crate::core::io_looper::Callback;
 use crate::core::memory_map::MemoryMap;
+use crate::Result;
 use std::time::Instant;
 
 const LOG_TAG: &str = "MMKV:IO";
@@ -115,24 +115,47 @@ mod tests {
     use super::IOWriter;
     use crate::core::buffer::Buffer;
     use crate::core::config::Config;
+    #[cfg(not(feature = "encryption"))]
     use crate::core::crc::CrcEncoderDecoder;
+    #[cfg(feature = "encryption")]
+    use crate::core::encrypt::Encryptor;
     use crate::core::memory_map::MemoryMap;
     use std::fs;
     use std::path::Path;
+
+    #[cfg(feature = "encryption")]
+    const TEST_KEY: &str = "88C51C536176AD8A8EE4A06F62EE897E";
+
+    #[cfg(not(feature = "encryption"))]
+    fn test_codec(
+        _file_name: &str,
+    ) -> (
+        Box<dyn crate::core::buffer::Encoder>,
+        Box<dyn crate::core::buffer::Decoder>,
+    ) {
+        (Box::new(CrcEncoderDecoder), Box::new(CrcEncoderDecoder))
+    }
+
+    #[cfg(feature = "encryption")]
+    fn test_codec(
+        file_name: &str,
+    ) -> (
+        Box<dyn crate::core::buffer::Encoder>,
+        Box<dyn crate::core::buffer::Decoder>,
+    ) {
+        let encryptor = Encryptor::init(Path::new(file_name), TEST_KEY);
+        (Box::new(encryptor.clone()), Box::new(encryptor))
+    }
 
     #[test]
     fn write_expands_until_large_record_fits() {
         let file_name = "test_writer_large_record";
         let _ = fs::remove_file(file_name);
+        let _ = fs::remove_file(format!("{file_name}.meta"));
         let config = Config::new(Path::new(file_name), 64).unwrap();
         let mm = MemoryMap::new(&config.file, config.file_size().unwrap() as usize).unwrap();
-        let mut writer = IOWriter::new(
-            config.try_clone().unwrap(),
-            mm,
-            0,
-            Box::new(CrcEncoderDecoder),
-            Box::new(CrcEncoderDecoder),
-        );
+        let (encoder, decoder) = test_codec(file_name);
+        let mut writer = IOWriter::new(config.try_clone().unwrap(), mm, 0, encoder, decoder);
 
         let large_value = vec![7u8; 256];
         writer
@@ -145,24 +168,24 @@ mod tests {
             .iter(|bytes, position| writer.decoder.decode_bytes(bytes, position))
             .into_map();
         assert_eq!(count, 1);
-        assert_eq!(snapshot.get("large").unwrap().parse::<Vec<u8>>().unwrap(), large_value);
+        assert_eq!(
+            snapshot.get("large").unwrap().parse::<Vec<u8>>().unwrap(),
+            large_value
+        );
 
         writer.remove_file().unwrap();
+        let _ = fs::remove_file(format!("{file_name}.meta"));
     }
 
     #[test]
     fn trim_uses_latest_len_after_expand() {
         let file_name = "test_writer_trim_expand";
         let _ = fs::remove_file(file_name);
+        let _ = fs::remove_file(format!("{file_name}.meta"));
         let config = Config::new(Path::new(file_name), 96).unwrap();
         let mm = MemoryMap::new(&config.file, config.file_size().unwrap() as usize).unwrap();
-        let mut writer = IOWriter::new(
-            config,
-            mm,
-            0,
-            Box::new(CrcEncoderDecoder),
-            Box::new(CrcEncoderDecoder),
-        );
+        let (encoder, decoder) = test_codec(file_name);
+        let mut writer = IOWriter::new(config, mm, 0, encoder, decoder);
 
         let value1 = vec![1u8; 40];
         let value2 = vec![2u8; 40];
@@ -185,9 +208,16 @@ mod tests {
             .iter(|bytes, position| writer.decoder.decode_bytes(bytes, position))
             .into_map();
         assert_eq!(count, 2);
-        assert_eq!(snapshot.get("k1").unwrap().parse::<Vec<u8>>().unwrap(), updated);
-        assert_eq!(snapshot.get("k2").unwrap().parse::<Vec<u8>>().unwrap(), value2);
+        assert_eq!(
+            snapshot.get("k1").unwrap().parse::<Vec<u8>>().unwrap(),
+            updated
+        );
+        assert_eq!(
+            snapshot.get("k2").unwrap().parse::<Vec<u8>>().unwrap(),
+            value2
+        );
 
         writer.remove_file().unwrap();
+        let _ = fs::remove_file(format!("{file_name}.meta"));
     }
 }
