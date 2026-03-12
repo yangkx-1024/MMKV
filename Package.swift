@@ -15,11 +15,7 @@ let package = Package(
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
         // Targets can depend on other targets in this package and products from dependencies.
-        .binaryTarget(
-            name: "RustMMKV",
-            url: "https://github.com/yangkx-1024/MMKV/releases/download/0.7.0/RustMMKV.xcframework.zip",
-            checksum: "66002849b50d9e8de0252a5b2bbd40edc2252351502dcfcf763e54fc263b2ceb"
-        ),
+        .binaryTarget(name: "RustMMKV", url: "https://github.com/yangkx-1024/MMKV/releases/download/0.7.1/RustMMKV.xcframework.zip", checksum: "3309d9b868ace68d0451ad44c6ec4d6cd11acdffa3dfc1e7c64f56deb18f259a"),
         .target(
             name: "MMKV",
             dependencies: ["RustMMKV"],
