@@ -40,11 +40,10 @@ impl IOWriter {
     pub fn write(&mut self, buffer: Buffer, duplicated: bool) -> Result<()> {
         let data = self.encoder.encode_to_bytes(&buffer, self.position)?;
         let target_end = data.len() + self.mm.write_offset();
-        let max_len = self.mm.len();
         if duplicated {
             self.need_trim = true;
         }
-        if target_end <= max_len {
+        if target_end <= self.mm.len() {
             self.mm.append(&data)?;
             self.position += 1;
             return Ok(());
@@ -72,9 +71,7 @@ impl IOWriter {
             self.position = 0;
             for buffer in snapshot.values() {
                 let bytes = self.encoder.encode_to_bytes(buffer, self.position)?;
-                if self.mm.write_offset() + bytes.len() > max_len {
-                    self.expand()?;
-                }
+                self.ensure_capacity(bytes.len())?;
                 self.mm.append(&bytes)?;
                 self.position += 1;
             }
@@ -88,9 +85,16 @@ impl IOWriter {
             );
         } else {
             // expand and write
-            self.expand()?;
+            self.ensure_capacity(data.len())?;
             self.mm.append(&data)?;
             self.position += 1;
+        }
+        Ok(())
+    }
+
+    fn ensure_capacity(&mut self, incoming_len: usize) -> Result<()> {
+        while self.mm.write_offset() + incoming_len > self.mm.len() {
+            self.expand()?;
         }
         Ok(())
     }
@@ -103,5 +107,87 @@ impl IOWriter {
 
     pub fn remove_file(&mut self) -> Result<()> {
         self.config.remove_file()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::IOWriter;
+    use crate::core::buffer::Buffer;
+    use crate::core::config::Config;
+    use crate::core::crc::CrcEncoderDecoder;
+    use crate::core::memory_map::MemoryMap;
+    use std::fs;
+    use std::path::Path;
+
+    #[test]
+    fn write_expands_until_large_record_fits() {
+        let file_name = "test_writer_large_record";
+        let _ = fs::remove_file(file_name);
+        let config = Config::new(Path::new(file_name), 64).unwrap();
+        let mm = MemoryMap::new(&config.file, config.file_size().unwrap() as usize).unwrap();
+        let mut writer = IOWriter::new(
+            config.try_clone().unwrap(),
+            mm,
+            0,
+            Box::new(CrcEncoderDecoder),
+            Box::new(CrcEncoderDecoder),
+        );
+
+        let large_value = vec![7u8; 256];
+        writer
+            .write(Buffer::new("large", large_value.as_slice()), false)
+            .unwrap();
+
+        assert!(writer.mm.len() >= writer.mm.write_offset());
+        let (snapshot, count) = writer
+            .mm
+            .iter(|bytes, position| writer.decoder.decode_bytes(bytes, position))
+            .into_map();
+        assert_eq!(count, 1);
+        assert_eq!(snapshot.get("large").unwrap().parse::<Vec<u8>>().unwrap(), large_value);
+
+        writer.remove_file().unwrap();
+    }
+
+    #[test]
+    fn trim_uses_latest_len_after_expand() {
+        let file_name = "test_writer_trim_expand";
+        let _ = fs::remove_file(file_name);
+        let config = Config::new(Path::new(file_name), 96).unwrap();
+        let mm = MemoryMap::new(&config.file, config.file_size().unwrap() as usize).unwrap();
+        let mut writer = IOWriter::new(
+            config,
+            mm,
+            0,
+            Box::new(CrcEncoderDecoder),
+            Box::new(CrcEncoderDecoder),
+        );
+
+        let value1 = vec![1u8; 40];
+        let value2 = vec![2u8; 40];
+        writer
+            .write(Buffer::new("k1", value1.as_slice()), false)
+            .unwrap();
+        writer
+            .write(Buffer::new("k2", value2.as_slice()), false)
+            .unwrap();
+        let initial_len = writer.mm.len();
+
+        let updated = vec![3u8; 120];
+        writer
+            .write(Buffer::new("k1", updated.as_slice()), true)
+            .unwrap();
+
+        assert!(writer.mm.len() > initial_len);
+        let (snapshot, count) = writer
+            .mm
+            .iter(|bytes, position| writer.decoder.decode_bytes(bytes, position))
+            .into_map();
+        assert_eq!(count, 2);
+        assert_eq!(snapshot.get("k1").unwrap().parse::<Vec<u8>>().unwrap(), updated);
+        assert_eq!(snapshot.get("k2").unwrap().parse::<Vec<u8>>().unwrap(), value2);
+
+        writer.remove_file().unwrap();
     }
 }

@@ -63,7 +63,13 @@ where
         if self.start >= self.end {
             return None;
         }
-        let bytes = self.mm.read(self.start..self.end);
+        let bytes = match self.mm.read(self.start..self.end) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                error!(LOG_TAG, "Failed to read memory map, reason: {:?}", e);
+                return None;
+            }
+        };
         let decode_result = (self.decode)(bytes, self.position);
         self.position += 1;
         match decode_result {

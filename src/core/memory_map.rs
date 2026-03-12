@@ -154,8 +154,16 @@ impl MemoryMap {
         self.0.len
     }
 
-    pub fn read(&self, range: Range<usize>) -> &[u8] {
-        self.0[range].as_ref()
+    pub fn read(&self, range: Range<usize>) -> Result<&[u8]> {
+        if range.start > range.end || range.end > self.len() {
+            return Err(IOError(format!(
+                "read out of bounds, range {}..{}, mmap len {}",
+                range.start,
+                range.end,
+                self.len()
+            )));
+        }
+        Ok(self.0[range].as_ref())
     }
 }
 
@@ -185,20 +193,20 @@ mod tests {
         mm.append(&[4]).unwrap();
         assert_eq!(mm.write_offset(), 12);
 
-        let read = mm.read(8..10);
+        let read = mm.read(8..10).unwrap();
         assert_eq!(read.len(), 2);
         assert_eq!(read[0], 1);
         assert_eq!(read[1], 2);
-        let read = mm.read(mm.write_offset() - 1..mm.write_offset());
+        let read = mm.read(mm.write_offset() - 1..mm.write_offset()).unwrap();
         assert_eq!(read[0], 4);
 
         mm.reset();
         mm.append(&[5, 4, 3, 2, 1]).unwrap();
         assert_eq!(mm.write_offset(), 13);
-        let read = mm.read(8..9);
+        let read = mm.read(8..9).unwrap();
         assert_eq!(read[0], 5);
 
-        let read = mm.read(9..10);
+        let read = mm.read(9..10).unwrap();
         assert_eq!(read[0], 4);
         let _ = fs::remove_file("test_mmap");
     }
@@ -229,5 +237,32 @@ mod tests {
         );
 
         let _ = fs::remove_file("test_mmap_append_out_of_bounds");
+    }
+
+    #[test]
+    fn test_mmap_read_out_of_bounds() {
+        let _ = fs::remove_file("test_mmap_read_out_of_bounds");
+        let file = OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .read(true)
+            .open("test_mmap_read_out_of_bounds")
+            .unwrap();
+        file.set_len((LEN_OFFSET + 1) as u64).unwrap();
+        let mm = MemoryMap::new(&file, LEN_OFFSET + 1).unwrap();
+
+        let err = mm.read(LEN_OFFSET..LEN_OFFSET + 2).unwrap_err();
+        assert_eq!(
+            err,
+            IOError(format!(
+                "read out of bounds, range {}..{}, mmap len {}",
+                LEN_OFFSET,
+                LEN_OFFSET + 2,
+                LEN_OFFSET + 1
+            ))
+        );
+
+        let _ = fs::remove_file("test_mmap_read_out_of_bounds");
     }
 }
