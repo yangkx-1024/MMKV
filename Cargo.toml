@@ -36,7 +36,7 @@ default = []
 encryption = ["dep:eax", "dep:aes", "dep:hex"]
 
 [target.'cfg(target_os="android")'.dependencies]
-jni = { version = "0.22.1", features = ["invocation"] }
+jni = { version = "0.22.3", features = ["invocation"] }
 
 [lib]
 crate-type = ["rlib", "staticlib", "cdylib"]
