@@ -43,11 +43,10 @@ impl Encryptor {
     }
 
     fn resolve_meta_file_path(path: &Path) -> PathBuf {
-        let mut meta_ext = "meta".to_string();
-        if let Some(ext) = path.extension() {
-            let ext = ext.to_str().unwrap();
-            meta_ext = format!("{}.meta", ext);
-        }
+        let meta_ext = match path.extension() {
+            Some(ext) => format!("{}.meta", ext.to_string_lossy()),
+            None => "meta".to_string(),
+        };
         path.with_extension(meta_ext)
     }
 }

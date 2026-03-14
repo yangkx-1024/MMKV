@@ -106,7 +106,7 @@ impl MMKV {
         )?));
         instance_map.insert(dir.clone(), Arc::downgrade(&mmkv_impl));
         Ok(MMKV {
-            path: dir.clone(),
+            path: dir,
             #[cfg(feature = "encryption")]
             key: key.to_string(),
             mmkv_impl,

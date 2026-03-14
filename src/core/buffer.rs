@@ -10,7 +10,6 @@ use protobuf::Message;
 include!(concat!(env!("OUT_DIR"), "/protos/mod.rs"));
 
 #[derive(Debug, Clone)]
-#[repr(transparent)]
 pub struct Buffer(Arc<KV>);
 
 pub trait Encoder: Send {
