@@ -1,4 +1,4 @@
-use crate::core::io_looper::{Callback, IOLooper};
+use crate::core::io_looper::{Executor, IOLooper};
 use chrono::{SecondsFormat, Utc};
 use once_cell::sync::Lazy;
 use std::fmt::Arguments;
@@ -38,7 +38,7 @@ impl LogWriter {
     }
 }
 
-impl Callback for LogWriter {}
+impl Executor for LogWriter {}
 
 impl LogWrapper {
     fn new() -> Self {

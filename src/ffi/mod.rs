@@ -3,7 +3,7 @@ mod ffi_buffer;
 use crate::{Error, LogLevel, Logger, MMKV};
 use ffi_buffer::{Leakable, Releasable};
 use mmkv_proc_macro_lib::Leakable;
-use std::ffi::{c_void, CStr};
+use std::ffi::{CStr, c_void};
 use std::fmt::Debug;
 use std::os::raw::c_char;
 

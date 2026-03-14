@@ -10,7 +10,7 @@ use jni::sys::{
     jboolean, jbyteArray, jdouble, jdoubleArray, jfloat, jfloatArray, jint, jintArray, jlong,
     jlongArray, jstring,
 };
-use jni::{jni_sig, jni_str, Env, EnvUnowned, JavaVM};
+use jni::{Env, EnvUnowned, JavaVM, jni_sig, jni_str};
 use std::fmt::{Debug, Formatter};
 use std::sync::OnceLock;
 

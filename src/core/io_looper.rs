@@ -1,8 +1,8 @@
 use crate::Error::IOError;
 use crate::Result;
-use crossbeam_channel::{Receiver, Sender, bounded, unbounded};
-use std::sync::Arc;
+use crossbeam_channel::{bounded, unbounded, Receiver, Sender};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::Instant;
@@ -16,28 +16,28 @@ enum Message<T> {
     Quit,
 }
 
-pub trait Callback: Send + 'static {}
+pub trait Executor: Send + 'static {}
 
 pub struct IOLooper<T> {
     sender: Option<Sender<Message<T>>>,
-    executor: Executor,
+    inner_looper: InnerLooper,
 }
 
-struct Executor {
+struct InnerLooper {
     pending_jobs: Arc<AtomicUsize>,
     join_handle: Option<JoinHandle<()>>,
 }
 
-impl<T: Callback> IOLooper<T> {
-    pub fn new(callback: T) -> Self {
+impl<T: Executor> IOLooper<T> {
+    pub fn new(executor: T) -> Self {
         let (sender, receiver) = unbounded::<Message<T>>();
-        let executor = Executor::new(receiver, callback);
         IOLooper {
             sender: Some(sender),
-            executor,
+            inner_looper: InnerLooper::new(receiver, executor),
         }
     }
 
+    /// Quit the looper, this call will wait for all queued tasks to finish.
     pub fn quit(&mut self) -> Result<()> {
         self.sender
             .take()
@@ -47,7 +47,7 @@ impl<T: Callback> IOLooper<T> {
                     .map_err(|e| IOError(e.to_string()))
             })
             .transpose()?;
-        if let Some(handle) = self.executor.join_handle.take() {
+        if let Some(handle) = self.inner_looper.join_handle.take() {
             debug!(LOG_TAG, "waiting for remain tasks to finish");
             handle
                 .join()
@@ -56,30 +56,48 @@ impl<T: Callback> IOLooper<T> {
         Ok(())
     }
 
-    pub fn post<F: FnOnce(&mut T) -> Result<()> + Send + 'static>(&self, task: F) -> Result<()> {
+    /// Post a task async, the returned `Result<()>` is the result of the post operation
+    /// instead of task result.
+    pub fn post<F>(&self, task: F) -> Result<()>
+    where
+        F: FnOnce(&mut T) -> Result<()> + Send + 'static,
+    {
         let sender = self.sender.as_ref().ok_or(IOError(
             "failed to post, channel closed unexpected".to_string(),
         ))?;
-        self.executor.pending_jobs.fetch_add(1, Ordering::Relaxed);
+        self.inner_looper
+            .pending_jobs
+            .fetch_add(1, Ordering::Relaxed);
         let send_result = sender.send(Message::Job(Box::new(task)));
         if send_result.is_err() {
-            self.executor.pending_jobs.fetch_sub(1, Ordering::Relaxed);
+            self.inner_looper
+                .pending_jobs
+                .fetch_sub(1, Ordering::Relaxed);
         }
         send_result.map_err(|e| IOError(e.to_string()))
     }
 
-    #[allow(dead_code)]
-    pub fn sync(&self) -> Result<()> {
-        let (sender, receiver) = bounded::<()>(0);
-        self.post(move |_| {
+    /// Execute a task and wait for the task result.
+    pub fn call<R, F>(&self, task: F) -> Result<R>
+    where
+        R: Send + 'static,
+        F: FnOnce(&mut T) -> Result<R> + Send + 'static,
+    {
+        let (sender, receiver) = bounded::<Result<R>>(1);
+        self.post(move |executor| {
+            let result = task(executor);
             sender
-                .send(())
-                .map_err(|e| IOError(format!("failed to sync, sender dropped: {e}")))
+                .send(result)
+                .map_err(|e| IOError(format!("failed to return call result: {e}")))
         })?;
         receiver
             .recv()
-            .map_err(|_| IOError("failed to sync, channel closed unexpected".to_string()))?;
-        Ok(())
+            .map_err(|_| IOError("failed to receive call result, channel closed".to_string()))?
+    }
+
+    #[allow(dead_code)]
+    pub fn sync(&self) -> Result<()> {
+        self.call(|_| Ok(()))
     }
 }
 
@@ -88,7 +106,7 @@ impl<T> Drop for IOLooper<T> {
         let time_start = Instant::now();
         drop(self.sender.take());
 
-        if let Some(handle) = self.executor.join_handle.take() {
+        if let Some(handle) = self.inner_looper.join_handle.take() {
             match handle.join() {
                 Ok(()) => verbose!(LOG_TAG, "io thread finished"),
                 Err(_) => error!(LOG_TAG, "failed to join io thread while dropping IOLooper"),
@@ -98,7 +116,7 @@ impl<T> Drop for IOLooper<T> {
     }
 }
 
-impl Executor {
+impl InnerLooper {
     fn run_job<T>(job: Job<T>, callback: &mut T, pending_jobs: &AtomicUsize) {
         if let Err(e) = job(callback) {
             error!(LOG_TAG, "failed to execute io job: {:?}", e);
@@ -123,18 +141,18 @@ impl Executor {
         }
     }
 
-    pub fn new<T: Callback>(receiver: Receiver<Message<T>>, mut callback: T) -> Self {
+    pub fn new<T: Executor>(receiver: Receiver<Message<T>>, mut executor: T) -> Self {
         let pending_jobs = Arc::new(AtomicUsize::new(0));
         let pending_jobs_clone = Arc::clone(&pending_jobs);
         let handle = thread::spawn(move || {
             loop {
                 match receiver.recv() {
-                    Ok(Message::Job(job)) => Self::run_job(job, &mut callback, &pending_jobs),
+                    Ok(Message::Job(job)) => Self::run_job(job, &mut executor, &pending_jobs),
                     Ok(Message::Quit) => {
                         debug!(LOG_TAG, "received quit signal, draining pending jobs");
                         Self::drain_pending_jobs(
                             &receiver,
-                            &mut callback,
+                            &mut executor,
                             &pending_jobs,
                             "quit signal received while draining",
                         );
@@ -144,7 +162,7 @@ impl Executor {
                         debug!(LOG_TAG, "io channel closed, draining pending jobs");
                         Self::drain_pending_jobs(
                             &receiver,
-                            &mut callback,
+                            &mut executor,
                             &pending_jobs,
                             "channel closed while draining",
                         );
@@ -153,7 +171,7 @@ impl Executor {
                 }
             }
         });
-        Executor {
+        InnerLooper {
             pending_jobs: pending_jobs_clone,
             join_handle: Some(handle),
         }
@@ -168,19 +186,19 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
-    use crate::core::io_looper::{Callback, IOLooper};
+    use crate::core::io_looper::{Executor, IOLooper};
 
-    struct SimpleCallback;
+    struct SimpleExecutor;
 
-    impl Callback for SimpleCallback {}
+    impl Executor for SimpleExecutor {}
 
-    impl Drop for SimpleCallback {
+    impl Drop for SimpleExecutor {
         fn drop(&mut self) {
-            info!("MMKV:IO", "Callback dropped")
+            info!("MMKV:IO", "Executor dropped")
         }
     }
 
-    impl SimpleCallback {
+    impl SimpleExecutor {
         fn print(&self, str: &str) {
             info!("MMKV:IO", "{str}")
         }
@@ -188,39 +206,45 @@ mod tests {
 
     #[test]
     fn test_io_loop() {
-        let mut io_looper = IOLooper::new(SimpleCallback);
+        let mut io_looper = IOLooper::new(SimpleExecutor);
         io_looper
-            .post(|callback| {
+            .post(|executor| {
                 thread::sleep(Duration::from_millis(100));
-                callback.print("first job");
+                executor.print("first job");
                 Ok(())
             })
             .expect("failed to execute job");
         io_looper
-            .post(|callback| {
+            .post(|executor| {
                 thread::sleep(Duration::from_millis(100));
-                callback.print("second job");
+                executor.print("second job");
                 Ok(())
             })
             .expect("failed to execute job");
         assert!(io_looper.sender.is_some());
-        assert_eq!(io_looper.executor.pending_jobs.load(Ordering::Relaxed), 2);
-        assert!(io_looper.executor.join_handle.is_some());
+        assert_eq!(
+            io_looper.inner_looper.pending_jobs.load(Ordering::Relaxed),
+            2
+        );
+        assert!(io_looper.inner_looper.join_handle.is_some());
         thread::sleep(Duration::from_millis(50));
         io_looper
-            .post(|callback| {
-                callback.print("last job");
+            .post(|executor| {
+                executor.print("last job");
                 Ok(())
             })
             .unwrap();
         io_looper.quit().unwrap();
         assert!(io_looper.sender.is_none());
-        assert_eq!(io_looper.executor.pending_jobs.load(Ordering::Relaxed), 0);
-        assert!(io_looper.executor.join_handle.is_none());
+        assert_eq!(
+            io_looper.inner_looper.pending_jobs.load(Ordering::Relaxed),
+            0
+        );
+        assert!(io_looper.inner_looper.join_handle.is_none());
         drop(io_looper);
         let value = Arc::new(Mutex::new(1));
         let cloned_value = value.clone();
-        io_looper = IOLooper::new(SimpleCallback);
+        io_looper = IOLooper::new(SimpleExecutor);
         io_looper
             .post(move |_| {
                 thread::sleep(Duration::from_millis(100));
@@ -235,14 +259,14 @@ mod tests {
 
     #[test]
     fn test_concurrent_post_and_quit_does_not_drop_accepted_jobs() {
-        struct CountingCallback {
+        struct CountingExecutor {
             executed: Arc<Mutex<Vec<usize>>>,
         }
 
-        impl Callback for CountingCallback {}
+        impl Executor for CountingExecutor {}
 
         let executed = Arc::new(Mutex::new(Vec::new()));
-        let io_looper = Arc::new(Mutex::new(IOLooper::new(CountingCallback {
+        let io_looper = Arc::new(Mutex::new(IOLooper::new(CountingExecutor {
             executed: Arc::clone(&executed),
         })));
         let accepted = Arc::new(Mutex::new(Vec::new()));
@@ -298,5 +322,31 @@ mod tests {
                 .len(),
             accepted_sorted.len()
         );
+    }
+
+    #[test]
+    fn test_call_returns_result_in_order() {
+        struct CountingExecutor {
+            value: usize,
+        }
+
+        impl Executor for CountingExecutor {}
+
+        let io_looper = IOLooper::new(CountingExecutor { value: 1 });
+        let value = io_looper
+            .call(|executor| {
+                executor.value += 1;
+                Ok(executor.value)
+            })
+            .unwrap();
+        assert_eq!(value, 2);
+
+        let value = io_looper
+            .call(|executor| {
+                executor.value += 3;
+                Ok(executor.value)
+            })
+            .unwrap();
+        assert_eq!(value, 5);
     }
 }

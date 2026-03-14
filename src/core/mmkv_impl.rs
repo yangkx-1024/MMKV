@@ -7,19 +7,20 @@ use crate::core::crc::CrcEncoderDecoder;
 use crate::core::encrypt::Encryptor;
 use crate::core::io_looper::IOLooper;
 use crate::core::memory_map::MemoryMap;
+use crate::core::shared_state::{SharedKvMap, new_shared_kv_map};
 use crate::core::writer::IOWriter;
 use crate::{Error, Result};
-use std::collections::HashMap;
 #[cfg(feature = "encryption")]
 use std::fs;
+use std::sync::Arc;
 use std::time::Instant;
 
 const LOG_TAG: &str = "MMKV:Core";
 
 pub struct MmkvImpl {
-    kv_map: HashMap<String, Buffer>,
     is_valid: bool,
     io_looper: IOLooper<IOWriter>,
+    shared_kv: SharedKvMap,
     #[cfg(feature = "encryption")]
     encryptor: Encryptor,
 }
@@ -41,20 +42,28 @@ impl MmkvImpl {
         let (kv_map, decoded_position) = mm
             .iter(|bytes, position| decoder.decode_bytes(bytes, position))
             .into_map();
+        let item_count = kv_map.len();
         let content_len = mm.write_offset();
         let file_size = mm.len();
-        let io_writer = IOWriter::new(config, mm, decoded_position, encoder, decoder);
+        let shared_kv = new_shared_kv_map(kv_map);
+        let io_writer = IOWriter::new(
+            config,
+            mm,
+            decoded_position,
+            Arc::clone(&shared_kv),
+            encoder,
+        );
         let mmkv = MmkvImpl {
-            kv_map,
             is_valid: true,
             io_looper: IOLooper::new(io_writer),
+            shared_kv,
             #[cfg(feature = "encryption")]
             encryptor,
         };
         info!(
             LOG_TAG,
             "instance initialized, read {} items, content len {}, file size {}, cost {:?}",
-            mmkv.kv_map.len(),
+            item_count,
             content_len,
             file_size,
             time_start.elapsed()
@@ -66,17 +75,44 @@ impl MmkvImpl {
         if !self.is_valid {
             return Err(InstanceClosed);
         }
-        let result = self.kv_map.insert(key.to_string(), raw_buffer.clone());
-        let duplicated = result.is_some();
-        self.io_looper
+        debug_assert_eq!(key, raw_buffer.key());
+        let previous = {
+            let mut kv_map = self
+                .shared_kv
+                .write()
+                .map_err(|e| Error::LockError(e.to_string()))?;
+            kv_map.insert(key.to_string(), raw_buffer.clone())
+        };
+        let duplicated = previous.is_some();
+        if let Err(err) = self
+            .io_looper
             .post(move |writer| writer.write(raw_buffer, duplicated))
+        {
+            let mut kv_map = self
+                .shared_kv
+                .write()
+                .map_err(|e| Error::LockError(e.to_string()))?;
+            if let Some(buffer) = previous {
+                kv_map.insert(key.to_string(), buffer);
+            } else {
+                kv_map.remove(key);
+            }
+            return Err(err);
+        }
+        Ok(())
     }
 
-    pub fn get(&self, key: &str) -> Result<&Buffer> {
+    pub fn get(&self, key: &str) -> Result<Buffer> {
         if !self.is_valid {
             return Err(InstanceClosed);
         }
-        match self.kv_map.get(key) {
+        match self
+            .shared_kv
+            .read()
+            .map_err(|e| Error::LockError(e.to_string()))?
+            .get(key)
+            .cloned()
+        {
             Some(buffer) => Ok(buffer),
             None => Err(Error::KeyNotFound),
         }
@@ -86,13 +122,29 @@ impl MmkvImpl {
         if !self.is_valid {
             return Err(InstanceClosed);
         }
-        let ret = self.kv_map.remove(key);
-        if ret.is_none() {
+        let key = key.to_string();
+        let previous = {
+            let mut kv_map = self
+                .shared_kv
+                .write()
+                .map_err(|e| Error::LockError(e.to_string()))?;
+            kv_map.remove(&key)
+        };
+        if previous.is_none() {
             return Ok(());
         }
-        let buffer = Buffer::deleted_buffer(key);
-        self.io_looper
-            .post(move |writer| writer.write(buffer, true))
+        if let Err(err) = self.io_looper.post({
+            let key = key.clone();
+            move |writer| writer.write(Buffer::deleted_buffer(&key), true)
+        }) {
+            let mut kv_map = self
+                .shared_kv
+                .write()
+                .map_err(|e| Error::LockError(e.to_string()))?;
+            kv_map.insert(key, previous.unwrap());
+            return Err(err);
+        }
+        Ok(())
     }
 
     pub fn clear_data(&mut self) -> Result<()> {
@@ -101,11 +153,15 @@ impl MmkvImpl {
             return Ok(());
         }
         self.is_valid = false;
-        self.kv_map.clear();
         #[cfg(feature = "encryption")]
         let meta_file = self.encryptor.meta_file_path.clone();
-        self.io_looper.post(|writer| {
+        let shared_kv = Arc::clone(&self.shared_kv);
+        self.io_looper.call(move |writer| {
             writer.remove_file()?;
+            shared_kv
+                .write()
+                .map_err(|e| Error::LockError(e.to_string()))?
+                .clear();
             #[cfg(feature = "encryption")]
             let _ = fs::remove_file(meta_file);
             info!(LOG_TAG, "data cleared");
@@ -153,6 +209,7 @@ mod tests {
         let mm = MemoryMap::new(&config.file, 200).unwrap();
         let mut mmkv = init(config);
         mmkv.put("key1", Buffer::new("key1", 1)).unwrap(); // + 17
+        assert_eq!(mmkv.get("key1").unwrap().parse::<i32>(), Ok(1));
         drop(mmkv);
         assert_eq!(mm.write_offset(), 25);
 
@@ -199,6 +256,7 @@ mod tests {
         let mm = MemoryMap::new(&config.file, 200).unwrap();
         let mut mmkv = init(config);
         mmkv.put("key1", Buffer::new("key1", 1)).unwrap(); // + 24
+        assert_eq!(mmkv.get("key1").unwrap().parse::<i32>(), Ok(1));
         drop(mmkv);
         assert_eq!(mm.write_offset(), 32);
 
@@ -282,5 +340,42 @@ mod tests {
         );
         mmkv.clear_data().unwrap();
         assert!(!Path::new(file).exists());
+    }
+
+    #[test]
+    fn test_sync_visibility_for_put_and_delete() {
+        let file = "test_sync_visibility_for_put_and_delete";
+        let _ = fs::remove_file(file);
+        let _ = fs::remove_file(format!("{}.meta", file));
+        let config = &Config::new(Path::new(file), 128).unwrap();
+        let mut mmkv = init(config);
+
+        mmkv.put("sync_key", Buffer::new("sync_key", 7)).unwrap();
+        assert_eq!(mmkv.get("sync_key").unwrap().parse::<i32>(), Ok(7));
+
+        mmkv.delete("sync_key").unwrap();
+        assert_eq!(mmkv.get("sync_key"), Err(KeyNotFound));
+
+        mmkv.clear_data().unwrap();
+        assert!(!Path::new(file).exists());
+    }
+
+    #[test]
+    fn test_post_failure_rolls_back_shared_state() {
+        let file = "test_post_failure_rolls_back_shared_state";
+        let _ = fs::remove_file(file);
+        let _ = fs::remove_file(format!("{}.meta", file));
+        let config = &Config::new(Path::new(file), 128).unwrap();
+        let mut mmkv = init(config);
+
+        mmkv.io_looper.quit().unwrap();
+        assert!(
+            mmkv.put("rollback_key", Buffer::new("rollback_key", 1))
+                .is_err()
+        );
+        assert_eq!(mmkv.get("rollback_key"), Err(KeyNotFound));
+
+        let _ = fs::remove_file(file);
+        let _ = fs::remove_file(format!("{}.meta", file));
     }
 }

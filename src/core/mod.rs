@@ -8,4 +8,5 @@ pub mod io_looper;
 mod iter;
 mod memory_map;
 pub mod mmkv_impl;
+mod shared_state;
 mod writer;
