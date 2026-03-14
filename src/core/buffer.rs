@@ -1,4 +1,5 @@
 use std::mem::size_of;
+use std::sync::Arc;
 use std::{f32, f64, str, vec};
 
 use crate::Error::{DataInvalid, DecodeFailed, KeyNotFound, TypeMissMatch};
@@ -10,7 +11,7 @@ include!(concat!(env!("OUT_DIR"), "/protos/mod.rs"));
 
 #[derive(Debug, Clone)]
 #[repr(transparent)]
-pub struct Buffer(KV);
+pub struct Buffer(Arc<KV>);
 
 pub trait Encoder: Send {
     fn encode_to_bytes(&self, raw_buffer: &Buffer, position: u32) -> Result<Vec<u8>>;
@@ -31,7 +32,7 @@ impl Buffer {
         kv.key = key.to_string();
         kv.type_ = t;
         kv.value = value;
-        Buffer(kv)
+        Buffer(Arc::new(kv))
     }
 
     pub fn new<T: ProvideTypeToken + ToBytes>(key: &str, value: T) -> Self {
@@ -49,7 +50,7 @@ impl Buffer {
 
     pub fn from_encoded_bytes(data: &[u8]) -> Result<Self> {
         let kv = KV::parse_from_bytes(data).map_err(|e| DecodeFailed(e.to_string()))?;
-        Ok(Buffer(kv))
+        Ok(Buffer(Arc::new(kv)))
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {
@@ -78,6 +79,11 @@ impl Buffer {
         } else {
             Err(TypeMissMatch)
         }
+    }
+
+    #[cfg(test)]
+    fn shared_with(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
     }
 }
 
@@ -354,7 +360,7 @@ impl_from_buffer_for_typed_array!(
 
 impl PartialEq for Buffer {
     fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
+        self.0.as_ref() == other.0.as_ref()
     }
 }
 
@@ -438,5 +444,17 @@ mod tests {
         assert_eq!(copy, buffer);
         assert_eq!(copy.parse(), Ok(f64_array));
         assert_eq!(copy.parse::<Vec<u8>>(), Err(TypeMissMatch));
+    }
+
+    #[test]
+    fn test_buffer_clone_is_shallow() {
+        let bytes = vec![1u8, 2, 3, 4];
+        let buffer = Buffer::new("shared_key", bytes.as_slice());
+        let clone = buffer.clone();
+
+        assert!(buffer.shared_with(&clone));
+        assert_eq!(buffer.parse::<Vec<u8>>(), Ok(bytes.clone()));
+        assert_eq!(clone.parse::<Vec<u8>>(), Ok(bytes));
+        assert_eq!(buffer, clone);
     }
 }
