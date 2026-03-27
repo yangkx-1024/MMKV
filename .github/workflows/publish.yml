@@ -130,6 +130,9 @@ jobs:
           rm -f Cargo.lock.bak
           rm -f android/buildSrc/src/main/java/Version.kt.bak
 
+      - name: Install protoc
+        run: brew install protobuf
+
       - name: Install Rust Apple targets
         run: |
           rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios aarch64-apple-darwin x86_64-apple-darwin
@@ -198,6 +201,8 @@ jobs:
       - uses: actions/checkout@v6
         with:
           ref: main
+      - name: Install protoc
+        run: sudo apt-get install -y protobuf-compiler
       - name: Cargo publish
         run: cargo publish
         env:
@@ -226,6 +231,9 @@ jobs:
         run: |
           printf '%s' "$ENCODED_KEYSTORE" | base64 -d > ./android/app/keystore.jks
           printf '%s' "$GPG_SECRET" | base64 -d | gpg --dearmor > ./android/secret.gpg
+
+      - name: Install protoc
+        run: sudo apt-get install -y protobuf-compiler
 
       - name: Install Rust targets for Android
         run: |

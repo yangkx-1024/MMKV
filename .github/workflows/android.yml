@@ -27,6 +27,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Install protoc
+        run: sudo apt-get install -y protobuf-compiler
+
       - uses: nttld/setup-ndk@v1
         id: setup-ndk
         with:

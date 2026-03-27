@@ -27,6 +27,8 @@ jobs:
     steps:
       - uses: swift-actions/setup-swift@v3
       - uses: actions/checkout@v6
+      - name: Install protoc
+        run: brew install protobuf
       - name: Build
         run: |
           ./build_apple.sh

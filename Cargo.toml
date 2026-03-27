@@ -16,7 +16,7 @@ exclude = [
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-protobuf = "3.7.2"
+buffa = "0.2"
 libc = "0.2.182"
 crc = "3.4.0"
 eax = { version = "0.5.0", features = ["stream"], optional = true }
@@ -28,8 +28,7 @@ once_cell = { version = "1.21.3" }
 crossbeam-channel = "0.5.15"
 
 [build-dependencies]
-protobuf-codegen = "3.7.2"
-protoc-bin-vendored = "3.2.0"
+buffa-build = "0.2"
 
 [features]
 default = []

@@ -18,6 +18,14 @@ with [AES-EAX](https://github.com/RustCrypto/AEADs/tree/master/eax).
 MMKV is thread-safe but cannot guarantee cross-process data consistency.
 If you want to use it in a cross-process scenario, please ensure that there is no competing write.
 
+## Build requirements
+
+Building this library requires [protoc](https://grpc.io/docs/protoc-installation/) (the Protocol Buffers compiler) to be installed on your system.
+
+- **macOS**: `brew install protobuf`
+- **Ubuntu/Debian**: `sudo apt-get install protobuf-compiler`
+- **Windows**: download from the [protobuf releases page](https://github.com/protocolbuffers/protobuf/releases)
+
 ## How to use
 
 Add dependency:

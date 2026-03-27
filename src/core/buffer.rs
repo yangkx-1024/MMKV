@@ -4,10 +4,13 @@ use std::{f32, f64, str, vec};
 
 use crate::Error::{DataInvalid, DecodeFailed, KeyNotFound, TypeMissMatch};
 use crate::Result;
-use kv::KV;
-use protobuf::Message;
+use buffa::Message;
 
-include!(concat!(env!("OUT_DIR"), "/protos/mod.rs"));
+mod generated {
+    #![allow(dead_code)]
+    include!(concat!(env!("OUT_DIR"), "/kv.rs"));
+}
+use generated::KV;
 
 #[derive(Debug, Clone)]
 pub struct Buffer(Arc<KV>);
@@ -27,9 +30,9 @@ pub trait Decoder {
 
 impl Buffer {
     fn from_kv(key: &str, t: i32, value: Vec<u8>) -> Self {
-        let mut kv = KV::new();
+        let mut kv = KV::default();
         kv.key = key.to_string();
-        kv.type_ = t;
+        kv.r#type = t;
         kv.value = value;
         Buffer(Arc::new(kv))
     }
@@ -48,12 +51,12 @@ impl Buffer {
     }
 
     pub fn from_encoded_bytes(data: &[u8]) -> Result<Self> {
-        let kv = KV::parse_from_bytes(data).map_err(|e| DecodeFailed(e.to_string()))?;
+        let kv = KV::decode_from_slice(data).map_err(|e| DecodeFailed(e.to_string()))?;
         Ok(Buffer(Arc::new(kv)))
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {
-        self.0.write_to_bytes().unwrap()
+        self.0.encode_to_vec()
     }
 
     pub fn key(&self) -> &str {
@@ -66,14 +69,14 @@ impl Buffer {
     }
 
     pub fn is_deleting(&self) -> bool {
-        self.0.type_ == InnerTypes::Deleted.value()
+        self.0.r#type == InnerTypes::Deleted.value()
     }
 
     fn check_buffer_type(&self, type_token: TypeToken) -> Result<()> {
         if self.is_deleting() {
             return Err(KeyNotFound);
         }
-        if type_token.token == self.0.type_ {
+        if type_token.token == self.0.r#type {
             Ok(())
         } else {
             Err(TypeMissMatch)
