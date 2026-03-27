@@ -30,10 +30,12 @@ pub trait Decoder {
 
 impl Buffer {
     fn from_kv(key: &str, t: i32, value: Vec<u8>) -> Self {
-        let mut kv = KV::default();
-        kv.key = key.to_string();
-        kv.r#type = t;
-        kv.value = value;
+        let kv = KV {
+            key: key.to_string(),
+            r#type: t,
+            value,
+            ..Default::default()
+        };
         Buffer(Arc::new(kv))
     }
 
@@ -304,7 +306,7 @@ impl FromBytes for Vec<u8> {
 }
 
 macro_rules! impl_from_buffer_for_number {
-    ($(($t:ty, $kv_type:expr)),+;) => {
+    ($($t:ty),+;) => {
         $(
         impl FromBytes for $t {
             fn from_bytes(bytes: &[u8]) -> Result<Self> {
@@ -321,15 +323,10 @@ macro_rules! impl_from_buffer_for_number {
     };
 }
 
-impl_from_buffer_for_number!(
-    (i32, Types::I32),
-    (i64, Types::I64),
-    (f32, Types::F32),
-    (f64, Types::F64);
-);
+impl_from_buffer_for_number!(i32, i64, f32, f64;);
 
 macro_rules! impl_from_buffer_for_typed_array {
-    ($(($t:ty, $kv_type:expr)),+;) => {
+    ($($t:ty),+;) => {
         $(
         impl FromBytes for Vec<$t> {
             fn from_bytes(bytes: &[u8]) -> Result<Self> {
@@ -353,12 +350,7 @@ macro_rules! impl_from_buffer_for_typed_array {
     };
 }
 
-impl_from_buffer_for_typed_array!(
-    (i32, Types::I32_ARRAY),
-    (i64, Types::I64_ARRAY),
-    (f32, Types::F32_ARRAY),
-    (f64, Types::F64_ARRAY);
-);
+impl_from_buffer_for_typed_array!(i32, i64, f32, f64;);
 
 impl PartialEq for Buffer {
     fn eq(&self, other: &Self) -> bool {
