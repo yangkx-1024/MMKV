@@ -5,9 +5,9 @@ use eax::aead::stream::{NewStream, StreamBE32, StreamPrimitive};
 use eax::aead::{generic_array::GenericArray, KeyInit, OsRng, Payload};
 use eax::Eax;
 use std::fs;
-#[cfg(unix)]
 use std::fs::File;
 use std::fs::OpenOptions;
+use std::io::ErrorKind;
 use std::io::{Read, Write};
 use std::mem::size_of;
 use std::path::{Path, PathBuf};
@@ -198,7 +198,6 @@ impl StreamWrapper {
         current_nonce: &[u8; NONCE_LEN],
         previous_nonce: Option<&[u8; NONCE_LEN]>,
     ) -> Result<()> {
-        let tmp_path = Self::temp_meta_file_path(meta_file_path);
         let mut meta_bytes = Vec::with_capacity(match previous_nonce {
             Some(_) => META_FILE_LEN_WITH_PREVIOUS,
             None => NONCE_LEN,
@@ -208,13 +207,8 @@ impl StreamWrapper {
             meta_bytes.extend_from_slice(previous_nonce);
         }
 
+        let (tmp_path, mut nonce_file) = Self::open_temp_meta_file(meta_file_path)?;
         let write_result = (|| -> Result<()> {
-            let mut nonce_file = OpenOptions::new()
-                .create(true)
-                .truncate(true)
-                .write(true)
-                .open(&tmp_path)
-                .map_err(|e| EncryptFailed(e.to_string()))?;
             nonce_file
                 .write_all(&meta_bytes)
                 .map_err(|e| EncryptFailed(e.to_string()))?;
@@ -233,21 +227,43 @@ impl StreamWrapper {
         write_result
     }
 
+    fn parent_dir(path: &Path) -> &Path {
+        path.parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."))
+    }
+
+    fn open_temp_meta_file(meta_file_path: &Path) -> Result<(PathBuf, File)> {
+        fs::create_dir_all(Self::parent_dir(meta_file_path))
+            .map_err(|e| EncryptFailed(e.to_string()))?;
+        loop {
+            let tmp_path = Self::temp_meta_file_path(meta_file_path);
+            match OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .open(&tmp_path)
+            {
+                Ok(file) => return Ok((tmp_path, file)),
+                Err(e) if e.kind() == ErrorKind::AlreadyExists => continue,
+                Err(e) => return Err(EncryptFailed(e.to_string())),
+            }
+        }
+    }
+
     fn temp_meta_file_path(meta_file_path: &Path) -> PathBuf {
-        let tmp_ext = match meta_file_path.extension() {
-            Some(ext) => format!("{}.tmp", ext.to_string_lossy()),
-            None => "tmp".to_string(),
-        };
-        meta_file_path.with_extension(tmp_ext)
+        let mut suffix = [0u8; 8];
+        OsRng.fill_bytes(&mut suffix);
+        let suffix = hex::encode(suffix);
+        let file_name = meta_file_path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "meta".to_string());
+        meta_file_path.with_file_name(format!("{file_name}.{suffix}.tmp"))
     }
 
     #[cfg(unix)]
     fn sync_parent_dir(path: &Path) -> Result<()> {
-        let parent = path
-            .parent()
-            .filter(|parent| !parent.as_os_str().is_empty())
-            .unwrap_or_else(|| Path::new("."));
-        File::open(parent)
+        File::open(Self::parent_dir(path))
             .and_then(|dir| dir.sync_all())
             .map_err(|e| EncryptFailed(e.to_string()))
     }
@@ -429,5 +445,15 @@ mod tests {
         );
 
         let _ = fs::remove_file(&reopened.meta_file_path);
+    }
+
+    #[test]
+    fn test_temp_meta_file_path_is_unique() {
+        let path = Path::new("./mmkv_unique.meta");
+        let first = super::StreamWrapper::temp_meta_file_path(path);
+        let second = super::StreamWrapper::temp_meta_file_path(path);
+        assert_ne!(first, second);
+        assert_eq!(first.parent(), path.parent());
+        assert_eq!(second.parent(), path.parent());
     }
 }
