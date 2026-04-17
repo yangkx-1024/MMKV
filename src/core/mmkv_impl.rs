@@ -36,6 +36,14 @@ impl MmkvImpl {
         let encoder = Box::new(CrcEncoderDecoder);
         let mm = MemoryMap::new(&config.file, config.file_size()?)?;
         #[cfg(feature = "encryption")]
+        {
+            let write_offset = mm.write_offset()?;
+            if write_offset > mm.content_start_offset() {
+                let bytes = mm.read(mm.content_start_offset()..write_offset)?;
+                encryptor.recover_current_nonce(bytes)?;
+            }
+        }
+        #[cfg(feature = "encryption")]
         let decoder = Box::new(encryptor.clone());
         #[cfg(not(feature = "encryption"))]
         let decoder = Box::new(CrcEncoderDecoder);
@@ -181,6 +189,8 @@ mod tests {
 
     use crate::core::buffer::Buffer;
     use crate::core::config::Config;
+    #[cfg(feature = "encryption")]
+    use crate::core::encrypt::Encryptor;
     use crate::core::memory_map::MemoryMap;
     use crate::core::mmkv_impl::MmkvImpl;
     use crate::Error::{IOError, KeyNotFound};
@@ -288,6 +298,33 @@ mod tests {
         assert_eq!(mm.write_offset().unwrap(), 128);
 
         mmkv = init(config);
+        mmkv.clear_data().unwrap();
+        assert!(!Path::new(file).exists());
+    }
+
+    #[test]
+    #[cfg(feature = "encryption")]
+    fn test_reopen_recovers_previous_nonce_after_interrupted_rotation() {
+        let file = "test_recover_previous_nonce";
+        let _ = fs::remove_file(file);
+        let _ = fs::remove_file(format!("{file}.meta"));
+        let config = Config::new(Path::new(file), 128).unwrap();
+        let mut mmkv = init(&config);
+        mmkv.put("key1", Buffer::new("key1", 7)).unwrap();
+        drop(mmkv);
+
+        let encryptor = Encryptor::init(Path::new(file), TEST_KEY);
+        encryptor.rotate_nonce().unwrap();
+        drop(encryptor);
+
+        let mut mmkv = init(&config);
+        assert_eq!(mmkv.get("key1").unwrap().parse::<i32>(), Ok(7));
+        mmkv.put("key2", Buffer::new("key2", 8)).unwrap();
+        drop(mmkv);
+
+        let mut mmkv = init(&config);
+        assert_eq!(mmkv.get("key1").unwrap().parse::<i32>(), Ok(7));
+        assert_eq!(mmkv.get("key2").unwrap().parse::<i32>(), Ok(8));
         mmkv.clear_data().unwrap();
         assert!(!Path::new(file).exists());
     }
