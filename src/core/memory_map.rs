@@ -1,13 +1,14 @@
 use crate::Error::IOError;
 use crate::Result;
 use std::fs::File;
+use std::mem::size_of;
 use std::ops::{Deref, DerefMut, Range};
 use std::os::fd::{AsRawFd, RawFd};
 use std::ptr::NonNull;
 use std::{io, ptr, slice};
 
 const LOG_TAG: &str = "MMKV:MemoryMap";
-const LEN_OFFSET: usize = 8;
+const LEN_OFFSET: usize = size_of::<u64>();
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
 const MAP_POPULATE: libc::c_int = libc::MAP_POPULATE;
@@ -88,7 +89,16 @@ pub struct MemoryMap(RawMmap);
 
 impl Drop for MemoryMap {
     fn drop(&mut self) {
-        let flush_len = self.write_offset();
+        let flush_len = match self.write_offset() {
+            Ok(flush_len) => flush_len,
+            Err(e) => {
+                error!(
+                    LOG_TAG,
+                    "skip flushing mmap on drop due to invalid header: {:?}", e
+                );
+                return;
+            }
+        };
         if flush_len > self.len() {
             error!(
                 LOG_TAG,
@@ -105,15 +115,25 @@ impl Drop for MemoryMap {
 }
 
 impl MemoryMap {
-    pub fn new(file: &File, len: usize) -> Result<Self> {
-        let raw_mmap = RawMmap::new(file.as_raw_fd(), len)
+    pub fn new(file: &File, len: u64) -> Result<Self> {
+        if len < LEN_OFFSET as u64 {
+            return Err(IOError(format!(
+                "failed to create mmap with len {len}: mmap length is smaller than header {LEN_OFFSET}"
+            )));
+        }
+        let mmap_len = usize::try_from(len).map_err(|_| {
+            IOError(format!(
+                "failed to create mmap with len {len}: exceeds platform usize"
+            ))
+        })?;
+        let raw_mmap = RawMmap::new(file.as_raw_fd(), mmap_len)
             .map_err(|e| IOError(format!("failed to create mmap with len {len}: {e}")))?;
         Ok(MemoryMap(raw_mmap))
     }
 
     pub fn append(&mut self, value: &[u8]) -> Result<()> {
         let data_len = value.len();
-        let start = self.write_offset();
+        let start = self.write_offset()?;
         let content_len = start - LEN_OFFSET;
         let end = start
             .checked_add(data_len)
@@ -130,14 +150,15 @@ impl MemoryMap {
         let new_content_len = content_len
             .checked_add(data_len)
             .ok_or_else(|| IOError("append overflowed content length".to_string()))?;
-        self.0[0..LEN_OFFSET].copy_from_slice(new_content_len.to_be_bytes().as_slice());
+        let new_content_len = u64::try_from(new_content_len)
+            .map_err(|_| IOError("append overflowed stored content length".to_string()))?;
+        self.write_content_len(new_content_len);
         self.0[start..end].copy_from_slice(value);
         Ok(())
     }
 
     pub fn reset(&mut self) {
-        let len = 0usize;
-        self.0[0..LEN_OFFSET].copy_from_slice(len.to_be_bytes().as_slice());
+        self.write_content_len(0);
     }
 
     pub fn content_start_offset(&self) -> usize {
@@ -145,8 +166,10 @@ impl MemoryMap {
     }
 
     /// The write offset of current mmap
-    pub fn write_offset(&self) -> usize {
-        usize::from_be_bytes(self.0[0..LEN_OFFSET].try_into().unwrap()) + LEN_OFFSET
+    pub fn write_offset(&self) -> Result<usize> {
+        self.content_len()?
+            .checked_add(LEN_OFFSET)
+            .ok_or_else(|| IOError("invalid mmap write offset overflow".to_string()))
     }
 
     /// The max len of current mmap
@@ -165,6 +188,34 @@ impl MemoryMap {
         }
         Ok(self.0[range].as_ref())
     }
+
+    fn content_len(&self) -> Result<usize> {
+        let content_len = self.read_content_len();
+        let max_content_len = self.payload_capacity() as u64;
+        if content_len > max_content_len {
+            return Err(IOError(format!(
+                "invalid mmap content length {content_len}, max {max_content_len}"
+            )));
+        }
+        // Safe: content_len <= payload_capacity() which is usize, so cast never truncates
+        Ok(content_len as usize)
+    }
+
+    fn payload_capacity(&self) -> usize {
+        self.len() - LEN_OFFSET
+    }
+
+    fn read_content_len(&self) -> u64 {
+        u64::from_be_bytes(
+            self.0[0..LEN_OFFSET]
+                .try_into()
+                .expect("mmap header slice length must match u64"),
+        )
+    }
+
+    fn write_content_len(&mut self, content_len: u64) {
+        self.0[0..LEN_OFFSET].copy_from_slice(&content_len.to_be_bytes());
+    }
 }
 
 #[cfg(test)]
@@ -174,7 +225,7 @@ mod tests {
 
     use crate::Error::IOError;
 
-    use super::{LEN_OFFSET, MemoryMap};
+    use super::{MemoryMap, LEN_OFFSET};
 
     #[test]
     fn test_mmap() {
@@ -188,21 +239,22 @@ mod tests {
             .unwrap();
         file.set_len(1024).unwrap();
         let mut mm = MemoryMap::new(&file, 1024).unwrap();
-        assert_eq!(mm.write_offset(), LEN_OFFSET);
+        assert_eq!(mm.write_offset().unwrap(), LEN_OFFSET);
         mm.append(&[1, 2, 3]).unwrap();
         mm.append(&[4]).unwrap();
-        assert_eq!(mm.write_offset(), 12);
+        assert_eq!(mm.write_offset().unwrap(), 12);
 
         let read = mm.read(8..10).unwrap();
         assert_eq!(read.len(), 2);
         assert_eq!(read[0], 1);
         assert_eq!(read[1], 2);
-        let read = mm.read(mm.write_offset() - 1..mm.write_offset()).unwrap();
+        let write_offset = mm.write_offset().unwrap();
+        let read = mm.read(write_offset - 1..write_offset).unwrap();
         assert_eq!(read[0], 4);
 
         mm.reset();
         mm.append(&[5, 4, 3, 2, 1]).unwrap();
-        assert_eq!(mm.write_offset(), 13);
+        assert_eq!(mm.write_offset().unwrap(), 13);
         let read = mm.read(8..9).unwrap();
         assert_eq!(read[0], 5);
 
@@ -222,7 +274,7 @@ mod tests {
             .open("test_mmap_append_out_of_bounds")
             .unwrap();
         file.set_len((LEN_OFFSET + 1) as u64).unwrap();
-        let mut mm = MemoryMap::new(&file, LEN_OFFSET + 1).unwrap();
+        let mut mm = MemoryMap::new(&file, (LEN_OFFSET + 1) as u64).unwrap();
 
         let err = mm.append(&[1, 2]).unwrap_err();
         assert_eq!(
@@ -250,7 +302,7 @@ mod tests {
             .open("test_mmap_read_out_of_bounds")
             .unwrap();
         file.set_len((LEN_OFFSET + 1) as u64).unwrap();
-        let mm = MemoryMap::new(&file, LEN_OFFSET + 1).unwrap();
+        let mm = MemoryMap::new(&file, (LEN_OFFSET + 1) as u64).unwrap();
 
         let err = mm.read(LEN_OFFSET..LEN_OFFSET + 2).unwrap_err();
         assert_eq!(
@@ -264,5 +316,53 @@ mod tests {
         );
 
         let _ = fs::remove_file("test_mmap_read_out_of_bounds");
+    }
+
+    #[test]
+    fn test_mmap_rejects_len_smaller_than_header() {
+        let _ = fs::remove_file("test_mmap_small_len");
+        let file = OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .read(true)
+            .open("test_mmap_small_len")
+            .unwrap();
+        file.set_len((LEN_OFFSET - 1) as u64).unwrap();
+
+        let err = MemoryMap::new(&file, (LEN_OFFSET - 1) as u64).unwrap_err();
+        assert_eq!(
+            err,
+            IOError(format!(
+                "failed to create mmap with len {}: mmap length is smaller than header {}",
+                LEN_OFFSET - 1,
+                LEN_OFFSET
+            ))
+        );
+
+        let _ = fs::remove_file("test_mmap_small_len");
+    }
+
+    #[test]
+    fn test_mmap_rejects_invalid_stored_length() {
+        let _ = fs::remove_file("test_mmap_invalid_len");
+        let file = OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .read(true)
+            .open("test_mmap_invalid_len")
+            .unwrap();
+        file.set_len((LEN_OFFSET + 1) as u64).unwrap();
+        let mut mm = MemoryMap::new(&file, (LEN_OFFSET + 1) as u64).unwrap();
+        mm.0[0..LEN_OFFSET].copy_from_slice(&2u64.to_be_bytes());
+
+        let err = mm.write_offset().unwrap_err();
+        assert_eq!(
+            err,
+            IOError("invalid mmap content length 2, max 1".to_string())
+        );
+
+        let _ = fs::remove_file("test_mmap_invalid_len");
     }
 }

@@ -16,19 +16,19 @@ where
 }
 
 impl MemoryMap {
-    pub fn iter<F>(&self, decode: F) -> Iter<'_, F>
+    pub fn iter<F>(&self, decode: F) -> crate::Result<Iter<'_, F>>
     where
         F: Fn(&[u8], u32) -> crate::Result<DecodeResult>,
     {
         let start = self.content_start_offset();
-        let end = self.write_offset();
-        Iter {
+        let end = self.write_offset()?;
+        Ok(Iter {
             mm: self,
             position: 0,
             start,
             end,
             decode,
-        }
+        })
     }
 }
 
@@ -91,10 +91,10 @@ mod tests {
     use std::fs::OpenOptions;
     use std::mem::size_of;
 
-    use crate::Error::DataInvalid;
-    use crate::Result;
     use crate::core::buffer::{Buffer, DecodeResult, Decoder, Encoder};
     use crate::core::memory_map::MemoryMap;
+    use crate::Error::DataInvalid;
+    use crate::Result;
 
     const LOG_TAG: &str = "MMKV:IterTest";
 
@@ -154,6 +154,7 @@ mod tests {
         let decoder = &TestEncoderDecoder;
         for (index, i) in mm
             .iter(|bytes, position| decoder.decode_bytes(bytes, position))
+            .unwrap()
             .enumerate()
         {
             assert_eq!(buffers[index], i.unwrap());

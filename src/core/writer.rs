@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 const LOG_TAG: &str = "MMKV:IO";
+const WRITE_OVERFLOW_ERR: &str = "write target overflowed";
 
 pub struct IOWriter {
     config: Config,
@@ -38,10 +39,14 @@ impl IOWriter {
         }
     }
 
-    // Flash the data to file, always running in one io thread, so don't need lock here
+    // Flush the data to file, always running in one io thread, so don't need lock here
     pub fn write(&mut self, buffer: Buffer, duplicated: bool) -> Result<()> {
         let data = self.encoder.encode_to_bytes(&buffer, self.position)?;
-        let target_end = data.len() + self.mm.write_offset();
+        let write_offset = self.mm.write_offset()?;
+        let target_end = data
+            .len()
+            .checked_add(write_offset)
+            .ok_or_else(|| Error::IOError(WRITE_OVERFLOW_ERR.to_string()))?;
         if duplicated {
             self.need_trim = true;
         }
@@ -55,7 +60,7 @@ impl IOWriter {
             info!(
                 LOG_TAG,
                 "start trim, current len {}",
-                self.mm.write_offset()
+                self.mm.write_offset()?
             );
             let snapshot = self.snapshot()?;
             info!(LOG_TAG, "snapshot finished in {:?}", time_start.elapsed());
@@ -65,7 +70,7 @@ impl IOWriter {
                 LOG_TAG,
                 "wrote {} items, new len {}, cost {:?}",
                 self.position,
-                self.mm.write_offset(),
+                self.mm.write_offset()?,
                 time_start.elapsed()
             );
         } else {
@@ -97,7 +102,13 @@ impl IOWriter {
     }
 
     fn ensure_capacity(&mut self, incoming_len: usize) -> Result<()> {
-        while self.mm.write_offset() + incoming_len > self.mm.len() {
+        while self
+            .mm
+            .write_offset()?
+            .checked_add(incoming_len)
+            .ok_or_else(|| Error::IOError(WRITE_OVERFLOW_ERR.to_string()))?
+            > self.mm.len()
+        {
             self.expand()?;
         }
         Ok(())
@@ -105,7 +116,7 @@ impl IOWriter {
 
     fn expand(&mut self) -> Result<()> {
         self.config.expand()?;
-        self.mm = MemoryMap::new(&self.config.file, self.config.file_size()? as usize)?;
+        self.mm = MemoryMap::new(&self.config.file, self.config.file_size()?)?;
         Ok(())
     }
 
@@ -175,7 +186,7 @@ mod tests {
         let _ = fs::remove_file(file_name);
         let _ = fs::remove_file(format!("{file_name}.meta"));
         let config = Config::new(Path::new(file_name), 64).unwrap();
-        let mm = MemoryMap::new(&config.file, config.file_size().unwrap() as usize).unwrap();
+        let mm = MemoryMap::new(&config.file, config.file_size().unwrap()).unwrap();
         let encoder = test_encoder(file_name);
         let shared_kv = new_shared_state();
         let mut writer = IOWriter::new(
@@ -191,7 +202,7 @@ mod tests {
         insert(&shared_kv, buffer.clone());
         writer.write(buffer, false).unwrap();
 
-        assert!(writer.mm.len() >= writer.mm.write_offset());
+        assert!(writer.mm.len() >= writer.mm.write_offset().unwrap());
         assert_eq!(writer.position, 1);
         assert_eq!(
             shared_kv
@@ -220,7 +231,7 @@ mod tests {
         let _ = fs::remove_file(file_name);
         let _ = fs::remove_file(format!("{file_name}.meta"));
         let config = Config::new(Path::new(file_name), 96).unwrap();
-        let mm = MemoryMap::new(&config.file, config.file_size().unwrap() as usize).unwrap();
+        let mm = MemoryMap::new(&config.file, config.file_size().unwrap()).unwrap();
         let encoder = test_encoder(file_name);
         let shared_kv = new_shared_state();
         let mut writer = IOWriter::new(
@@ -289,7 +300,7 @@ mod tests {
         let _ = fs::remove_file(file_name);
         let _ = fs::remove_file(format!("{file_name}.meta"));
         let config = Config::new(Path::new(file_name), 96).unwrap();
-        let mm = MemoryMap::new(&config.file, config.file_size().unwrap() as usize).unwrap();
+        let mm = MemoryMap::new(&config.file, config.file_size().unwrap()).unwrap();
         let encoder = test_encoder(file_name);
         let shared_kv = new_shared_state();
         let mut writer = IOWriter::new(
@@ -339,7 +350,7 @@ mod tests {
         let _ = fs::remove_file(file_name);
         let _ = fs::remove_file(format!("{file_name}.meta"));
         let config = Config::new(Path::new(file_name), 96).unwrap();
-        let mm = MemoryMap::new(&config.file, config.file_size().unwrap() as usize).unwrap();
+        let mm = MemoryMap::new(&config.file, config.file_size().unwrap()).unwrap();
         let encoder = test_encoder(file_name);
         let shared_kv = new_shared_state();
         let mut writer = IOWriter::new(
