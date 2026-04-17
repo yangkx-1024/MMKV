@@ -1,6 +1,5 @@
 use std::any::TypeId;
 use std::fmt::Debug;
-use std::ops::DerefMut;
 
 use crate::Error;
 use crate::ffi::*;
@@ -42,18 +41,6 @@ where
     }
 }
 
-impl<T> Releasable for &mut [T]
-where
-    T: 'static + Debug,
-{
-    fn release(&mut self) {
-        let ptr = self.deref_mut();
-        let boxed = unsafe { Box::from_raw(ptr) };
-        verbose!(LOG_TAG, "release {:?}, ptr: {:?}", boxed, ptr.as_ptr());
-        drop(boxed);
-    }
-}
-
 macro_rules! impl_release_for_primary {
     ($($ident:ident),+) => {
         $(
@@ -70,33 +57,33 @@ impl_release_for_primary!(bool, i32, i64, f32, f64);
 
 impl ByteSlice {
     pub(super) fn new(string: String) -> Self {
-        let boxed = string.into_boxed_str();
-        let ptr = boxed.as_ptr();
-        let len = boxed.len();
-        std::mem::forget(boxed);
-        ByteSlice { bytes: ptr, len }
+        let (bytes, len, capacity) = string.into_bytes().into_raw_parts();
+        ByteSlice {
+            bytes,
+            len,
+            capacity,
+        }
     }
 }
 
 impl Releasable for ByteSlice {
     fn release(&mut self) {
         unsafe {
-            let _ = String::from_raw_parts(self.bytes as *mut u8, self.len, self.len);
+            let _ = Vec::from_raw_parts(self.bytes as *mut u8, self.len, self.capacity);
         };
     }
 }
 
 impl RawTypedArray {
     pub(super) fn new<T: Debug>(array: Vec<T>, type_token: Types) -> Self {
-        let boxed = array.into_boxed_slice();
-        let ptr = boxed.as_ptr();
-        let len = boxed.len();
-        verbose!(LOG_TAG, "leak {:?}, ptr: {:?}", boxed, ptr);
-        std::mem::forget(boxed);
+        let log = format!("{:?}", array);
+        let (ptr, len, capacity) = array.into_raw_parts();
+        verbose!(LOG_TAG, "leak {log}, ptr: {:?}", ptr);
         RawTypedArray {
-            array: ptr as *mut _,
+            array: ptr as *const _,
             type_token,
             len,
+            capacity,
         }
     }
 }
@@ -104,7 +91,10 @@ impl RawTypedArray {
 macro_rules! release_array {
     ($target:expr, $type:ty) => {{
         unsafe {
-            std::slice::from_raw_parts_mut($target.array as *mut $type, $target.len).release();
+            let array =
+                Vec::from_raw_parts($target.array as *mut $type, $target.len, $target.capacity);
+            verbose!(LOG_TAG, "release {:?}, ptr: {:?}", array, array.as_ptr());
+            drop(array);
         }
     }};
 }
@@ -219,9 +209,10 @@ impl Releasable for InternalError {
             unsafe {
                 verbose!(
                     LOG_TAG,
-                    "release ByteSlice {{ bytes: {:?}, len: {} }}, ptr: {:?}",
+                    "release ByteSlice {{ bytes: {:?}, len: {}, capacity: {} }}, ptr: {:?}",
                     (*self.reason).bytes,
                     (*self.reason).len,
+                    (*self.reason).capacity,
                     self.reason
                 );
             }
@@ -232,14 +223,28 @@ impl Releasable for InternalError {
 
 #[cfg(test)]
 mod test {
+    use std::ffi::c_void;
+
     use crate::ffi::ffi_buffer::{Leakable, Releasable};
-    use crate::ffi::{ByteSlice, InternalError, RawBuffer, RawTypedArray, Types};
+    use crate::ffi::{ByteSlice, InternalError, RawBuffer, RawTypedArray, Types, free_buffer};
     use crate::log::logger;
 
     #[test]
-    fn test_byte_slice() {
-        let str = "Test slice".to_string();
-        let mut ptr = ByteSlice::new(str).leak();
+    fn test_byte_slice_empty() {
+        let slice = ByteSlice::new(String::new());
+        assert_eq!(slice.len, 0);
+        assert_eq!(slice.capacity, 0);
+        let mut ptr = slice.leak();
+        ptr.release();
+        logger::sync().unwrap()
+    }
+
+    #[test]
+    fn test_byte_slice_non_empty() {
+        let slice = ByteSlice::new("Test slice".to_string());
+        assert_eq!(slice.len, 10);
+        assert!(slice.capacity >= slice.len);
+        let mut ptr = slice.leak();
         ptr.release();
         logger::sync().unwrap()
     }
@@ -253,26 +258,48 @@ mod test {
     }
 
     #[test]
-    fn test_raw_buffer() {
+    fn test_raw_typed_array_empty() {
+        let array = RawTypedArray::new(Vec::<i32>::new(), Types::I32Array);
+        assert_eq!(array.len, 0);
+        assert_eq!(array.capacity, 0);
+        let mut ptr = array.leak();
+        ptr.release();
+        logger::sync().unwrap();
+    }
+
+    #[test]
+    fn test_raw_typed_array_non_empty() {
+        let array = RawTypedArray::new(vec![1i32, 2, 3], Types::I32Array);
+        assert_eq!(array.len, 3);
+        assert!(array.capacity >= array.len);
+        let mut ptr = array.leak();
+        ptr.release();
+        logger::sync().unwrap();
+    }
+
+    fn free_data_buffer<T: super::Releasable + 'static>(type_token: Types, data: T) {
+        let mut buffer = RawBuffer::new(type_token);
+        buffer.set_data(data);
+        unsafe { free_buffer(buffer.leak() as *const c_void) };
+    }
+
+    #[test]
+    fn test_raw_buffer_release_via_free_buffer() {
         let mut buffer = RawBuffer::new(Types::Bool);
         buffer.set_error(InternalError::new(0, None));
-        let mut ptr = buffer.leak();
-        ptr.release();
+        unsafe { free_buffer(buffer.leak() as *const c_void) };
 
-        let mut buffer = RawBuffer::new(Types::Str);
-        buffer.set_data(ByteSlice::new("test str".to_string()));
-        let mut ptr = buffer.leak();
-        ptr.release();
-
-        let mut buffer = RawBuffer::new(Types::I32);
-        buffer.set_data(10i32);
-        let mut ptr = buffer.leak();
-        ptr.release();
-
-        let mut buffer = RawBuffer::new(Types::I32Array);
-        buffer.set_data(RawTypedArray::new(vec![1i32, 2, 3], Types::I32Array));
-        let mut ptr = buffer.leak();
-        ptr.release();
+        free_data_buffer(Types::Str, ByteSlice::new("test str".to_string()));
+        free_data_buffer(Types::Str, ByteSlice::new(String::new()));
+        free_data_buffer(Types::I32, 10i32);
+        free_data_buffer(
+            Types::I32Array,
+            RawTypedArray::new(vec![1i32, 2, 3], Types::I32Array),
+        );
+        free_data_buffer(
+            Types::I32Array,
+            RawTypedArray::new(Vec::<i32>::new(), Types::I32Array),
+        );
         logger::sync().unwrap();
     }
 }

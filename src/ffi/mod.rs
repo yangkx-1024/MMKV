@@ -37,6 +37,7 @@ pub enum Types {
 pub struct ByteSlice {
     pub bytes: *const u8,
     pub len: usize,
+    pub capacity: usize,
 }
 
 #[repr(C)]
@@ -45,6 +46,7 @@ pub struct RawTypedArray {
     pub array: *const c_void,
     pub type_token: Types,
     pub len: usize,
+    pub capacity: usize,
 }
 
 #[repr(C)]

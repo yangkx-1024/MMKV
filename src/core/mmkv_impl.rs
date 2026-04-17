@@ -1,3 +1,4 @@
+use crate::Error::InstanceClosed;
 use crate::core::buffer::{Buffer, Decoder};
 use crate::core::config::Config;
 #[cfg(not(feature = "encryption"))]
@@ -6,9 +7,8 @@ use crate::core::crc::CrcEncoderDecoder;
 use crate::core::encrypt::Encryptor;
 use crate::core::io_looper::IOLooper;
 use crate::core::memory_map::MemoryMap;
-use crate::core::shared_state::{new_shared_kv_map, SharedKvMap};
+use crate::core::shared_state::{SharedKvMap, new_shared_kv_map};
 use crate::core::writer::IOWriter;
-use crate::Error::InstanceClosed;
 use crate::{Error, Result};
 #[cfg(feature = "encryption")]
 use std::fs;
@@ -187,15 +187,15 @@ mod tests {
     use std::sync::RwLock;
     use std::{fs, thread};
 
+    use crate::Error::{IOError, KeyNotFound};
+    use crate::LogLevel::Debug;
+    use crate::MMKV;
     use crate::core::buffer::Buffer;
     use crate::core::config::Config;
     #[cfg(feature = "encryption")]
     use crate::core::encrypt::Encryptor;
     use crate::core::memory_map::MemoryMap;
     use crate::core::mmkv_impl::MmkvImpl;
-    use crate::Error::{IOError, KeyNotFound};
-    use crate::LogLevel::Debug;
-    use crate::MMKV;
 
     #[cfg(feature = "encryption")]
     const TEST_KEY: &str = "88C51C536176AD8A8EE4A06F62EE897E";
@@ -408,9 +408,10 @@ mod tests {
         let mut mmkv = init(config);
 
         mmkv.io_looper.quit().unwrap();
-        assert!(mmkv
-            .put("rollback_key", Buffer::new("rollback_key", 1))
-            .is_err());
+        assert!(
+            mmkv.put("rollback_key", Buffer::new("rollback_key", 1))
+                .is_err()
+        );
         assert_eq!(mmkv.get("rollback_key"), Err(KeyNotFound));
 
         let _ = fs::remove_file(file);

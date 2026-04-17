@@ -143,6 +143,17 @@ final class MMKVTests: XCTestCase {
         let value = mmkv!.getByteArray("key_byte_array").unwrap([])
         XCTAssertEqual(value, array)
     }
+
+    func testPutAndGetEmptyByteArray() throws {
+        mmkv = MMKV(dirName)
+        let array: [UInt8] = []
+        try mmkv!.putByteArray("key_empty_byte_array", array).unwrap()
+        mmkv = nil
+
+        mmkv = MMKV(dirName)
+        let value = mmkv!.getByteArray("key_empty_byte_array").unwrap([1])
+        XCTAssertEqual(value, array)
+    }
     
     func testPutAndGetInt32Array() throws {
         mmkv = MMKV(dirName)

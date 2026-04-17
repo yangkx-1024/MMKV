@@ -1,8 +1,8 @@
 use crate::Error::IOError;
 use crate::Result;
-use crossbeam_channel::{bounded, unbounded, Receiver, Sender};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use crossbeam_channel::{Receiver, Sender, bounded, unbounded};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::Instant;

@@ -20,6 +20,9 @@ package extension UnsafePointer<ByteSlice> {
 package extension UnsafePointer<RawTypedArray> {
     func readArray<T> (source: T.Type) -> Array<T> {
         let count = Int(self.pointee.len)
+        if count == 0 {
+            return []
+        }
         var array = Array<T>()
         array.reserveCapacity(count)
         let ptr = self.pointee.array.assumingMemoryBound(to: source)

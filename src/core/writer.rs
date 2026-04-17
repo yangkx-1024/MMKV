@@ -130,6 +130,7 @@ impl IOWriter {
 #[cfg(test)]
 mod tests {
     use super::IOWriter;
+    use crate::Error::KeyNotFound;
     use crate::core::buffer::Buffer;
     use crate::core::config::Config;
     #[cfg(not(feature = "encryption"))]
@@ -138,8 +139,7 @@ mod tests {
     use crate::core::encrypt::Encryptor;
     use crate::core::memory_map::MemoryMap;
     use crate::core::mmkv_impl::MmkvImpl;
-    use crate::core::shared_state::{new_shared_kv_map, SharedKvMap};
-    use crate::Error::KeyNotFound;
+    use crate::core::shared_state::{SharedKvMap, new_shared_kv_map};
     use std::collections::HashMap;
     use std::fs;
     use std::path::Path;
@@ -382,7 +382,10 @@ mod tests {
         writer.write(buffer3, true).unwrap();
 
         let nonce_after = fs::read(format!("{file_name}.meta")).unwrap();
-        assert_ne!(nonce_before, nonce_after, "nonce must rotate on rewrite_snapshot");
+        assert_ne!(
+            nonce_before, nonce_after,
+            "nonce must rotate on rewrite_snapshot"
+        );
 
         let reopened = reopen_mmkv(&config);
         assert_eq!(
