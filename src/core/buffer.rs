@@ -17,6 +17,10 @@ pub struct Buffer(Arc<KV>);
 
 pub trait Encoder: Send {
     fn encode_to_bytes(&self, raw_buffer: &Buffer, position: u32) -> Result<Vec<u8>>;
+    #[cfg(feature = "encryption")]
+    fn before_rewrite(&self) -> Result<()> {
+        Ok(())
+    }
 }
 
 pub struct DecodeResult {

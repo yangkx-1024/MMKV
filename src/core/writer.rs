@@ -90,6 +90,8 @@ impl IOWriter {
     }
 
     fn rewrite_snapshot(&mut self, snapshot: &HashMap<String, Buffer>) -> Result<()> {
+        #[cfg(feature = "encryption")]
+        self.encoder.before_rewrite()?;
         self.mm.reset();
         self.position = 0;
         for buffer in snapshot.values() {
@@ -338,6 +340,58 @@ mod tests {
         assert_eq!(
             reopened.get("k3").unwrap().parse::<Vec<u8>>().unwrap(),
             vec![3u8; 120]
+        );
+
+        writer.remove_file().unwrap();
+        let _ = fs::remove_file(format!("{file_name}.meta"));
+    }
+
+    #[test]
+    #[cfg(feature = "encryption")]
+    fn trim_rotates_nonce() {
+        use std::fs;
+        let file_name = "test_writer_nonce_rotation";
+        let _ = fs::remove_file(file_name);
+        let _ = fs::remove_file(format!("{file_name}.meta"));
+        let config = Config::new(Path::new(file_name), 96).unwrap();
+        let mm = MemoryMap::new(&config.file, config.file_size().unwrap()).unwrap();
+        let encoder = test_encoder(file_name);
+        let shared_kv = new_shared_state();
+        let mut writer = IOWriter::new(
+            config.try_clone().unwrap(),
+            mm,
+            0,
+            shared_kv.clone(),
+            encoder,
+        );
+
+        let value1 = vec![1u8; 40];
+        let value2 = vec![2u8; 40];
+        let buffer1 = Buffer::new("k1", value1.as_slice());
+        let buffer2 = Buffer::new("k2", value2.as_slice());
+        insert(&shared_kv, buffer1.clone());
+        writer.write(buffer1, false).unwrap();
+        insert(&shared_kv, buffer2.clone());
+        writer.write(buffer2, false).unwrap();
+
+        let nonce_before = fs::read(format!("{file_name}.meta")).unwrap();
+
+        let updated = vec![3u8; 120];
+        let buffer3 = Buffer::new("k1", updated.as_slice());
+        insert(&shared_kv, buffer3.clone());
+        writer.write(buffer3, true).unwrap();
+
+        let nonce_after = fs::read(format!("{file_name}.meta")).unwrap();
+        assert_ne!(nonce_before, nonce_after, "nonce must rotate on rewrite_snapshot");
+
+        let reopened = reopen_mmkv(&config);
+        assert_eq!(
+            reopened.get("k1").unwrap().parse::<Vec<u8>>().unwrap(),
+            updated
+        );
+        assert_eq!(
+            reopened.get("k2").unwrap().parse::<Vec<u8>>().unwrap(),
+            value2
         );
 
         writer.remove_file().unwrap();

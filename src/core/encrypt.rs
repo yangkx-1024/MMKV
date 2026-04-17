@@ -1,22 +1,25 @@
 use aes::Aes128;
-use eax::Eax;
 use eax::aead::consts::U8;
 use eax::aead::rand_core::RngCore;
 use eax::aead::stream::{NewStream, StreamBE32, StreamPrimitive};
-use eax::aead::{KeyInit, OsRng, Payload, generic_array::GenericArray};
+use eax::aead::{generic_array::GenericArray, KeyInit, OsRng, Payload};
+use eax::Eax;
 use std::fs;
+use std::fs::File;
 use std::fs::OpenOptions;
+use std::io::ErrorKind;
 use std::io::{Read, Write};
 use std::mem::size_of;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
+use crate::core::buffer::{Buffer, DecodeResult, Decoder, Encoder};
 use crate::Error::{DataInvalid, DecryptFailed, EncryptFailed};
 use crate::Result;
-use crate::core::buffer::{Buffer, DecodeResult, Decoder, Encoder};
 
 const LOG_TAG: &str = "MMKV:Encrypt";
 const NONCE_LEN: usize = 11;
+const META_FILE_LEN_WITH_PREVIOUS: usize = NONCE_LEN * 2;
 
 type Aes128Eax = Eax<Aes128, U8>;
 type Stream = StreamBE32<Aes128Eax>;
@@ -24,21 +27,24 @@ type Stream = StreamBE32<Aes128Eax>;
 #[derive(Clone)]
 pub struct Encryptor {
     pub meta_file_path: PathBuf,
-    encryptor: Arc<StreamWrapper>,
+    encryptor: Arc<RwLock<StreamWrapper>>,
 }
 
-#[repr(transparent)]
-struct StreamWrapper(Stream);
+struct StreamWrapper {
+    stream: Stream,
+    key: [u8; 16],
+    current_nonce: [u8; NONCE_LEN],
+    previous_nonce: Option<[u8; NONCE_LEN]>,
+}
 
 impl Encryptor {
     pub fn init(file_path: &Path, key: &str) -> Self {
-        let decoded_key = hex::decode(key).unwrap();
+        let decoded_key: [u8; 16] = hex::decode(key).unwrap().as_slice().try_into().unwrap();
         let meta_file_path = Encryptor::resolve_meta_file_path(file_path);
-        let encryptor =
-            StreamWrapper::init(decoded_key.as_slice().try_into().unwrap(), &meta_file_path);
+        let encryptor = StreamWrapper::init(decoded_key, &meta_file_path);
         Encryptor {
             meta_file_path,
-            encryptor: Arc::new(encryptor),
+            encryptor: Arc::new(RwLock::new(encryptor)),
         }
     }
 
@@ -48,6 +54,20 @@ impl Encryptor {
             None => "meta".to_string(),
         };
         path.with_extension(meta_ext)
+    }
+
+    pub fn rotate_nonce(&self) -> Result<()> {
+        self.encryptor
+            .write()
+            .map_err(|e| EncryptFailed(e.to_string()))?
+            .rotate(&self.meta_file_path)
+    }
+
+    pub fn recover_current_nonce(&self, data: &[u8]) -> Result<()> {
+        self.encryptor
+            .write()
+            .map_err(|e| EncryptFailed(e.to_string()))?
+            .recover_current_nonce(data, &self.meta_file_path)
     }
 }
 
@@ -61,26 +81,20 @@ impl StreamWrapper {
     }
 
     fn new(key: [u8; 16], meta_file_path: &PathBuf) -> Self {
-        let generic_array = GenericArray::from_slice(key.as_slice());
-        let mut nonce = GenericArray::default();
+        let mut nonce = [0u8; NONCE_LEN];
         OsRng.fill_bytes(&mut nonce);
-        let mut nonce_file = OpenOptions::new()
-            .create(true)
-            .truncate(true)
-            .write(true)
-            .open(meta_file_path)
-            .unwrap();
-        nonce_file
-            .write_all(nonce.as_slice())
-            .expect("failed to write nonce file");
-        let cipher = Aes128Eax::new(generic_array);
-        let stream = StreamBE32::from_aead(cipher, &nonce);
-        StreamWrapper(stream)
+        Self::write_meta_file(meta_file_path, &nonce, None).expect("failed to write nonce file");
+        StreamWrapper {
+            stream: Self::build_stream(&key, &nonce),
+            key,
+            current_nonce: nonce,
+            previous_nonce: None,
+        }
     }
 
     fn new_with_nonce(key: [u8; 16], meta_file_path: &PathBuf) -> Self {
         let mut nonce_file = OpenOptions::new().read(true).open(meta_file_path).unwrap();
-        let mut nonce = Vec::<u8>::new();
+        let mut nonce_bytes = Vec::<u8>::new();
         let error_handle = |reason: String| {
             error!(LOG_TAG, "filed to read nonce, reason: {:?}", reason);
             warn!(
@@ -90,55 +104,210 @@ impl StreamWrapper {
             let _ = fs::remove_file(meta_file_path);
             StreamWrapper::new(key, meta_file_path)
         };
-        match nonce_file.read_to_end(&mut nonce) {
-            Ok(len) if len != NONCE_LEN => {
+        match nonce_file.read_to_end(&mut nonce_bytes) {
+            Ok(len) if len != NONCE_LEN && len != META_FILE_LEN_WITH_PREVIOUS => {
                 return error_handle("meta file corruption".to_string());
             }
             Err(e) => return error_handle(format!("{:?}", e)),
             _ => {}
         }
-        let generic_array = GenericArray::from_slice(&key);
-        let nonce = GenericArray::from_slice(nonce.as_slice());
-        let cipher = Aes128Eax::new(generic_array);
-        let stream = StreamBE32::from_aead(cipher, nonce);
-        StreamWrapper(stream)
+        let current_nonce: [u8; NONCE_LEN] = nonce_bytes[..NONCE_LEN].try_into().unwrap();
+        let previous_nonce = if nonce_bytes.len() == META_FILE_LEN_WITH_PREVIOUS {
+            Some(
+                nonce_bytes[NONCE_LEN..META_FILE_LEN_WITH_PREVIOUS]
+                    .try_into()
+                    .unwrap(),
+            )
+        } else {
+            None
+        };
+        StreamWrapper {
+            stream: Self::build_stream(&key, &current_nonce),
+            key,
+            current_nonce,
+            previous_nonce,
+        }
+    }
+
+    fn rotate(&mut self, meta_file_path: &Path) -> Result<()> {
+        let previous_nonce = self.current_nonce;
+        let mut current_nonce = [0u8; NONCE_LEN];
+        OsRng.fill_bytes(&mut current_nonce);
+        Self::write_meta_file(meta_file_path, &current_nonce, Some(&previous_nonce))?;
+        // Replace in-memory stream only after the new nonce pair is safely on disk.
+        self.activate_nonce(current_nonce, previous_nonce);
+        Ok(())
+    }
+
+    fn recover_current_nonce(&mut self, data: &[u8], meta_file_path: &Path) -> Result<()> {
+        if data.len() < size_of::<u32>() || self.can_decode_first_record(data, &self.current_nonce)
+        {
+            return Ok(());
+        }
+        let Some(previous_nonce) = self.previous_nonce else {
+            return Ok(());
+        };
+        if !self.can_decode_first_record(data, &previous_nonce) {
+            return Ok(());
+        }
+        let current_nonce = self.current_nonce;
+        Self::write_meta_file(meta_file_path, &previous_nonce, Some(&current_nonce))?;
+        self.activate_nonce(previous_nonce, current_nonce);
+        Ok(())
+    }
+
+    fn activate_nonce(&mut self, new_nonce: [u8; NONCE_LEN], old_nonce: [u8; NONCE_LEN]) {
+        self.stream = Self::build_stream(&self.key, &new_nonce);
+        self.current_nonce = new_nonce;
+        self.previous_nonce = Some(old_nonce);
+    }
+
+    fn build_stream(key: &[u8; 16], nonce: &[u8]) -> Stream {
+        let cipher = Aes128Eax::new(GenericArray::from_slice(key));
+        StreamBE32::from_aead(cipher, GenericArray::from_slice(nonce))
+    }
+
+    fn can_decode_first_record(&self, data: &[u8], nonce: &[u8; NONCE_LEN]) -> bool {
+        let data_offset = size_of::<u32>();
+        let item_len = match data
+            .get(..data_offset)
+            .and_then(|prefix| prefix.try_into().ok())
+            .map(u32::from_be_bytes)
+        {
+            Some(item_len) => item_len as usize,
+            None => return false,
+        };
+        let data_end = match data_offset.checked_add(item_len) {
+            Some(data_end) if data_end <= data.len() => data_end,
+            _ => return false,
+        };
+        let bytes_to_decode = &data[data_offset..data_end];
+        let decrypted = match Self::build_stream(&self.key, nonce).decrypt(
+            0,
+            false,
+            Payload::from(bytes_to_decode),
+        ) {
+            Ok(decrypted) => decrypted,
+            Err(_) => return false,
+        };
+        Buffer::from_encoded_bytes(decrypted.as_slice()).is_ok()
+    }
+
+    fn write_meta_file(
+        meta_file_path: &Path,
+        current_nonce: &[u8; NONCE_LEN],
+        previous_nonce: Option<&[u8; NONCE_LEN]>,
+    ) -> Result<()> {
+        let mut meta_bytes = Vec::with_capacity(match previous_nonce {
+            Some(_) => META_FILE_LEN_WITH_PREVIOUS,
+            None => NONCE_LEN,
+        });
+        meta_bytes.extend_from_slice(current_nonce);
+        if let Some(previous_nonce) = previous_nonce {
+            meta_bytes.extend_from_slice(previous_nonce);
+        }
+
+        let (tmp_path, mut nonce_file) = Self::open_temp_meta_file(meta_file_path)?;
+        let write_result = (|| -> Result<()> {
+            nonce_file
+                .write_all(&meta_bytes)
+                .map_err(|e| EncryptFailed(e.to_string()))?;
+            nonce_file
+                .sync_all()
+                .map_err(|e| EncryptFailed(e.to_string()))?;
+            fs::rename(&tmp_path, meta_file_path).map_err(|e| EncryptFailed(e.to_string()))?;
+            Self::sync_parent_dir(meta_file_path)?;
+            Ok(())
+        })();
+
+        if write_result.is_err() {
+            let _ = fs::remove_file(&tmp_path);
+        }
+
+        write_result
+    }
+
+    fn parent_dir(path: &Path) -> &Path {
+        path.parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."))
+    }
+
+    fn open_temp_meta_file(meta_file_path: &Path) -> Result<(PathBuf, File)> {
+        fs::create_dir_all(Self::parent_dir(meta_file_path))
+            .map_err(|e| EncryptFailed(e.to_string()))?;
+        loop {
+            let tmp_path = Self::temp_meta_file_path(meta_file_path);
+            match OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .open(&tmp_path)
+            {
+                Ok(file) => return Ok((tmp_path, file)),
+                Err(e) if e.kind() == ErrorKind::AlreadyExists => continue,
+                Err(e) => return Err(EncryptFailed(e.to_string())),
+            }
+        }
+    }
+
+    fn temp_meta_file_path(meta_file_path: &Path) -> PathBuf {
+        let mut suffix = [0u8; 8];
+        OsRng.fill_bytes(&mut suffix);
+        let suffix = hex::encode(suffix);
+        let file_name = meta_file_path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "meta".to_string());
+        meta_file_path.with_file_name(format!("{file_name}.{suffix}.tmp"))
+    }
+
+    #[cfg(unix)]
+    fn sync_parent_dir(path: &Path) -> Result<()> {
+        File::open(Self::parent_dir(path))
+            .and_then(|dir| dir.sync_all())
+            .map_err(|e| EncryptFailed(e.to_string()))
+    }
+
+    #[cfg(not(unix))]
+    fn sync_parent_dir(_: &Path) -> Result<()> {
+        Ok(())
     }
 
     fn encrypt(&self, bytes: Vec<u8>, position: u32) -> Result<Vec<u8>> {
         if position == Stream::COUNTER_MAX {
             return Err(EncryptFailed(String::from("counter overflow")));
         }
-
-        let result = self
-            .0
+        self.stream
             .encrypt(position, false, Payload::from(bytes.as_slice()))
-            .map_err(|e| EncryptFailed(e.to_string()))?;
-
-        Ok(result)
+            .map_err(|e| EncryptFailed(e.to_string()))
     }
 
     fn decrypt(&self, bytes: Vec<u8>, position: u32) -> Result<Vec<u8>> {
         if position == Stream::COUNTER_MAX {
             return Err(DecryptFailed(String::from("counter overflow")));
         }
-
-        let result = self
-            .0
+        self.stream
             .decrypt(position, false, Payload::from(bytes.as_slice()))
-            .map_err(|e| DecryptFailed(e.to_string()))?;
-
-        Ok(result)
+            .map_err(|e| DecryptFailed(e.to_string()))
     }
 }
 
 impl Encoder for Encryptor {
     fn encode_to_bytes(&self, raw_buffer: &Buffer, position: u32) -> Result<Vec<u8>> {
         let bytes_to_write = raw_buffer.to_bytes();
-        let crypt_bytes = self.encryptor.encrypt(bytes_to_write, position)?;
+        let crypt_bytes = self
+            .encryptor
+            .read()
+            .map_err(|e| EncryptFailed(e.to_string()))?
+            .encrypt(bytes_to_write, position)?;
         let len = crypt_bytes.len() as u32;
         let mut data = len.to_be_bytes().to_vec();
         data.extend_from_slice(crypt_bytes.as_slice());
         Ok(data)
+    }
+
+    fn before_rewrite(&self) -> Result<()> {
+        self.rotate_nonce()
     }
 }
 
@@ -151,6 +320,8 @@ impl Decoder for Encryptor {
         let read_len = data_offset as u32 + item_len;
         let result = self
             .encryptor
+            .read()
+            .map_err(|e| DecryptFailed(e.to_string()))?
             .decrypt(bytes_to_decode.to_vec(), position)
             .and_then(|vec| Buffer::from_encoded_bytes(vec.as_slice()));
         let buffer = match result {
@@ -190,16 +361,99 @@ mod tests {
         let decode_result2 = encryptor.decode_bytes(bytes2.as_slice(), 1).unwrap();
         assert_eq!(decode_result2.len, bytes2.len() as u32);
         assert_eq!(decode_result2.buffer, Some(buffer2));
-        assert!(
-            encryptor
-                .decode_bytes(bytes1.as_slice(), 1)
-                .unwrap()
-                .buffer
-                .is_none()
-        );
+        assert!(encryptor
+            .decode_bytes(bytes1.as_slice(), 1)
+            .unwrap()
+            .buffer
+            .is_none());
         let encryptor = Encryptor::init(path, TEST_KEY);
         let new_decode_result1 = encryptor.decode_bytes(bytes1.as_slice(), 0).unwrap();
         assert_eq!(new_decode_result1.buffer, Some(buffer1));
         let _ = fs::remove_file(&encryptor.meta_file_path);
+    }
+
+    #[test]
+    fn test_rotate_nonce_changes_ciphertext() {
+        let path = Path::new("./mmkv_rotate_nonce");
+        let _ = fs::remove_file("./mmkv_rotate_nonce.meta");
+        let encryptor = Encryptor::init(path, TEST_KEY);
+
+        let buffer = Buffer::new("key1", 42i32);
+        let ciphertext_before = encryptor.encode_to_bytes(&buffer, 0).unwrap();
+        let nonce_before = fs::read(&encryptor.meta_file_path).unwrap();
+
+        encryptor.rotate_nonce().unwrap();
+
+        let nonce_after = fs::read(&encryptor.meta_file_path).unwrap();
+        assert_ne!(
+            nonce_before, nonce_after,
+            "nonce on disk must change after rotation"
+        );
+
+        let ciphertext_after = encryptor.encode_to_bytes(&buffer, 0).unwrap();
+        assert_ne!(
+            ciphertext_before, ciphertext_after,
+            "same plaintext at same counter must produce different ciphertext after rotation"
+        );
+
+        let decoded = encryptor
+            .decode_bytes(ciphertext_after.as_slice(), 0)
+            .unwrap();
+        assert_eq!(
+            decoded.buffer,
+            Some(buffer),
+            "new ciphertext must decode correctly"
+        );
+
+        let stale = encryptor
+            .decode_bytes(ciphertext_before.as_slice(), 0)
+            .unwrap();
+        assert!(
+            stale.buffer.is_none(),
+            "old ciphertext must not decode after rotation"
+        );
+
+        let _ = fs::remove_file(&encryptor.meta_file_path);
+    }
+
+    #[test]
+    fn test_recover_current_nonce_restores_previous_generation() {
+        let path = Path::new("./mmkv_recover_nonce");
+        let _ = fs::remove_file("./mmkv_recover_nonce.meta");
+        let encryptor = Encryptor::init(path, TEST_KEY);
+
+        let buffer = Buffer::new("key1", 7i32);
+        let ciphertext = encryptor.encode_to_bytes(&buffer, 0).unwrap();
+        encryptor.rotate_nonce().unwrap();
+
+        let reopened = Encryptor::init(path, TEST_KEY);
+        let stale = reopened.decode_bytes(ciphertext.as_slice(), 0).unwrap();
+        assert!(
+            stale.buffer.is_none(),
+            "rotation should invalidate old ciphertext by default"
+        );
+
+        reopened
+            .recover_current_nonce(ciphertext.as_slice())
+            .unwrap();
+
+        let recovered = reopened.decode_bytes(ciphertext.as_slice(), 0).unwrap();
+        assert_eq!(
+            recovered.buffer,
+            Some(buffer),
+            "startup recovery should promote the previous nonce when the file still uses it"
+        );
+
+        let _ = fs::remove_file(&reopened.meta_file_path);
+    }
+
+    #[test]
+    fn test_temp_meta_file_path_is_unique() {
+        let path = Path::new("./mmkv_unique.meta");
+        let first = super::StreamWrapper::temp_meta_file_path(path);
+        let second = super::StreamWrapper::temp_meta_file_path(path);
+        assert_ne!(first, second);
+        assert_eq!(first.parent(), path.parent());
+        assert_eq!(second.parent(), path.parent());
     }
 }
