@@ -225,7 +225,7 @@ mod tests {
 
     use crate::Error::IOError;
 
-    use super::{MemoryMap, LEN_OFFSET};
+    use super::{LEN_OFFSET, MemoryMap};
 
     #[test]
     fn test_mmap() {

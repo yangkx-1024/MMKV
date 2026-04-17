@@ -1,9 +1,9 @@
 use aes::Aes128;
+use eax::Eax;
 use eax::aead::consts::U8;
 use eax::aead::rand_core::RngCore;
 use eax::aead::stream::{NewStream, StreamBE32, StreamPrimitive};
-use eax::aead::{generic_array::GenericArray, KeyInit, OsRng, Payload};
-use eax::Eax;
+use eax::aead::{KeyInit, OsRng, Payload, generic_array::GenericArray};
 use std::fs;
 use std::fs::File;
 use std::fs::OpenOptions;
@@ -13,9 +13,9 @@ use std::mem::size_of;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
-use crate::core::buffer::{Buffer, DecodeResult, Decoder, Encoder};
 use crate::Error::{DataInvalid, DecryptFailed, EncryptFailed};
 use crate::Result;
+use crate::core::buffer::{Buffer, DecodeResult, Decoder, Encoder};
 
 const LOG_TAG: &str = "MMKV:Encrypt";
 const NONCE_LEN: usize = 11;
@@ -361,11 +361,13 @@ mod tests {
         let decode_result2 = encryptor.decode_bytes(bytes2.as_slice(), 1).unwrap();
         assert_eq!(decode_result2.len, bytes2.len() as u32);
         assert_eq!(decode_result2.buffer, Some(buffer2));
-        assert!(encryptor
-            .decode_bytes(bytes1.as_slice(), 1)
-            .unwrap()
-            .buffer
-            .is_none());
+        assert!(
+            encryptor
+                .decode_bytes(bytes1.as_slice(), 1)
+                .unwrap()
+                .buffer
+                .is_none()
+        );
         let encryptor = Encryptor::init(path, TEST_KEY);
         let new_decode_result1 = encryptor.decode_bytes(bytes1.as_slice(), 0).unwrap();
         assert_eq!(new_decode_result1.buffer, Some(buffer1));

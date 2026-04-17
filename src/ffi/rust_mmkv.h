@@ -20,6 +20,7 @@ enum Types {
 struct ByteSlice {
   const uint8_t *bytes;
   uintptr_t len;
+  uintptr_t capacity;
 };
 
 struct NativeLogger {
@@ -55,6 +56,7 @@ struct RawTypedArray {
   const void *array;
   enum Types type_token;
   uintptr_t len;
+  uintptr_t capacity;
 };
 
 const void *new_instance(const char *dir);

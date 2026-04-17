@@ -91,10 +91,10 @@ mod tests {
     use std::fs::OpenOptions;
     use std::mem::size_of;
 
-    use crate::core::buffer::{Buffer, DecodeResult, Decoder, Encoder};
-    use crate::core::memory_map::MemoryMap;
     use crate::Error::DataInvalid;
     use crate::Result;
+    use crate::core::buffer::{Buffer, DecodeResult, Decoder, Encoder};
+    use crate::core::memory_map::MemoryMap;
 
     const LOG_TAG: &str = "MMKV:IterTest";
 
