@@ -50,18 +50,26 @@ impl Config {
         })
     }
 
-    pub fn expand(&mut self) -> Result<()> {
-        let expand_start = Instant::now();
+    pub(crate) fn ensure_file_len(&mut self, min_len: u64) -> Result<u64> {
         let file_size = self.file_size()?;
-        info!(LOG_TAG, "start expand, file size: {}", file_size);
-        // expand the file size with page_size
+        if min_len <= file_size {
+            return Ok(file_size);
+        }
+        let expand_start = Instant::now();
+        let expanded_size = self.ensure_size(file_size, min_len, usize::MAX as u64)?;
+        info!(
+            LOG_TAG,
+            "start expand, file size: {}, required: {}, target: {}",
+            file_size,
+            min_len,
+            expanded_size,
+        );
         self.file.sync_all().map_err(|e| {
             IOError(format!(
                 "failed to sync file before expand {}: {e}",
                 self.path.display()
             ))
         })?;
-        let expanded_size = file_size + self.page_size;
         self.file.set_len(expanded_size).map_err(|e| {
             IOError(format!(
                 "failed to expand file {} to {}: {e}",
@@ -72,10 +80,10 @@ impl Config {
         info!(
             LOG_TAG,
             "expanded, file size: {}, cost {:?}",
-            self.file_size()?,
+            expanded_size,
             expand_start.elapsed()
         );
-        Ok(())
+        Ok(expanded_size)
     }
 
     pub fn file_size(&self) -> Result<u64> {
@@ -113,5 +121,76 @@ impl Config {
                 ))
             })?,
         })
+    }
+
+    fn ensure_size(&self, file_size: u64, min_len: u64, max_mappable_len: u64) -> Result<u64> {
+        if min_len > max_mappable_len {
+            return Err(IOError(format!(
+                "failed to expand file {} to {}: exceeds platform usize",
+                self.path.display(),
+                min_len
+            )));
+        }
+
+        let growth_target_len = self.growth_target_len(file_size, min_len, max_mappable_len);
+        let expanded_size = self
+            .aligned_len_with_limit(growth_target_len, max_mappable_len)
+            .or_else(|| self.aligned_len_with_limit(min_len, max_mappable_len))
+            .unwrap_or(min_len);
+        Ok(expanded_size)
+    }
+
+    fn aligned_len_with_limit(&self, min_len: u64, max_mappable_len: u64) -> Option<u64> {
+        let aligned = min_len.next_multiple_of(self.page_size);
+        (aligned <= max_mappable_len).then_some(aligned)
+    }
+
+    fn growth_target_len(&self, file_size: u64, min_len: u64, max_mappable_len: u64) -> u64 {
+        match file_size.checked_mul(2) {
+            Some(doubled_len) if doubled_len <= max_mappable_len => doubled_len.max(min_len),
+            _ => min_len,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Config;
+    use std::fs;
+    use std::path::Path;
+
+    #[test]
+    fn ensure_file_len_doubles_small_overflow_and_aligns_large_jumps() {
+        let file_name = "test_config_ensure_file_len";
+        let _ = fs::remove_file(file_name);
+        let mut config = Config::new(Path::new(file_name), 64).unwrap();
+
+        assert_eq!(config.file_size().unwrap(), 64);
+        // Small overflow doubles from 64 to 128.
+        assert_eq!(config.ensure_file_len(65).unwrap(), 128);
+        assert_eq!(config.file_size().unwrap(), 128);
+        // Large jump bypasses doubling and grows to the exact aligned requirement.
+        assert_eq!(config.ensure_file_len(281).unwrap(), 320);
+        assert_eq!(config.file_size().unwrap(), 320);
+        assert_eq!(config.ensure_file_len(280).unwrap(), 320);
+        assert_eq!(config.file_size().unwrap(), 320);
+        // Small overflow after growth doubles from 320 to 640.
+        assert_eq!(config.ensure_file_len(321).unwrap(), 640);
+        assert_eq!(config.file_size().unwrap(), 640);
+
+        config.remove_file().unwrap();
+    }
+
+    #[test]
+    fn ensure_size_falls_back_before_exceeding_mappable_limit() {
+        let file_name = "test_config_growth_plan_limit";
+        let _ = fs::remove_file(file_name);
+        let config = Config::new(Path::new(file_name), 64).unwrap();
+
+        // Simulate a constrained 32-bit-like mmap limit on a 64-bit host.
+        assert_eq!(config.ensure_size(200, 201, 255).unwrap(), 201);
+        assert_eq!(config.ensure_size(128, 191, 255).unwrap(), 192);
+
+        config.remove_file().unwrap();
     }
 }
