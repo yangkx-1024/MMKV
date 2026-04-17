@@ -104,21 +104,18 @@ impl IOWriter {
     }
 
     fn ensure_capacity(&mut self, incoming_len: usize) -> Result<()> {
-        while self
-            .mm
-            .write_offset()?
+        let write_offset = self.mm.write_offset()?;
+        let required_len = write_offset
             .checked_add(incoming_len)
-            .ok_or_else(|| Error::IOError(WRITE_OVERFLOW_ERR.to_string()))?
-            > self.mm.len()
-        {
-            self.expand()?;
+            .ok_or_else(|| Error::IOError(WRITE_OVERFLOW_ERR.to_string()))?;
+        if required_len <= self.mm.len() {
+            return Ok(());
         }
-        Ok(())
-    }
-
-    fn expand(&mut self) -> Result<()> {
-        self.config.expand()?;
-        self.mm = MemoryMap::new(&self.config.file, self.config.file_size()?)?;
+        let file_len = self.config.ensure_file_len(
+            u64::try_from(required_len)
+                .map_err(|_| Error::IOError(WRITE_OVERFLOW_ERR.to_string()))?,
+        )?;
+        self.mm = MemoryMap::new(&self.config.file, file_len)?;
         Ok(())
     }
 
@@ -204,7 +201,9 @@ mod tests {
         insert(&shared_kv, buffer.clone());
         writer.write(buffer, false).unwrap();
 
-        assert!(writer.mm.len() >= writer.mm.write_offset().unwrap());
+        let expected_len = writer.mm.write_offset().unwrap().next_multiple_of(64);
+        assert_eq!(writer.mm.len(), expected_len);
+        assert_eq!(config.file_size().unwrap() as usize, expected_len);
         assert_eq!(writer.position, 1);
         assert_eq!(
             shared_kv
