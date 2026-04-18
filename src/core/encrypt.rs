@@ -15,7 +15,9 @@ use std::sync::{Arc, RwLock};
 
 use crate::Error::{DataInvalid, DecryptFailed, EncryptFailed};
 use crate::Result;
-use crate::core::buffer::{Buffer, DecodeResult, Decoder, Encoder};
+use crate::core::buffer::{
+    Buffer, DecodeResult, Decoder, Encoder, decode_kv_type_value, encode_kv_bytes,
+};
 
 const LOG_TAG: &str = "MMKV:Encrypt";
 const NONCE_LEN: usize = 11;
@@ -37,6 +39,16 @@ struct StreamWrapper {
     previous_nonce: Option<[u8; NONCE_LEN]>,
 }
 
+/// Ephemeral nonce + pre-built stream for shadow-file trim encoding.
+/// Created before writing the tmp file; persisted to the meta file and activated
+/// in-memory only after the tmp file is durably renamed over the live file,
+/// so any mid-trim failure leaves both the data file and `self.encoder`'s stream
+/// on the same (old) generation.
+pub(crate) struct PendingNonce {
+    nonce: [u8; NONCE_LEN],
+    stream: Stream,
+}
+
 impl Encryptor {
     pub fn init(file_path: &Path, key: &str) -> Self {
         let decoded_key: [u8; 16] = hex::decode(key).unwrap().as_slice().try_into().unwrap();
@@ -56,6 +68,7 @@ impl Encryptor {
         path.with_extension(meta_ext)
     }
 
+    #[cfg(test)]
     pub fn rotate_nonce(&self) -> Result<()> {
         self.encryptor
             .write()
@@ -69,6 +82,76 @@ impl Encryptor {
             .map_err(|e| EncryptFailed(e.to_string()))?
             .recover_current_nonce(data, &self.meta_file_path)
     }
+
+    /// Decrypt bytes using the current nonce, falling back to the previous nonce on failure.
+    /// The fallback handles the race window during shadow-file trim where the nonce is
+    /// rotated before the kv_map atomic swap replaces all Slices with new-nonce offsets.
+    pub fn decrypt_current(&self, ciphertext: &[u8], position: u32) -> Result<Vec<u8>> {
+        self.encryptor
+            .read()
+            .map_err(|e| DecryptFailed(e.to_string()))?
+            .decrypt_with_fallback(ciphertext.to_vec(), position)
+    }
+
+    /// Generate a fresh random nonce and a pre-built ephemeral stream bound to it.
+    /// Pure in-memory — touches neither the meta file nor the live stream in `self.encryptor`.
+    pub(crate) fn prepare_new_nonce(&self) -> Result<PendingNonce> {
+        let mut nonce = [0u8; NONCE_LEN];
+        OsRng.fill_bytes(&mut nonce);
+        let inner = self
+            .encryptor
+            .read()
+            .map_err(|e| EncryptFailed(e.to_string()))?;
+        let stream = StreamWrapper::build_stream(&inner.key, &nonce);
+        Ok(PendingNonce { nonce, stream })
+    }
+
+    /// Encode a single KV record using the ephemeral stream in `pending` instead of the
+    /// live stream. Used to fill the shadow tmp file before commit.
+    pub(crate) fn encode_with_pending(
+        &self,
+        pending: &PendingNonce,
+        key: &str,
+        type_token: i32,
+        value: &[u8],
+        position: u32,
+    ) -> Result<Vec<u8>> {
+        if position == Stream::COUNTER_MAX {
+            return Err(EncryptFailed(String::from("counter overflow")));
+        }
+        let kv_bytes = encode_kv_bytes(key, type_token, value);
+        let crypt_bytes = pending
+            .stream
+            .encrypt(position, false, Payload::from(kv_bytes.as_slice()))
+            .map_err(|e| EncryptFailed(e.to_string()))?;
+        let len = crypt_bytes.len() as u32;
+        let mut data = len.to_be_bytes().to_vec();
+        data.extend_from_slice(&crypt_bytes);
+        Ok(data)
+    }
+
+    /// Atomically persist `{current = pending.nonce, previous = old_nonce}` to the meta file.
+    /// Does NOT switch the in-memory stream; that is deferred to `activate_pending`.
+    pub(crate) fn persist_pending_to_meta(&self, pending: &PendingNonce) -> Result<()> {
+        let inner = self
+            .encryptor
+            .read()
+            .map_err(|e| EncryptFailed(e.to_string()))?;
+        StreamWrapper::write_meta_file(
+            &self.meta_file_path,
+            &pending.nonce,
+            Some(&inner.current_nonce),
+        )
+    }
+
+    /// Install `pending` as the live in-memory stream. Call only after the renamed data file
+    /// is visible at the live path so that any subsequent encode uses the new nonce.
+    pub(crate) fn activate_pending(&self, pending: PendingNonce) {
+        if let Ok(mut inner) = self.encryptor.write() {
+            let old_nonce = inner.current_nonce;
+            inner.activate_nonce(pending.nonce, old_nonce);
+        }
+    }
 }
 
 impl StreamWrapper {
@@ -80,7 +163,7 @@ impl StreamWrapper {
         }
     }
 
-    fn new(key: [u8; 16], meta_file_path: &PathBuf) -> Self {
+    fn new(key: [u8; 16], meta_file_path: &Path) -> Self {
         let mut nonce = [0u8; NONCE_LEN];
         OsRng.fill_bytes(&mut nonce);
         Self::write_meta_file(meta_file_path, &nonce, None).expect("failed to write nonce file");
@@ -129,6 +212,7 @@ impl StreamWrapper {
         }
     }
 
+    #[cfg(test)]
     fn rotate(&mut self, meta_file_path: &Path) -> Result<()> {
         let previous_nonce = self.current_nonce;
         let mut current_nonce = [0u8; NONCE_LEN];
@@ -290,24 +374,66 @@ impl StreamWrapper {
             .decrypt(position, false, Payload::from(bytes.as_slice()))
             .map_err(|e| DecryptFailed(e.to_string()))
     }
+
+    /// Try current nonce; if that fails, retry with the previous nonce.
+    /// This covers the window during shadow-file trim where the nonce is rotated
+    /// (for writing the new mmap) before the kv_map atomic swap promotes all Slices
+    /// to new-nonce offsets. Readers holding old Slices in that window need the old
+    /// nonce to decrypt successfully.
+    fn decrypt_with_fallback(&self, bytes: Vec<u8>, position: u32) -> Result<Vec<u8>> {
+        if position == Stream::COUNTER_MAX {
+            return Err(DecryptFailed(String::from("counter overflow")));
+        }
+        match self
+            .stream
+            .decrypt(position, false, Payload::from(bytes.as_slice()))
+            .map_err(|e| DecryptFailed(e.to_string()))
+        {
+            Ok(plain) => Ok(plain),
+            Err(_) => {
+                let prev = self.previous_nonce.ok_or_else(|| {
+                    DecryptFailed("decryption failed and no previous nonce available".to_string())
+                })?;
+                Self::build_stream(&self.key, &prev)
+                    .decrypt(position, false, Payload::from(bytes.as_slice()))
+                    .map_err(|e| DecryptFailed(e.to_string()))
+            }
+        }
+    }
 }
 
 impl Encoder for Encryptor {
-    fn encode_to_bytes(&self, raw_buffer: &Buffer, position: u32) -> Result<Vec<u8>> {
-        let bytes_to_write = raw_buffer.to_bytes();
+    fn encode_to_bytes(
+        &self,
+        key: &str,
+        type_token: i32,
+        value: &[u8],
+        position: u32,
+    ) -> Result<Vec<u8>> {
+        let kv_bytes = encode_kv_bytes(key, type_token, value);
         let crypt_bytes = self
             .encryptor
             .read()
             .map_err(|e| EncryptFailed(e.to_string()))?
-            .encrypt(bytes_to_write, position)?;
+            .encrypt(kv_bytes, position)?;
         let len = crypt_bytes.len() as u32;
         let mut data = len.to_be_bytes().to_vec();
         data.extend_from_slice(crypt_bytes.as_slice());
         Ok(data)
     }
 
-    fn before_rewrite(&self) -> Result<()> {
-        self.rotate_nonce()
+    fn materialize_slice(
+        &self,
+        mmap: &crate::core::memory_map::MmapHandle,
+        buf: &Buffer,
+    ) -> Option<(i32, Vec<u8>)> {
+        let loc = match buf {
+            Buffer::Slice(loc) => loc,
+            _ => return None,
+        };
+        let ciphertext = mmap.read(loc.byte_range());
+        let kv_bytes = self.decrypt_current(ciphertext, loc.position).ok()?;
+        decode_kv_type_value(&kv_bytes).ok()
     }
 }
 
@@ -347,17 +473,42 @@ mod tests {
 
     const TEST_KEY: &str = "88C51C536176AD8A8EE4A06F62EE897E";
 
+    /// Remove the meta file and any orphaned `<meta>.*.tmp` siblings left by a
+    /// crashed atomic write (the rename never completed).
+    fn cleanup_meta(meta_path: &str) {
+        let _ = fs::remove_file(meta_path);
+        let dir = Path::new(meta_path).parent().unwrap_or(Path::new("."));
+        let prefix = Path::new(meta_path)
+            .file_name()
+            .map(|n| format!("{}.", n.to_string_lossy()))
+            .unwrap_or_default();
+        if let Ok(entries) = fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                if name.starts_with(&prefix) && name.ends_with(".tmp") {
+                    let _ = fs::remove_file(entry.path());
+                }
+            }
+        }
+    }
+
     #[test]
     fn test_crypt_buffer() {
         let path = Path::new("./mmkv");
+        cleanup_meta("./mmkv.meta");
         let encryptor = Encryptor::init(path, TEST_KEY);
-        let buffer1 = Buffer::new("key1", 1);
-        let bytes1 = encryptor.encode_to_bytes(&buffer1, 0).unwrap();
+        let buffer1 = Buffer::new("key1", 1i32);
+        let bytes1 = encryptor
+            .encode_to_bytes("key1", buffer1.kv_type(), buffer1.kv_value(), 0)
+            .unwrap();
         let decode_result1 = encryptor.decode_bytes(bytes1.as_slice(), 0).unwrap();
         assert_eq!(decode_result1.len, bytes1.len() as u32);
         assert_eq!(decode_result1.buffer, Some(buffer1.clone()));
-        let buffer2 = Buffer::new("key2", 2);
-        let bytes2 = encryptor.encode_to_bytes(&buffer2, 1).unwrap();
+        let buffer2 = Buffer::new("key2", 2i32);
+        let bytes2 = encryptor
+            .encode_to_bytes("key2", buffer2.kv_type(), buffer2.kv_value(), 1)
+            .unwrap();
         let decode_result2 = encryptor.decode_bytes(bytes2.as_slice(), 1).unwrap();
         assert_eq!(decode_result2.len, bytes2.len() as u32);
         assert_eq!(decode_result2.buffer, Some(buffer2));
@@ -371,17 +522,19 @@ mod tests {
         let encryptor = Encryptor::init(path, TEST_KEY);
         let new_decode_result1 = encryptor.decode_bytes(bytes1.as_slice(), 0).unwrap();
         assert_eq!(new_decode_result1.buffer, Some(buffer1));
-        let _ = fs::remove_file(&encryptor.meta_file_path);
+        cleanup_meta("./mmkv.meta");
     }
 
     #[test]
     fn test_rotate_nonce_changes_ciphertext() {
         let path = Path::new("./mmkv_rotate_nonce");
-        let _ = fs::remove_file("./mmkv_rotate_nonce.meta");
+        cleanup_meta("./mmkv_rotate_nonce.meta");
         let encryptor = Encryptor::init(path, TEST_KEY);
 
         let buffer = Buffer::new("key1", 42i32);
-        let ciphertext_before = encryptor.encode_to_bytes(&buffer, 0).unwrap();
+        let ciphertext_before = encryptor
+            .encode_to_bytes("key1", buffer.kv_type(), buffer.kv_value(), 0)
+            .unwrap();
         let nonce_before = fs::read(&encryptor.meta_file_path).unwrap();
 
         encryptor.rotate_nonce().unwrap();
@@ -392,7 +545,9 @@ mod tests {
             "nonce on disk must change after rotation"
         );
 
-        let ciphertext_after = encryptor.encode_to_bytes(&buffer, 0).unwrap();
+        let ciphertext_after = encryptor
+            .encode_to_bytes("key1", buffer.kv_type(), buffer.kv_value(), 0)
+            .unwrap();
         assert_ne!(
             ciphertext_before, ciphertext_after,
             "same plaintext at same counter must produce different ciphertext after rotation"
@@ -415,17 +570,19 @@ mod tests {
             "old ciphertext must not decode after rotation"
         );
 
-        let _ = fs::remove_file(&encryptor.meta_file_path);
+        cleanup_meta("./mmkv_rotate_nonce.meta");
     }
 
     #[test]
     fn test_recover_current_nonce_restores_previous_generation() {
         let path = Path::new("./mmkv_recover_nonce");
-        let _ = fs::remove_file("./mmkv_recover_nonce.meta");
+        cleanup_meta("./mmkv_recover_nonce.meta");
         let encryptor = Encryptor::init(path, TEST_KEY);
 
         let buffer = Buffer::new("key1", 7i32);
-        let ciphertext = encryptor.encode_to_bytes(&buffer, 0).unwrap();
+        let ciphertext = encryptor
+            .encode_to_bytes("key1", buffer.kv_type(), buffer.kv_value(), 0)
+            .unwrap();
         encryptor.rotate_nonce().unwrap();
 
         let reopened = Encryptor::init(path, TEST_KEY);
@@ -446,7 +603,7 @@ mod tests {
             "startup recovery should promote the previous nonce when the file still uses it"
         );
 
-        let _ = fs::remove_file(&reopened.meta_file_path);
+        cleanup_meta("./mmkv_recover_nonce.meta");
     }
 
     #[test]

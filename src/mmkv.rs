@@ -196,7 +196,7 @@ impl MMKV {
     /// See [MMKV::put]
     pub fn get<T: ProvideTypeToken + FromBytes>(&self, key: &str) -> Result<T> {
         match self.mmkv_impl.read() {
-            Ok(mmkv) => mmkv.get(key)?.parse(),
+            Ok(mmkv) => mmkv.get::<T>(key),
             Err(e) => Err(LockError(e.to_string())),
         }
     }
