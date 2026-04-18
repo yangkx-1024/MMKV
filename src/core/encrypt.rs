@@ -1,9 +1,8 @@
+use aead_stream::{NewStream, StreamBE32, StreamPrimitive};
 use aes::Aes128;
 use eax::Eax;
 use eax::aead::consts::U8;
-use eax::aead::rand_core::RngCore;
-use eax::aead::stream::{NewStream, StreamBE32, StreamPrimitive};
-use eax::aead::{KeyInit, OsRng, Payload, generic_array::GenericArray};
+use eax::aead::{KeyInit, Payload};
 use std::fs;
 use std::fs::File;
 use std::fs::OpenOptions;
@@ -97,7 +96,7 @@ impl Encryptor {
     /// Pure in-memory — touches neither the meta file nor the live stream in `self.encryptor`.
     pub(crate) fn prepare_new_nonce(&self) -> Result<PendingNonce> {
         let mut nonce = [0u8; NONCE_LEN];
-        OsRng.fill_bytes(&mut nonce);
+        getrandom::fill(&mut nonce).expect("getrandom failed");
         let inner = self
             .encryptor
             .read()
@@ -165,7 +164,7 @@ impl StreamWrapper {
 
     fn new(key: [u8; 16], meta_file_path: &Path) -> Self {
         let mut nonce = [0u8; NONCE_LEN];
-        OsRng.fill_bytes(&mut nonce);
+        getrandom::fill(&mut nonce).expect("getrandom failed");
         Self::write_meta_file(meta_file_path, &nonce, None).expect("failed to write nonce file");
         StreamWrapper {
             stream: Self::build_stream(&key, &nonce),
@@ -216,7 +215,7 @@ impl StreamWrapper {
     fn rotate(&mut self, meta_file_path: &Path) -> Result<()> {
         let previous_nonce = self.current_nonce;
         let mut current_nonce = [0u8; NONCE_LEN];
-        OsRng.fill_bytes(&mut current_nonce);
+        getrandom::fill(&mut current_nonce).expect("getrandom failed");
         Self::write_meta_file(meta_file_path, &current_nonce, Some(&previous_nonce))?;
         // Replace in-memory stream only after the new nonce pair is safely on disk.
         self.activate_nonce(current_nonce, previous_nonce);
@@ -246,9 +245,9 @@ impl StreamWrapper {
         self.previous_nonce = Some(old_nonce);
     }
 
-    fn build_stream(key: &[u8; 16], nonce: &[u8]) -> Stream {
-        let cipher = Aes128Eax::new(GenericArray::from_slice(key));
-        StreamBE32::from_aead(cipher, GenericArray::from_slice(nonce))
+    fn build_stream(key: &[u8; 16], nonce: &[u8; NONCE_LEN]) -> Stream {
+        let cipher = Aes128Eax::new(key.into());
+        StreamBE32::from_aead(cipher, nonce.into())
     }
 
     fn can_decode_first_record(&self, data: &[u8], nonce: &[u8; NONCE_LEN]) -> bool {
@@ -336,7 +335,7 @@ impl StreamWrapper {
 
     fn temp_meta_file_path(meta_file_path: &Path) -> PathBuf {
         let mut suffix = [0u8; 8];
-        OsRng.fill_bytes(&mut suffix);
+        getrandom::fill(&mut suffix).expect("getrandom failed");
         let suffix = hex::encode(suffix);
         let file_name = meta_file_path
             .file_name()
