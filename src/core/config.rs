@@ -8,7 +8,7 @@ use std::time::Instant;
 const LOG_TAG: &str = "MMKV:Config";
 
 pub struct Config {
-    page_size: u64,
+    pub(crate) page_size: u64,
     pub path: PathBuf,
     pub file: File,
 }
@@ -43,6 +43,17 @@ impl Config {
         }
         file.sync_all()
             .map_err(|e| IOError(format!("failed to sync {}: {e}", path.display())))?;
+        // Sweep orphaned .tmp.* files left by a previous crashed trim.
+        if let (Some(dir), Some(stem)) = (path.parent(), path.file_name()) {
+            let prefix = format!("{}.tmp.", stem.to_string_lossy());
+            if let Ok(entries) = fs::read_dir(dir) {
+                for entry in entries.flatten() {
+                    if entry.file_name().to_string_lossy().starts_with(&prefix) {
+                        let _ = fs::remove_file(entry.path());
+                    }
+                }
+            }
+        }
         Ok(Config {
             page_size,
             path: path.to_path_buf(),

@@ -4,6 +4,7 @@ use std::{f32, f64, str, vec};
 
 use crate::Error::{DataInvalid, DecodeFailed, KeyNotFound, TypeMissMatch};
 use crate::Result;
+use crate::core::memory_map::MmapHandle;
 use buffa::Message;
 
 mod generated {
@@ -12,14 +13,118 @@ mod generated {
 }
 use generated::KV;
 
+/// CRC-mode Slice location: points to the value bytes in the mmap.
+#[cfg(not(feature = "encryption"))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SliceLoc {
+    pub type_token: i32,
+    pub value_offset: usize,
+    pub value_len: usize,
+}
+
+#[cfg(not(feature = "encryption"))]
+impl SliceLoc {
+    pub fn byte_range(&self) -> std::ops::Range<usize> {
+        self.value_offset..self.value_offset + self.value_len
+    }
+
+    /// Build a CRC-mode Slice by locating the value bytes within the mmap via KVView.
+    /// `mmap_base` is the base pointer of the mmap; `record_start`/`record_len` describe
+    /// the full record as written by `CrcEncoder`. Returns `None` for tombstones
+    /// (empty value), malformed records, or decode failures.
+    pub fn from_record(
+        mmap_base: usize,
+        record_start: usize,
+        record_len: usize,
+        type_token: i32,
+        _position: u32,
+    ) -> Option<Self> {
+        use buffa::view::MessageView;
+        // CRC record layout: [4-byte total_len][kv_proto_bytes][1-byte crc]
+        if record_len < 5 {
+            return None;
+        }
+        let proto_offset = record_start + 4;
+        let proto_len = record_len - 5;
+        // SAFETY: range validated by decode_bytes; mmap lives via Arc<RawMmap> in MmapHandle.
+        let proto_bytes = unsafe {
+            std::slice::from_raw_parts((mmap_base + proto_offset) as *const u8, proto_len)
+        };
+        let view = generated::KVView::decode_view(proto_bytes).ok()?;
+        let value_len = view.value.len();
+        let value_ptr = view.value.as_ptr() as usize;
+        let value_offset = match value_ptr.checked_sub(mmap_base) {
+            Some(off) if value_len > 0 => off,
+            _ => return None,
+        };
+        Some(SliceLoc {
+            type_token,
+            value_offset,
+            value_len,
+        })
+    }
+}
+
+/// Encryption-mode Slice location: stores the raw ciphertext range + AEAD counter.
+#[cfg(feature = "encryption")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SliceLoc {
+    pub type_token: i32,
+    pub record_offset: usize,
+    pub record_len: usize,
+    pub position: u32,
+}
+
+#[cfg(feature = "encryption")]
+impl SliceLoc {
+    pub fn byte_range(&self) -> std::ops::Range<usize> {
+        self.record_offset..self.record_offset + self.record_len
+    }
+
+    /// Build an encryption-mode Slice pointing at the raw ciphertext in the mmap.
+    /// `record_start`/`record_len` describe the full record as written by `Encryptor`.
+    pub fn from_record(
+        _mmap_base: usize,
+        record_start: usize,
+        record_len: usize,
+        type_token: i32,
+        position: u32,
+    ) -> Option<Self> {
+        // Encryption record layout: [4-byte cipher_len][ciphertext bytes]
+        if record_len < 4 {
+            return None;
+        }
+        Some(SliceLoc {
+            type_token,
+            record_offset: record_start + 4,
+            record_len: record_len - 4,
+            position,
+        })
+    }
+}
+
 #[derive(Debug, Clone)]
-pub struct Buffer(Arc<KV>);
+pub enum Buffer {
+    /// In-flight write: full KV on the heap, not yet flushed to mmap.
+    /// `seq` is a monotonic counter assigned at `put` time; the writer uses it
+    /// to avoid overwriting a newer put with a stale Slice promotion.
+    Owned { kv: Arc<KV>, seq: u64 },
+    /// Committed write: points into the mmap; value decoded on read.
+    Slice(SliceLoc),
+}
 
 pub trait Encoder: Send {
-    fn encode_to_bytes(&self, raw_buffer: &Buffer, position: u32) -> Result<Vec<u8>>;
-    #[cfg(feature = "encryption")]
-    fn before_rewrite(&self) -> Result<()> {
-        Ok(())
+    fn encode_to_bytes(
+        &self,
+        key: &str,
+        type_token: i32,
+        value: &[u8],
+        position: u32,
+    ) -> Result<Vec<u8>>;
+    /// Materialize a Slice buffer's value bytes for re-encoding during trim.
+    /// Returns `(type_token, value_bytes)`, or `None` if `buf` is not a Slice.
+    fn materialize_slice(&self, _mmap: &MmapHandle, _buf: &Buffer) -> Option<(i32, Vec<u8>)> {
+        None
     }
 }
 
@@ -33,23 +138,68 @@ pub trait Decoder {
 }
 
 impl Buffer {
-    fn from_kv(key: &str, t: i32, value: Vec<u8>) -> Self {
+    pub(crate) fn from_kv(key: &str, t: i32, value: Vec<u8>) -> Self {
         let kv = KV {
             key: key.to_string(),
             r#type: t,
             value,
             ..Default::default()
         };
-        Buffer(Arc::new(kv))
+        Buffer::Owned {
+            kv: Arc::new(kv),
+            seq: 0,
+        }
     }
 
     pub fn new<T: ProvideTypeToken + ToBytes>(key: &str, value: T) -> Self {
         Buffer::from_kv(key, T::type_token().token, value.to_bytes())
     }
 
-    pub fn parse<T: ProvideTypeToken + FromBytes>(&self) -> Result<T> {
-        self.check_buffer_type(T::type_token())?;
-        T::from_bytes(self.0.value.as_slice())
+    pub fn with_seq(self, seq: u64) -> Self {
+        match self {
+            Buffer::Owned { kv, .. } => Buffer::Owned { kv, seq },
+            other => other,
+        }
+    }
+
+    pub fn seq(&self) -> Option<u64> {
+        match self {
+            Buffer::Owned { seq, .. } => Some(*seq),
+            Buffer::Slice(_) => None,
+        }
+    }
+
+    pub fn parse<T: ProvideTypeToken + FromBytes>(&self, _mmap: &MmapHandle) -> Result<T> {
+        match self {
+            Buffer::Owned { kv, .. } => {
+                if kv.r#type == InnerTypes::Deleted.value() {
+                    return Err(KeyNotFound);
+                }
+                let type_token = T::type_token();
+                if type_token.token != kv.r#type {
+                    return Err(TypeMissMatch);
+                }
+                T::from_bytes(kv.value.as_slice())
+            }
+            #[cfg(not(feature = "encryption"))]
+            Buffer::Slice(loc) => {
+                if loc.type_token == InnerTypes::Deleted.value() {
+                    return Err(KeyNotFound);
+                }
+                let type_token = T::type_token();
+                if type_token.token != loc.type_token {
+                    return Err(TypeMissMatch);
+                }
+                let value_bytes = _mmap.read(loc.byte_range());
+                T::from_bytes(value_bytes)
+            }
+            #[cfg(feature = "encryption")]
+            _ => {
+                // Encryption Slice parsing is handled via Decoder in mmkv_impl::get.
+                // This path should not be reached directly.
+                unreachable!("encrypted Slice must be parsed via Decoder::decode_bytes")
+            }
+        }
     }
 
     pub fn deleted_buffer(key: &str) -> Self {
@@ -58,41 +208,64 @@ impl Buffer {
 
     pub fn from_encoded_bytes(data: &[u8]) -> Result<Self> {
         let kv = KV::decode_from_slice(data).map_err(|e| DecodeFailed(e.to_string()))?;
-        Ok(Buffer(Arc::new(kv)))
+        Ok(Buffer::Owned {
+            kv: Arc::new(kv),
+            seq: 0,
+        })
     }
 
-    pub fn to_bytes(&self) -> Vec<u8> {
-        self.0.encode_to_vec()
-    }
-
-    pub fn key(&self) -> &str {
-        self.0.key.as_str()
-    }
-
-    #[allow(dead_code)]
-    pub fn value(&self) -> &[u8] {
-        self.0.value.as_slice()
-    }
-
-    pub fn is_deleting(&self) -> bool {
-        self.0.r#type == InnerTypes::Deleted.value()
-    }
-
-    fn check_buffer_type(&self, type_token: TypeToken) -> Result<()> {
-        if self.is_deleting() {
-            return Err(KeyNotFound);
-        }
-        if type_token.token == self.0.r#type {
-            Ok(())
-        } else {
-            Err(TypeMissMatch)
+    #[cfg(test)]
+    pub(crate) fn to_bytes(&self) -> Vec<u8> {
+        match self {
+            Buffer::Owned { kv, .. } => kv.encode_to_vec(),
+            Buffer::Slice(_) => panic!("to_bytes called on Slice variant"),
         }
     }
 
     #[cfg(test)]
-    fn shared_with(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.0, &other.0)
+    pub(crate) fn key(&self) -> &str {
+        match self {
+            Buffer::Owned { kv, .. } => kv.key.as_str(),
+            Buffer::Slice(_) => panic!("key() called on Slice variant"),
+        }
     }
+
+    pub fn kv_type(&self) -> i32 {
+        match self {
+            Buffer::Owned { kv, .. } => kv.r#type,
+            Buffer::Slice(loc) => loc.type_token,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn kv_value(&self) -> &[u8] {
+        match self {
+            Buffer::Owned { kv, .. } => kv.value.as_slice(),
+            Buffer::Slice(_) => panic!("kv_value() called on Slice variant"),
+        }
+    }
+
+    pub fn is_deleting(&self) -> bool {
+        self.kv_type() == InnerTypes::Deleted.value()
+    }
+}
+
+/// Build the protobuf-encoded KV bytes from raw components.
+pub fn encode_kv_bytes(key: &str, type_token: i32, value: &[u8]) -> Vec<u8> {
+    KV {
+        key: key.to_string(),
+        r#type: type_token,
+        value: value.to_vec(),
+        ..Default::default()
+    }
+    .encode_to_vec()
+}
+
+/// Decode protobuf KV bytes and return `(type_token, value_bytes)`.
+#[cfg_attr(not(feature = "encryption"), allow(dead_code))]
+pub fn decode_kv_type_value(kv_bytes: &[u8]) -> Result<(i32, Vec<u8>)> {
+    let kv = KV::decode_from_slice(kv_bytes).map_err(|e| DecodeFailed(e.to_string()))?;
+    Ok((kv.r#type, kv.value))
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
@@ -123,7 +296,7 @@ impl InnerTypes {
 
 /// 0 ~ 100 reserved for internal usage.
 pub struct TypeToken {
-    token: i32,
+    pub(crate) token: i32,
 }
 
 impl TypeToken {
@@ -137,7 +310,7 @@ impl TypeToken {
         TypeToken { token }
     }
 
-    fn from_int_unchecked(token: i32) -> Self {
+    pub(crate) fn from_int_unchecked(token: i32) -> Self {
         TypeToken { token }
     }
 }
@@ -356,103 +529,127 @@ macro_rules! impl_from_buffer_for_typed_array {
 
 impl_from_buffer_for_typed_array!(i32, i64, f32, f64;);
 
+#[cfg(test)]
 impl PartialEq for Buffer {
     fn eq(&self, other: &Self) -> bool {
-        self.0.as_ref() == other.0.as_ref()
+        match (self, other) {
+            (Buffer::Owned { kv: a, .. }, Buffer::Owned { kv: b, .. }) => a.as_ref() == b.as_ref(),
+            _ => false,
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::core::buffer::{Buffer, TypeMissMatch};
+    use crate::core::memory_map::MmapHandle;
+
+    fn dummy_mmap() -> MmapHandle {
+        use crate::core::memory_map::MemoryMap;
+        use std::fs::OpenOptions;
+        let file = OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .read(true)
+            .open("test_buffer_dummy_mmap")
+            .unwrap();
+        file.set_len(64).unwrap();
+        let mm = MemoryMap::new(&file, 64).unwrap();
+        let handle = mm.to_handle();
+        let _ = std::fs::remove_file("test_buffer_dummy_mmap");
+        handle
+    }
 
     #[test]
     fn test_buffer() {
+        let mmap = dummy_mmap();
+
         let buffer = Buffer::new("first_key", "first_value");
         let bytes = buffer.to_bytes();
         let copy = Buffer::from_encoded_bytes(bytes.as_slice()).unwrap();
         assert_eq!(copy, buffer);
-        assert_eq!(copy.parse(), Ok("first_value".to_string()));
-        assert_eq!(copy.parse::<i32>(), Err(TypeMissMatch));
-        assert_eq!(copy.parse::<bool>(), Err(TypeMissMatch));
+        assert_eq!(copy.parse(&mmap), Ok("first_value".to_string()));
+        assert_eq!(copy.parse::<i32>(&mmap), Err(TypeMissMatch));
+        assert_eq!(copy.parse::<bool>(&mmap), Err(TypeMissMatch));
 
         let buffer = Buffer::new("first_key", i32::MAX);
         let copy = Buffer::from_encoded_bytes(buffer.to_bytes().as_slice()).unwrap();
         assert_eq!(copy, buffer);
-        assert_eq!(copy.parse::<String>(), Err(TypeMissMatch));
-        assert_eq!(copy.parse(), Ok(i32::MAX));
-        assert_eq!(copy.parse::<bool>(), Err(TypeMissMatch));
+        assert_eq!(copy.parse::<String>(&mmap), Err(TypeMissMatch));
+        assert_eq!(copy.parse(&mmap), Ok(i32::MAX));
+        assert_eq!(copy.parse::<bool>(&mmap), Err(TypeMissMatch));
 
         let buffer = Buffer::new("first_key", true);
         let copy = Buffer::from_encoded_bytes(buffer.to_bytes().as_slice()).unwrap();
         assert_eq!(copy, buffer);
-        assert_eq!(copy.parse::<String>(), Err(TypeMissMatch));
-        assert_eq!(copy.parse::<i32>(), Err(TypeMissMatch));
-        assert_eq!(copy.parse(), Ok(true));
+        assert_eq!(copy.parse::<String>(&mmap), Err(TypeMissMatch));
+        assert_eq!(copy.parse::<i32>(&mmap), Err(TypeMissMatch));
+        assert_eq!(copy.parse(&mmap), Ok(true));
 
         let buffer = Buffer::new("first_key", i64::MAX);
         let copy = Buffer::from_encoded_bytes(buffer.to_bytes().as_slice()).unwrap();
         assert_eq!(copy, buffer);
-        assert_eq!(copy.parse(), Ok(i64::MAX));
-        assert_eq!(copy.parse::<i32>(), Err(TypeMissMatch));
+        assert_eq!(copy.parse(&mmap), Ok(i64::MAX));
+        assert_eq!(copy.parse::<i32>(&mmap), Err(TypeMissMatch));
 
         let buffer = Buffer::new("first_key", f32::MAX);
         let copy = Buffer::from_encoded_bytes(buffer.to_bytes().as_slice()).unwrap();
         assert_eq!(copy, buffer);
-        assert_eq!(copy.parse(), Ok(f32::MAX));
-        assert_eq!(copy.parse::<i32>(), Err(TypeMissMatch));
+        assert_eq!(copy.parse(&mmap), Ok(f32::MAX));
+        assert_eq!(copy.parse::<i32>(&mmap), Err(TypeMissMatch));
 
         let buffer = Buffer::new("first_key", f64::MAX);
         let copy = Buffer::from_encoded_bytes(buffer.to_bytes().as_slice()).unwrap();
         assert_eq!(copy, buffer);
-        assert_eq!(copy.parse(), Ok(f64::MAX));
-        assert_eq!(copy.parse::<f32>(), Err(TypeMissMatch));
+        assert_eq!(copy.parse(&mmap), Ok(f64::MAX));
+        assert_eq!(copy.parse::<f32>(&mmap), Err(TypeMissMatch));
 
         let byte_array = vec![u8::MIN, 2, u8::MAX];
         let buffer = Buffer::new("byte_array", byte_array.as_slice());
         let copy = Buffer::from_encoded_bytes(buffer.to_bytes().as_slice()).unwrap();
         assert_eq!(copy, buffer);
-        assert_eq!(copy.parse(), Ok(byte_array));
-        assert_eq!(copy.parse::<Vec<i32>>(), Err(TypeMissMatch));
+        assert_eq!(copy.parse(&mmap), Ok(byte_array));
+        assert_eq!(copy.parse::<Vec<i32>>(&mmap), Err(TypeMissMatch));
 
         let i32_array = vec![i32::MIN, 2, i32::MAX];
         let buffer = Buffer::new("i32_array", i32_array.as_slice());
         let copy = Buffer::from_encoded_bytes(buffer.to_bytes().as_slice()).unwrap();
         assert_eq!(copy, buffer);
-        assert_eq!(copy.parse(), Ok(i32_array));
-        assert_eq!(copy.parse::<Vec<i64>>(), Err(TypeMissMatch));
+        assert_eq!(copy.parse(&mmap), Ok(i32_array));
+        assert_eq!(copy.parse::<Vec<i64>>(&mmap), Err(TypeMissMatch));
 
         let i64_array = vec![i64::MIN, 2, i64::MAX];
         let buffer = Buffer::new("i64_array", i64_array.as_slice());
         let copy = Buffer::from_encoded_bytes(buffer.to_bytes().as_slice()).unwrap();
         assert_eq!(copy, buffer);
-        assert_eq!(copy.parse(), Ok(i64_array));
-        assert_eq!(copy.parse::<Vec<i32>>(), Err(TypeMissMatch));
+        assert_eq!(copy.parse(&mmap), Ok(i64_array));
+        assert_eq!(copy.parse::<Vec<i32>>(&mmap), Err(TypeMissMatch));
 
         let f32_array = vec![f32::MIN, 2.2, f32::MAX];
         let buffer = Buffer::new("f32_array", f32_array.as_slice());
         let copy = Buffer::from_encoded_bytes(buffer.to_bytes().as_slice()).unwrap();
         assert_eq!(copy, buffer);
-        assert_eq!(copy.parse(), Ok(f32_array));
-        assert_eq!(copy.parse::<Vec<f64>>(), Err(TypeMissMatch));
+        assert_eq!(copy.parse(&mmap), Ok(f32_array));
+        assert_eq!(copy.parse::<Vec<f64>>(&mmap), Err(TypeMissMatch));
 
         let f64_array = vec![f64::MIN, 2.2, f64::MAX];
         let buffer = Buffer::new("f64_array", f64_array.as_slice());
         let copy = Buffer::from_encoded_bytes(buffer.to_bytes().as_slice()).unwrap();
         assert_eq!(copy, buffer);
-        assert_eq!(copy.parse(), Ok(f64_array));
-        assert_eq!(copy.parse::<Vec<u8>>(), Err(TypeMissMatch));
+        assert_eq!(copy.parse(&mmap), Ok(f64_array));
+        assert_eq!(copy.parse::<Vec<u8>>(&mmap), Err(TypeMissMatch));
     }
 
     #[test]
-    fn test_buffer_clone_is_shallow() {
+    fn test_buffer_owned_equality() {
         let bytes = vec![1u8, 2, 3, 4];
         let buffer = Buffer::new("shared_key", bytes.as_slice());
         let clone = buffer.clone();
+        let mmap = dummy_mmap();
 
-        assert!(buffer.shared_with(&clone));
-        assert_eq!(buffer.parse::<Vec<u8>>(), Ok(bytes.clone()));
-        assert_eq!(clone.parse::<Vec<u8>>(), Ok(bytes));
         assert_eq!(buffer, clone);
+        assert_eq!(buffer.parse::<Vec<u8>>(&mmap), Ok(bytes.clone()));
+        assert_eq!(clone.parse::<Vec<u8>>(&mmap), Ok(bytes));
     }
 }

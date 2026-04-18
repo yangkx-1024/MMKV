@@ -2,9 +2,10 @@ use crate::Error::IOError;
 use crate::Result;
 use std::fs::File;
 use std::mem::size_of;
-use std::ops::{Deref, DerefMut, Range};
+use std::ops::Range;
 use std::os::fd::{AsRawFd, RawFd};
 use std::ptr::NonNull;
+use std::sync::Arc;
 use std::{io, ptr, slice};
 
 const LOG_TAG: &str = "MMKV:MemoryMap";
@@ -64,7 +65,7 @@ impl Drop for RawMmap {
     }
 }
 
-impl Deref for RawMmap {
+impl std::ops::Deref for RawMmap {
     type Target = [u8];
     #[inline]
     fn deref(&self) -> &[u8] {
@@ -72,20 +73,26 @@ impl Deref for RawMmap {
     }
 }
 
-impl DerefMut for RawMmap {
-    #[inline]
-    fn deref_mut(&mut self) -> &mut [u8] {
-        unsafe { slice::from_raw_parts_mut(self.ptr.as_ptr() as *mut u8, self.len) }
+unsafe impl Send for RawMmap {}
+unsafe impl Sync for RawMmap {}
+
+/// A shared read-only view into a memory-mapped region.
+/// Multiple `MmapHandle` instances can coexist with the [MemoryMap] writer.
+#[derive(Clone, Debug)]
+pub struct MmapHandle {
+    raw: Arc<RawMmap>,
+}
+
+impl MmapHandle {
+    pub fn read(&self, range: Range<usize>) -> &[u8] {
+        &self.raw[range]
     }
 }
 
-unsafe impl Send for RawMmap {}
-
-unsafe impl Sync for RawMmap {}
-
 #[derive(Debug)]
-#[repr(transparent)]
-pub struct MemoryMap(RawMmap);
+pub struct MemoryMap {
+    raw: Arc<RawMmap>,
+}
 
 impl Drop for MemoryMap {
     fn drop(&mut self) {
@@ -108,7 +115,7 @@ impl Drop for MemoryMap {
             );
             return;
         }
-        if let Err(e) = self.0.flush(flush_len) {
+        if let Err(e) = self.raw.flush(flush_len) {
             error!(LOG_TAG, "failed to flush mmap on drop: {e}");
         }
     }
@@ -128,7 +135,15 @@ impl MemoryMap {
         })?;
         let raw_mmap = RawMmap::new(file.as_raw_fd(), mmap_len)
             .map_err(|e| IOError(format!("failed to create mmap with len {len}: {e}")))?;
-        Ok(MemoryMap(raw_mmap))
+        Ok(MemoryMap {
+            raw: Arc::new(raw_mmap),
+        })
+    }
+
+    pub fn to_handle(&self) -> MmapHandle {
+        MmapHandle {
+            raw: Arc::clone(&self.raw),
+        }
     }
 
     pub fn append(&mut self, value: &[u8]) -> Result<()> {
@@ -153,12 +168,14 @@ impl MemoryMap {
         let new_content_len = u64::try_from(new_content_len)
             .map_err(|_| IOError("append overflowed stored content length".to_string()))?;
         self.write_content_len(new_content_len);
-        self.0[start..end].copy_from_slice(value);
+        // SAFETY: `&mut self` ensures no aliased mutable access. Readers hold MmapHandle
+        // which provides only &[u8]. The write target [start, end) was validated to be within
+        // bounds and starts at write_offset — readers never access bytes past write_offset.
+        unsafe {
+            let dst = (self.raw.ptr.as_ptr() as *mut u8).add(start);
+            ptr::copy_nonoverlapping(value.as_ptr(), dst, data_len);
+        }
         Ok(())
-    }
-
-    pub fn reset(&mut self) {
-        self.write_content_len(0);
     }
 
     pub fn content_start_offset(&self) -> usize {
@@ -174,7 +191,18 @@ impl MemoryMap {
 
     /// The max len of current mmap
     pub fn len(&self) -> usize {
-        self.0.len
+        self.raw.len
+    }
+
+    pub fn base_ptr(&self) -> usize {
+        self.raw.ptr.as_ptr() as usize
+    }
+
+    pub fn flush(&self) -> Result<()> {
+        let len = self.write_offset()?;
+        self.raw
+            .flush(len)
+            .map_err(|e| IOError(format!("failed to flush mmap: {e}")))
     }
 
     pub fn read(&self, range: Range<usize>) -> Result<&[u8]> {
@@ -186,7 +214,7 @@ impl MemoryMap {
                 self.len()
             )));
         }
-        Ok(self.0[range].as_ref())
+        Ok(&self.raw[range])
     }
 
     fn content_len(&self) -> Result<usize> {
@@ -207,14 +235,19 @@ impl MemoryMap {
 
     fn read_content_len(&self) -> u64 {
         u64::from_be_bytes(
-            self.0[0..LEN_OFFSET]
+            self.raw[0..LEN_OFFSET]
                 .try_into()
                 .expect("mmap header slice length must match u64"),
         )
     }
 
     fn write_content_len(&mut self, content_len: u64) {
-        self.0[0..LEN_OFFSET].copy_from_slice(&content_len.to_be_bytes());
+        let bytes = content_len.to_be_bytes();
+        // SAFETY: `&mut self` ensures exclusive mutation; readers only access bytes via &[u8] through MmapHandle.
+        unsafe {
+            let dst = self.raw.ptr.as_ptr() as *mut u8;
+            ptr::copy_nonoverlapping(bytes.as_ptr(), dst, LEN_OFFSET);
+        }
     }
 }
 
@@ -226,6 +259,13 @@ mod tests {
     use crate::Error::IOError;
 
     use super::{LEN_OFFSET, MemoryMap};
+
+    fn write_raw(mm: &mut MemoryMap, offset: usize, data: &[u8]) {
+        unsafe {
+            let dst = (mm.raw.ptr.as_ptr() as *mut u8).add(offset);
+            std::ptr::copy_nonoverlapping(data.as_ptr(), dst, data.len());
+        }
+    }
 
     #[test]
     fn test_mmap() {
@@ -252,7 +292,7 @@ mod tests {
         let read = mm.read(write_offset - 1..write_offset).unwrap();
         assert_eq!(read[0], 4);
 
-        mm.reset();
+        mm.write_content_len(0);
         mm.append(&[5, 4, 3, 2, 1]).unwrap();
         assert_eq!(mm.write_offset().unwrap(), 13);
         let read = mm.read(8..9).unwrap();
@@ -355,7 +395,7 @@ mod tests {
             .unwrap();
         file.set_len((LEN_OFFSET + 1) as u64).unwrap();
         let mut mm = MemoryMap::new(&file, (LEN_OFFSET + 1) as u64).unwrap();
-        mm.0[0..LEN_OFFSET].copy_from_slice(&2u64.to_be_bytes());
+        write_raw(&mut mm, 0, &2u64.to_be_bytes());
 
         let err = mm.write_offset().unwrap_err();
         assert_eq!(

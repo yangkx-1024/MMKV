@@ -1,18 +1,19 @@
 use crate::Error::InstanceClosed;
-use crate::core::buffer::{Buffer, Decoder};
+use crate::core::buffer::{Buffer, Decoder, FromBytes, ProvideTypeToken};
 use crate::core::config::Config;
 #[cfg(not(feature = "encryption"))]
-use crate::core::crc::CrcEncoderDecoder;
+use crate::core::crc::CrcEncoder;
 #[cfg(feature = "encryption")]
 use crate::core::encrypt::Encryptor;
 use crate::core::io_looper::IOLooper;
-use crate::core::memory_map::MemoryMap;
-use crate::core::shared_state::{SharedKvMap, new_shared_kv_map};
+use crate::core::memory_map::{MemoryMap, MmapHandle};
+use crate::core::shared_state::{SharedKvMap, SharedState};
 use crate::core::writer::IOWriter;
 use crate::{Error, Result};
 #[cfg(feature = "encryption")]
 use std::fs;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 const LOG_TAG: &str = "MMKV:Core";
@@ -21,6 +22,7 @@ pub struct MmkvImpl {
     is_valid: bool,
     io_looper: IOLooper<IOWriter>,
     shared_kv: SharedKvMap,
+    next_seq: Arc<AtomicU64>,
     #[cfg(feature = "encryption")]
     encryptor: Encryptor,
 }
@@ -33,7 +35,7 @@ impl MmkvImpl {
         #[cfg(feature = "encryption")]
         let encoder = Box::new(encryptor.clone());
         #[cfg(not(feature = "encryption"))]
-        let encoder = Box::new(CrcEncoderDecoder);
+        let encoder = Box::new(CrcEncoder);
         let mm = MemoryMap::new(&config.file, config.file_size()?)?;
         #[cfg(feature = "encryption")]
         {
@@ -46,25 +48,31 @@ impl MmkvImpl {
         #[cfg(feature = "encryption")]
         let decoder = Box::new(encryptor.clone());
         #[cfg(not(feature = "encryption"))]
-        let decoder = Box::new(CrcEncoderDecoder);
+        let decoder = Box::new(CrcEncoder);
+        let mmap_base = mm.base_ptr();
         let (kv_map, decoded_position) = mm
             .iter(|bytes, position| decoder.decode_bytes(bytes, position))?
-            .into_map();
+            .into_map(mmap_base);
         let item_count = kv_map.len();
         let content_len = mm.write_offset()?;
         let file_size = mm.len();
-        let shared_kv = new_shared_kv_map(kv_map);
+        let mmap_handle = mm.to_handle();
+        let shared_kv = SharedState::new(mmap_handle, kv_map);
+        let next_seq = Arc::new(AtomicU64::new(1));
         let io_writer = IOWriter::new(
             config,
             mm,
             decoded_position,
             Arc::clone(&shared_kv),
             encoder,
+            #[cfg(feature = "encryption")]
+            encryptor.clone(),
         );
         let mmkv = MmkvImpl {
             is_valid: true,
             io_looper: IOLooper::new(io_writer),
             shared_kv,
+            next_seq,
             #[cfg(feature = "encryption")]
             encryptor,
         };
@@ -83,10 +91,13 @@ impl MmkvImpl {
         if !self.is_valid {
             return Err(InstanceClosed);
         }
-        debug_assert_eq!(key, raw_buffer.key());
+        debug_assert!(matches!(&raw_buffer, Buffer::Owned { kv, .. } if kv.key == key));
+        let seq = self.next_seq.fetch_add(1, Ordering::Relaxed);
+        let raw_buffer = raw_buffer.with_seq(seq);
         let previous = {
             let mut kv_map = self
                 .shared_kv
+                .kv_map
                 .write()
                 .map_err(|e| Error::LockError(e.to_string()))?;
             kv_map.insert(key.to_string(), raw_buffer.clone())
@@ -98,6 +109,7 @@ impl MmkvImpl {
         {
             let mut kv_map = self
                 .shared_kv
+                .kv_map
                 .write()
                 .map_err(|e| Error::LockError(e.to_string()))?;
             if let Some(buffer) = previous {
@@ -110,19 +122,50 @@ impl MmkvImpl {
         Ok(())
     }
 
-    pub fn get(&self, key: &str) -> Result<Buffer> {
+    pub fn get<T: ProvideTypeToken + FromBytes>(&self, key: &str) -> Result<T> {
         if !self.is_valid {
             return Err(InstanceClosed);
         }
-        match self
+        // Hold kv_map.read() across parse so the writer cannot swap the mmap
+        // (via kv_map.write() inside shadow-file trim) between when we look up
+        // the Slice offsets and when we dereference those offsets in the mmap.
+        let kv_guard = self
             .shared_kv
+            .kv_map
             .read()
-            .map_err(|e| Error::LockError(e.to_string()))?
-            .get(key)
-            .cloned()
-        {
-            Some(buffer) => Ok(buffer),
+            .map_err(|e| Error::LockError(e.to_string()))?;
+        let mmap_guard = self.shared_kv.mmap.load();
+        let mmap: &MmapHandle = &mmap_guard;
+        match kv_guard.get(key) {
+            Some(buf) => {
+                #[cfg(not(feature = "encryption"))]
+                {
+                    buf.parse::<T>(mmap)
+                }
+                #[cfg(feature = "encryption")]
+                {
+                    self.parse_buffer::<T>(buf, mmap)
+                }
+            }
             None => Err(Error::KeyNotFound),
+        }
+    }
+
+    #[cfg(feature = "encryption")]
+    fn parse_buffer<T: ProvideTypeToken + FromBytes>(
+        &self,
+        buf: &Buffer,
+        mmap: &MmapHandle,
+    ) -> Result<T> {
+        match buf {
+            Buffer::Owned { .. } => buf.parse::<T>(mmap),
+            Buffer::Slice(loc) => {
+                // Decrypt record bytes from mmap, then parse via Owned path.
+                let ciphertext = mmap.read(loc.byte_range());
+                let kv_bytes = self.encryptor.decrypt_current(ciphertext, loc.position)?;
+                let owned = Buffer::from_encoded_bytes(&kv_bytes)?;
+                owned.parse::<T>(mmap)
+            }
         }
     }
 
@@ -134,6 +177,7 @@ impl MmkvImpl {
         let previous = {
             let mut kv_map = self
                 .shared_kv
+                .kv_map
                 .write()
                 .map_err(|e| Error::LockError(e.to_string()))?;
             kv_map.remove(&key)
@@ -147,6 +191,7 @@ impl MmkvImpl {
         }) {
             let mut kv_map = self
                 .shared_kv
+                .kv_map
                 .write()
                 .map_err(|e| Error::LockError(e.to_string()))?;
             kv_map.insert(key, previous.unwrap());
@@ -167,6 +212,7 @@ impl MmkvImpl {
         self.io_looper.call(move |writer| {
             writer.remove_file()?;
             shared_kv
+                .kv_map
                 .write()
                 .map_err(|e| Error::LockError(e.to_string()))?
                 .clear();
@@ -203,11 +249,22 @@ mod tests {
     fn init(config: &Config) -> MmkvImpl {
         MMKV::set_log_level(Debug);
         MmkvImpl::new(
-            config.try_clone().unwrap(),
+            Config::new(&config.path, config.page_size).unwrap(),
             #[cfg(feature = "encryption")]
             TEST_KEY,
         )
         .unwrap()
+    }
+
+    fn write_offset_at(path: &str) -> usize {
+        use std::fs::OpenOptions;
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(path)
+            .unwrap();
+        let len = file.metadata().unwrap().len();
+        MemoryMap::new(&file, len).unwrap().write_offset().unwrap()
     }
 
     #[test]
@@ -218,12 +275,11 @@ mod tests {
         assert!(!Path::new(file_path).exists());
         let _ = fs::remove_file(format!("{}.meta", file_path));
         let config = &Config::new(Path::new(file_path), 100).unwrap();
-        let mm = MemoryMap::new(&config.file, 200).unwrap();
         let mut mmkv = init(config);
         mmkv.put("key1", Buffer::new("key1", 1)).unwrap(); // + 17
-        assert_eq!(mmkv.get("key1").unwrap().parse::<i32>(), Ok(1));
+        assert_eq!(mmkv.get::<i32>("key1"), Ok(1));
         drop(mmkv);
-        assert_eq!(mm.write_offset().unwrap(), 25);
+        assert_eq!(write_offset_at(file_path), 25);
 
         mmkv = init(config);
         mmkv.put("key2", Buffer::new("key2", 2)).unwrap(); // + 17
@@ -231,27 +287,27 @@ mod tests {
         mmkv.put("key1", Buffer::new("key1", 4)).unwrap(); // + 17
         mmkv.put("key2", Buffer::new("key2", 5)).unwrap(); // + 17
         drop(mmkv);
-        assert_eq!(mm.write_offset().unwrap(), 93);
+        assert_eq!(write_offset_at(file_path), 93);
 
         mmkv = init(config);
         mmkv.put("key1", Buffer::new("key1", 6)).unwrap(); // + 17, trim, 3 items remain
         drop(mmkv);
-        assert_eq!(mm.write_offset().unwrap(), 59);
+        assert_eq!(write_offset_at(file_path), 59);
 
         mmkv = init(config);
-        assert_eq!(mmkv.get("key1").unwrap().parse::<i32>(), Ok(6));
-        assert_eq!(mmkv.get("key2").unwrap().parse::<i32>(), Ok(5));
+        assert_eq!(mmkv.get::<i32>("key1"), Ok(6));
+        assert_eq!(mmkv.get::<i32>("key2"), Ok(5));
         mmkv.put("key4", Buffer::new("key4", 4)).unwrap();
         mmkv.put("key5", Buffer::new("key5", 5)).unwrap(); // 93
         mmkv.put("key6", Buffer::new("key6", 6)).unwrap(); // expand, 110
         drop(mmkv);
-        assert_eq!(mm.write_offset().unwrap(), 110);
-        assert_eq!(config.file_size().unwrap(), 200);
+        assert_eq!(write_offset_at(file_path), 110);
+        assert_eq!(fs::metadata(file_path).unwrap().len(), 200);
 
         mmkv = init(config);
         mmkv.put("key7", Buffer::new("key7", 7)).unwrap();
         drop(mmkv);
-        assert_eq!(mm.write_offset().unwrap(), 127);
+        assert_eq!(write_offset_at(file_path), 127);
 
         mmkv = init(config);
         mmkv.clear_data().unwrap();
@@ -265,37 +321,36 @@ mod tests {
         let _ = fs::remove_file(file);
         let _ = fs::remove_file(format!("{file}.meta"));
         let config = &Config::new(Path::new(file), 100).unwrap();
-        let mm = MemoryMap::new(&config.file, 200).unwrap();
         let mut mmkv = init(config);
         mmkv.put("key1", Buffer::new("key1", 1)).unwrap(); // + 24
-        assert_eq!(mmkv.get("key1").unwrap().parse::<i32>(), Ok(1));
+        assert_eq!(mmkv.get::<i32>("key1"), Ok(1));
         drop(mmkv);
-        assert_eq!(mm.write_offset().unwrap(), 32);
+        assert_eq!(write_offset_at(file), 32);
 
         mmkv = init(config);
         mmkv.put("key2", Buffer::new("key2", 2)).unwrap(); // + 24
         mmkv.put("key3", Buffer::new("key3", 3)).unwrap(); // + 24
         drop(mmkv);
-        assert_eq!(mm.write_offset().unwrap(), 80);
+        assert_eq!(write_offset_at(file), 80);
 
         mmkv = init(config);
         mmkv.put("key1", Buffer::new("key1", 4)).unwrap(); // + 24 trim
         mmkv.put("key2", Buffer::new("key2", 5)).unwrap(); // + 24 trim
         drop(mmkv);
-        assert_eq!(mm.write_offset().unwrap(), 80);
+        assert_eq!(write_offset_at(file), 80);
 
         mmkv = init(config);
-        assert_eq!(mmkv.get("key1").unwrap().parse::<i32>(), Ok(4));
-        assert_eq!(mmkv.get("key2").unwrap().parse::<i32>(), Ok(5));
+        assert_eq!(mmkv.get::<i32>("key1"), Ok(4));
+        assert_eq!(mmkv.get::<i32>("key2"), Ok(5));
         mmkv.put("key4", Buffer::new("key4", 4)).unwrap(); // + 24
         drop(mmkv);
-        assert_eq!(mm.write_offset().unwrap(), 104);
-        assert_eq!(config.file_size().unwrap(), 200);
+        assert_eq!(write_offset_at(file), 104);
+        assert_eq!(fs::metadata(file).unwrap().len(), 200);
 
         mmkv = init(config);
         mmkv.put("key5", Buffer::new("key5", 5)).unwrap(); // + 24
         drop(mmkv);
-        assert_eq!(mm.write_offset().unwrap(), 128);
+        assert_eq!(write_offset_at(file), 128);
 
         mmkv = init(config);
         mmkv.clear_data().unwrap();
@@ -318,13 +373,13 @@ mod tests {
         drop(encryptor);
 
         let mut mmkv = init(&config);
-        assert_eq!(mmkv.get("key1").unwrap().parse::<i32>(), Ok(7));
+        assert_eq!(mmkv.get::<i32>("key1"), Ok(7));
         mmkv.put("key2", Buffer::new("key2", 8)).unwrap();
         drop(mmkv);
 
         let mut mmkv = init(&config);
-        assert_eq!(mmkv.get("key1").unwrap().parse::<i32>(), Ok(7));
-        assert_eq!(mmkv.get("key2").unwrap().parse::<i32>(), Ok(8));
+        assert_eq!(mmkv.get::<i32>("key1"), Ok(7));
+        assert_eq!(mmkv.get::<i32>("key2"), Ok(8));
         mmkv.clear_data().unwrap();
         assert!(!Path::new(file).exists());
     }
@@ -370,15 +425,83 @@ mod tests {
         for i in 0..2 {
             for j in 0..loop_count {
                 let key = &format!("thread_{i}_key_{j}");
-                assert_eq!(mmkv.get(key).unwrap().parse::<i32>().unwrap(), j)
+                assert_eq!(mmkv.get::<i32>(key).unwrap(), j)
             }
         }
         assert_eq!(
-            mmkv.get("test_multi_thread_mmkv_repeat_key"),
+            mmkv.get::<i32>("test_multi_thread_mmkv_repeat_key"),
             Err(KeyNotFound)
         );
         mmkv.clear_data().unwrap();
         assert!(!Path::new(file).exists());
+    }
+
+    // Regression test for the reader-vs-trim race:
+    // Before the fix, a get() that dropped kv_map.read() before parse could read
+    // torn bytes from the live mmap while the IO thread reset it for a shadow-file trim.
+    #[test]
+    fn test_concurrent_reads_during_trim() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        };
+        let file = "test_concurrent_reads_during_trim";
+        let _ = fs::remove_file(file);
+        let _ = fs::remove_file(format!("{file}.meta"));
+        let config = &Config::new(Path::new(file), 96).unwrap();
+
+        let mut mmkv = init(config);
+        mmkv.put("stable", Buffer::new("stable", 42i32)).unwrap();
+        drop(mmkv);
+
+        let mmkv = Arc::new(RwLock::new(init(config)));
+        let errors = Arc::new(AtomicUsize::new(0));
+        let iters = 600;
+
+        thread::scope(|s| {
+            for _ in 0..4 {
+                let mmkv = Arc::clone(&mmkv);
+                let errors = Arc::clone(&errors);
+                s.spawn(move || {
+                    for _ in 0..iters {
+                        match mmkv.read().unwrap().get::<i32>("stable") {
+                            Ok(42) => {}
+                            _ => {
+                                errors.fetch_add(1, Ordering::Relaxed);
+                            }
+                        }
+                    }
+                });
+            }
+            // Writer triggers frequent trims by re-putting a large value repeatedly.
+            {
+                let mmkv = Arc::clone(&mmkv);
+                s.spawn(move || {
+                    let pad = vec![7u8; 64];
+                    for _ in 0..iters {
+                        let _ = mmkv
+                            .write()
+                            .unwrap()
+                            .put("trim_trigger", Buffer::new("trim_trigger", pad.as_slice()));
+                    }
+                });
+            }
+        });
+
+        assert_eq!(
+            errors.load(Ordering::Relaxed),
+            0,
+            "concurrent reads during trim observed wrong values"
+        );
+
+        // Drop before cleanup so the IO thread finishes any queued trim (which could
+        // rename a .tmp file back to the original path after we delete it).
+        drop(mmkv);
+
+        // Stable value must survive all trim cycles.
+        assert_eq!(init(config).get::<i32>("stable"), Ok(42));
+        init(config).clear_data().unwrap();
+        let _ = fs::remove_file(format!("{file}.meta"));
     }
 
     #[test]
@@ -390,10 +513,10 @@ mod tests {
         let mut mmkv = init(config);
 
         mmkv.put("sync_key", Buffer::new("sync_key", 7)).unwrap();
-        assert_eq!(mmkv.get("sync_key").unwrap().parse::<i32>(), Ok(7));
+        assert_eq!(mmkv.get::<i32>("sync_key"), Ok(7));
 
         mmkv.delete("sync_key").unwrap();
-        assert_eq!(mmkv.get("sync_key"), Err(KeyNotFound));
+        assert_eq!(mmkv.get::<i32>("sync_key"), Err(KeyNotFound));
 
         mmkv.clear_data().unwrap();
         assert!(!Path::new(file).exists());
@@ -412,7 +535,7 @@ mod tests {
             mmkv.put("rollback_key", Buffer::new("rollback_key", 1))
                 .is_err()
         );
-        assert_eq!(mmkv.get("rollback_key"), Err(KeyNotFound));
+        assert_eq!(mmkv.get::<i32>("rollback_key"), Err(KeyNotFound));
 
         let _ = fs::remove_file(file);
         let _ = fs::remove_file(format!("{}.meta", file));
