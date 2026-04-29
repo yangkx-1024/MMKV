@@ -2,14 +2,18 @@ use std::mem::size_of;
 use std::sync::Arc;
 use std::{f32, f64, str, vec};
 
+use crate::core::memory_map::MmapHandle;
 use crate::Error::{DataInvalid, DecodeFailed, KeyNotFound, TypeMissMatch};
 use crate::Result;
-use crate::core::memory_map::MmapHandle;
+#[cfg(not(feature = "encryption"))]
+use buffa::view::MessageView;
 use buffa::Message;
 
 mod generated {
     #![allow(dead_code)]
-    include!(concat!(env!("OUT_DIR"), "/kv.rs"));
+    include!(concat!(env!("OUT_DIR"), "/__buffa.mod.rs"));
+    #[cfg(not(feature = "encryption"))]
+    pub use __buffa::view::KVView;
 }
 use generated::KV;
 
@@ -39,7 +43,6 @@ impl SliceLoc {
         type_token: i32,
         _position: u32,
     ) -> Option<Self> {
-        use buffa::view::MessageView;
         // CRC record layout: [4-byte total_len][kv_proto_bytes][1-byte crc]
         if record_len < 5 {
             return None;
