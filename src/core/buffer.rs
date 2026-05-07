@@ -10,10 +10,8 @@ use buffa::view::MessageView;
 use buffa::Message;
 
 mod generated {
-    #![allow(dead_code)]
+    #![allow(dead_code, unused_imports)]
     include!(concat!(env!("OUT_DIR"), "/__buffa.mod.rs"));
-    #[cfg(not(feature = "encryption"))]
-    pub use __buffa::view::KVView;
 }
 use generated::KV;
 
