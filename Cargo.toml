@@ -16,7 +16,7 @@ exclude = [
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-buffa = "0.5"
+buffa = "0.6"
 libc = "0.2"
 crc = "3.4"
 eax = { version = "0.6.0-rc.3", optional = true }
@@ -31,7 +31,7 @@ crossbeam-channel = "0.5"
 arc-swap = "1"
 
 [build-dependencies]
-buffa-build = "0.5"
+buffa-build = "0.6"
 
 [features]
 default = []

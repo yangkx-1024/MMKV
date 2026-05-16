@@ -79,9 +79,9 @@ dependencies = [
 
 [[package]]
 name = "buffa"
-version = "0.5.2"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7a22fed63b429c4928fd5ed18dcacd3a98d0df1f06cd7cf651b2bbf3dbf0500"
+checksum = "941c714734a660caa93a210c531dec553cc0ef417890409914d24032c94ab840"
 dependencies = [
  "bytes",
  "hashbrown 0.15.5",
@@ -93,9 +93,9 @@ dependencies = [
 
 [[package]]
 name = "buffa-build"
-version = "0.5.2"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "20f5876826b2690e0c38eb9176fc599f8286c4929c29a8641bacdcb23d3ecc12"
+checksum = "d96988700c7be5e4dd1dd22ee5daecd13090b24ec62003ee7fd4a9d7fef50a7c"
 dependencies = [
  "buffa",
  "buffa-codegen",
@@ -104,9 +104,9 @@ dependencies = [
 
 [[package]]
 name = "buffa-codegen"
-version = "0.5.2"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd9774d97c281d07a61006775c675940371c170ae1b454de0e9c013e0acd19f6"
+checksum = "693ea91be01336fb0084b2e7bb071be7393224c72f737c846471e4013e58c327"
 dependencies = [
  "buffa",
  "buffa-descriptor",
@@ -119,11 +119,13 @@ dependencies = [
 
 [[package]]
 name = "buffa-descriptor"
-version = "0.5.2"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c7b942f9242ea5a79c92486460073a0a36cccc314e69fbc2ff08f55467c47b37"
+checksum = "ad8df83adfcb525621f5a96c88e610f90aff1112ec57522d9b48a943df327394"
 dependencies = [
  "buffa",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -422,9 +424,9 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "hybrid-array"
-version = "0.4.11"
+version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "08d46837a0ed51fe95bd3b05de33cd64a1ee88fc797477ca48446872504507c5"
+checksum = "9155a582abd142abc056962c29e3ce5ff2ad5469f4246b537ed42c5deba857da"
 dependencies = [
  "typenum",
 ]
@@ -734,6 +736,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9a8e94ea7f378bd32cbbd37198a4a91436180c5bb472411e48b5ec2e2124ae9e"
 dependencies = [
  "serde_core",
+ "serde_derive",
 ]
 
 [[package]]
