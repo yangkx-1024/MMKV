@@ -1,6 +1,6 @@
 [package]
 name = "mmkv"
-version = "0.9.2"
+version = "0.9.3"
 edition = "2024"
 # Edition 2024 needs 1.85, and so do the AES/EAX crates the `encryption` feature pulls
 # in. CI checks both flavours against exactly this version, so bump it only together
