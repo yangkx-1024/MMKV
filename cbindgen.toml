@@ -1,5 +1,26 @@
 language = "C"
 style = "tag"
+header = """/*
+ * MMKV C API.
+ *
+ * Handles: `new_instance` returns an opaque handle, or NULL when `dir` is not a writable
+ * directory (the reason goes to the logger). Handles on the same directory share one
+ * store and may be used from any thread. Release each handle with `close_instance`
+ * exactly once and never use it afterwards.
+ *
+ * Results: every `put_*`, `get_*` and `delete` call returns a non-NULL `RawBuffer` the
+ * caller owns and must pass to `free_buffer` exactly once. `err == NULL` means success.
+ * Everything reachable from the buffer (value, error, reason) is owned by it.
+ *
+ * Errors are reported through `InternalError.code` (an `MMKV_ERR_*` constant), never by
+ * aborting: a NULL handle, a NULL or non-UTF-8 key or value, and IO failures such as a
+ * full disk all come back as codes. Passing NULL to `free_buffer`, `close_instance` or
+ * `clear_data` is a no-op. Passing a pointer that did not come from this API, or
+ * releasing one twice, is undefined behaviour.
+ *
+ * Logging: `set_logger` and `set_log_level` are process-wide. The logger's callbacks run
+ * on MMKV's own logger thread, see `NativeLogger`.
+ */"""
 
 [export]
 include = ["RawTypedArray"]

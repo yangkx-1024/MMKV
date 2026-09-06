@@ -187,18 +187,20 @@ impl InternalError {
     }
 }
 
-impl TryFrom<Error> for InternalError {
-    type Error = ();
-
-    fn try_from(e: Error) -> Result<Self, Self::Error> {
+impl From<Error> for InternalError {
+    fn from(e: Error) -> Self {
+        // The FFI module only exists without the encryption feature, so this is every
+        // variant there is. Keep the match exhaustive: a new variant has to become a
+        // compile error here, not an abort inside the host app.
         match e {
-            Error::KeyNotFound => Ok(InternalError::new(0, None)),
-            Error::DecodeFailed(descr) => Ok(InternalError::new(1, Some(descr))),
-            Error::TypeMissMatch => Ok(InternalError::new(2, None)),
-            Error::DataInvalid => Ok(InternalError::new(3, None)),
-            Error::InstanceClosed => Ok(InternalError::new(4, None)),
-            Error::EncodeFailed(descr) => Ok(InternalError::new(5, Some(descr))),
-            _ => unreachable!("should not happen"),
+            Error::KeyNotFound => InternalError::new(MMKV_ERR_KEY_NOT_FOUND, None),
+            Error::DecodeFailed(descr) => InternalError::new(MMKV_ERR_DECODE_FAILED, Some(descr)),
+            Error::TypeMissMatch => InternalError::new(MMKV_ERR_TYPE_MISS_MATCH, None),
+            Error::DataInvalid => InternalError::new(MMKV_ERR_DATA_INVALID, None),
+            Error::InstanceClosed => InternalError::new(MMKV_ERR_INSTANCE_CLOSED, None),
+            Error::EncodeFailed(descr) => InternalError::new(MMKV_ERR_ENCODE_FAILED, Some(descr)),
+            Error::IOError(descr) => InternalError::new(MMKV_ERR_IO, Some(descr)),
+            Error::LockError(descr) => InternalError::new(MMKV_ERR_LOCK, Some(descr)),
         }
     }
 }

@@ -55,18 +55,33 @@ impl Encryptor {
     /// a malformed key or when the meta file cannot be created, since this runs on the
     /// host's startup path.
     pub fn init(file_path: &Path, key: &str) -> Result<Self> {
-        let decoded_key: [u8; 16] = hex::decode(key)
-            .ok()
-            .and_then(|bytes| bytes.as_slice().try_into().ok())
-            .ok_or_else(|| {
-                EncryptFailed("key must be a 32-character hex string (16 bytes)".to_string())
-            })?;
+        let decoded_key = Encryptor::decode_key(key)?;
         let meta_file_path = Encryptor::resolve_meta_file_path(file_path);
         let encryptor = StreamWrapper::init(decoded_key, &meta_file_path)?;
         Ok(Encryptor {
             meta_file_path,
             encryptor: Arc::new(RwLock::new(encryptor)),
         })
+    }
+
+    /// Whether `key` is the key this encryptor was initialised with. Compares the decoded
+    /// bytes, so hex case does not matter. A malformed `key` is an error, not `false`.
+    pub fn key_matches(&self, key: &str) -> Result<bool> {
+        let decoded_key = Encryptor::decode_key(key)?;
+        let inner = self
+            .encryptor
+            .read()
+            .map_err(|e| EncryptFailed(e.to_string()))?;
+        Ok(inner.key == decoded_key)
+    }
+
+    fn decode_key(key: &str) -> Result<[u8; 16]> {
+        hex::decode(key)
+            .ok()
+            .and_then(|bytes| bytes.as_slice().try_into().ok())
+            .ok_or_else(|| {
+                EncryptFailed("key must be a 32-character hex string (16 bytes)".to_string())
+            })
     }
 
     fn resolve_meta_file_path(path: &Path) -> PathBuf {

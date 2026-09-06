@@ -101,6 +101,13 @@ impl MmkvImpl {
         Ok(mmkv)
     }
 
+    /// Whether `key` is the key this instance was opened with, see
+    /// [`Encryptor::key_matches`].
+    #[cfg(feature = "encryption")]
+    pub fn key_matches(&self, key: &str) -> Result<bool> {
+        self.encryptor.key_matches(key)
+    }
+
     pub fn put(&mut self, key: &str, raw_buffer: Buffer) -> Result<()> {
         if !self.is_valid {
             return Err(InstanceClosed);

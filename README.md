@@ -78,6 +78,10 @@ Then init `MMKV` with an encryption credential:
 
 `let mmkv = MMKV::new(".", "88C51C536176AD8A8EE4A06F62EE897E")`
 
+Instances on the same directory share one store, so while any of them is alive every
+further `MMKV::new` on that directory must pass the same key. A different key is rejected
+with `Error::EncryptFailed` instead of silently reusing the first one.
+
 Encryption will greatly reduce the efficiency of reading and writing, and will also increase the file size, use at your
 own risk!
 

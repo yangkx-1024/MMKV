@@ -113,6 +113,28 @@ fn two_handles_on_the_same_dir_see_each_others_writes() {
     assert_eq!(first.get::<String>("key"), Err(KeyNotFound));
 }
 
+/// `clear_data` through one handle re-opens the store shared by every handle on the dir.
+/// The other handle's later writes must land in the re-opened store and stay readable.
+#[test]
+fn clear_data_through_one_handle_keeps_the_other_handle_working() {
+    let store = Store::new();
+    let first = store.open();
+    let second = store.open();
+
+    first.put("before", 1i32).unwrap();
+    second.clear_data().unwrap();
+    assert_eq!(first.get::<i32>("before"), Err(KeyNotFound));
+
+    first.put("after", 2i32).unwrap();
+    assert_eq!(second.get::<i32>("after"), Ok(2));
+    drop(first);
+    drop(second);
+
+    let mmkv = store.open();
+    assert_eq!(mmkv.get::<i32>("before"), Err(KeyNotFound));
+    assert_eq!(mmkv.get::<i32>("after"), Ok(2));
+}
+
 /// Racing `MMKV::new` calls for one directory must all succeed and share one instance.
 #[test]
 fn opening_the_same_dir_from_many_threads_shares_one_instance() {

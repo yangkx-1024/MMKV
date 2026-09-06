@@ -6,6 +6,8 @@ use std::sync::{Arc, RwLock, Weak};
 
 use once_cell::sync::Lazy;
 
+#[cfg(feature = "encryption")]
+use crate::Error::EncryptFailed;
 use crate::Error::{IOError, LockError};
 use crate::core::buffer::{Buffer, FromBytes, ProvideTypeToken, ToBytes};
 use crate::core::config::Config;
@@ -67,34 +69,44 @@ impl MMKV {
     the key should be a hexadecimal string of length 16, for example:
 
     `88C51C536176AD8A8EE4A06F62EE897E`
+
+    Instances on the same `dir` share one store, so while any of them is alive every
+    further [new](MMKV::new) on that `dir` must pass the same key (hex case does not
+    matter). A different key is rejected with [EncryptFailed](crate::Error::EncryptFailed)
+    instead of silently reusing the first one. Once every instance is dropped the `dir`
+    can be opened with another key.
     */
     pub fn new(dir: &str, #[cfg(feature = "encryption")] key: &str) -> Result<Self> {
         let dir = MMKV::resolve_dir_path(dir)?;
-        let instance_map = INSTANCE_MAP.read().unwrap();
-        if let Some(mmkv) = instance_map.get(&dir).and_then(|mmkv| mmkv.upgrade()) {
+        let existing = INSTANCE_MAP
+            .read()
+            .unwrap()
+            .get(&dir)
+            .and_then(|mmkv| mmkv.upgrade());
+        if let Some(mmkv_impl) = existing {
             debug!(LOG_TAG, "new MMKV from existing instance");
-            return Ok(MMKV {
-                path: dir.clone(),
+            return MMKV::from_shared(
+                dir,
                 #[cfg(feature = "encryption")]
-                key: key.to_string(),
-                mmkv_impl: mmkv,
-            });
+                key,
+                mmkv_impl,
+            );
         }
-        drop(instance_map);
 
         let mut instance_map = INSTANCE_MAP.write().unwrap();
         // Double check if other thread completed init
-        if let Some(mmkv) = instance_map.get(&dir).and_then(|mmkv| mmkv.upgrade()) {
+        if let Some(mmkv_impl) = instance_map.get(&dir).and_then(|mmkv| mmkv.upgrade()) {
+            drop(instance_map);
             debug!(
                 LOG_TAG,
                 "new MMKV from existing instance after double check"
             );
-            return Ok(MMKV {
-                path: dir.clone(),
+            return MMKV::from_shared(
+                dir,
                 #[cfg(feature = "encryption")]
-                key: key.to_string(),
-                mmkv_impl: mmkv.clone(),
-            });
+                key,
+                mmkv_impl,
+            );
         }
         // Init a new instance
         let file_path = MMKV::resolve_file_path(&dir);
@@ -105,6 +117,38 @@ impl MMKV {
             key,
         )?));
         instance_map.insert(dir.clone(), Arc::downgrade(&mmkv_impl));
+        Ok(MMKV {
+            path: dir,
+            #[cfg(feature = "encryption")]
+            key: key.to_string(),
+            mmkv_impl,
+        })
+    }
+
+    /// Wrap an instance that is already open on `dir`. Under encryption the caller's key
+    /// has to be the one the instance was opened with: the shared instance encrypts with
+    /// exactly one key, so a handle created with another key would read and write
+    /// through the first key while believing it uses its own, and a `clear_data` through
+    /// it would re-open the shared instance with the second key behind every other
+    /// handle's back.
+    fn from_shared(
+        dir: PathBuf,
+        #[cfg(feature = "encryption")] key: &str,
+        mmkv_impl: Arc<RwLock<MmkvImpl>>,
+    ) -> Result<Self> {
+        #[cfg(feature = "encryption")]
+        {
+            let key_matches = mmkv_impl
+                .read()
+                .map_err(|e| LockError(e.to_string()))?
+                .key_matches(key)?;
+            if !key_matches {
+                return Err(EncryptFailed(format!(
+                    "{} is already open with a different key",
+                    dir.display()
+                )));
+            }
+        }
         Ok(MMKV {
             path: dir,
             #[cfg(feature = "encryption")]

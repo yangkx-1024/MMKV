@@ -217,6 +217,49 @@ mod encrypted {
         assert_eq!(mmkv.get::<i32>("new"), Err(KeyNotFound));
     }
 
+    /// Handles on one dir share one instance, and that instance encrypts with exactly one
+    /// key. A second open with another key must be rejected while the first is alive: it
+    /// would otherwise read and write through the first key while believing it uses its
+    /// own, and a `clear_data` through it would re-key the shared instance.
+    #[test]
+    fn opening_a_live_dir_with_a_different_key_is_rejected() {
+        let store = Store::new();
+        let mmkv = store.open();
+        mmkv.put("old", "value").unwrap();
+
+        assert!(matches!(
+            store.try_open_with_key(OTHER_KEY),
+            Err(EncryptFailed(_))
+        ));
+        // The rejection leaves the live handle untouched.
+        assert_eq!(mmkv.get::<String>("old"), Ok("value".to_string()));
+        mmkv.put("still", 1i32).unwrap();
+        assert_eq!(mmkv.get::<i32>("still"), Ok(1));
+        drop(mmkv);
+
+        // Once every handle is gone the dir can be opened with the other key again.
+        let other = store.try_open_with_key(OTHER_KEY).unwrap();
+        assert_eq!(other.get::<String>("old"), Err(KeyNotFound));
+        other.put("new", 2i32).unwrap();
+        assert_eq!(other.get::<i32>("new"), Ok(2));
+    }
+
+    /// The key check compares decoded bytes, so the same key in another hex case is the
+    /// same key and shares the live instance.
+    #[test]
+    fn the_same_key_in_another_hex_case_shares_the_live_instance() {
+        let store = Store::new();
+        let mmkv = store.open();
+        mmkv.put("shared", 1i32).unwrap();
+
+        let lower = store
+            .try_open_with_key(&super::common::TEST_KEY.to_lowercase())
+            .unwrap();
+        assert_eq!(lower.get::<i32>("shared"), Ok(1));
+        lower.put("back", 2i32).unwrap();
+        assert_eq!(mmkv.get::<i32>("back"), Ok(2));
+    }
+
     #[test]
     fn a_key_that_is_not_32_hex_chars_is_rejected() {
         let store = Store::new();
