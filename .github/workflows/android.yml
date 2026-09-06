@@ -1,23 +1,46 @@
 name: Android Build Check
 
+# This job boots an emulator, so it keeps a paths filter rather than running on every
+# push. The filter must list everything that changes the .so it loads: the Rust sources
+# and their manifests, the lockfile, the release profile, the build script that
+# cross-compiles them, and this file. GitHub Actions does not support YAML anchors, so
+# the two lists below are duplicated on purpose and must be kept in step.
 on:
   push:
     branches: [ "main", "develop" ]
     paths:
       - 'android/**'
       - 'src/**'
-      - 'Cargo.toml'
       - 'build.rs'
+      - 'build_android.sh'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.cargo/config.toml'
+      - '.github/workflows/android.yml'
   pull_request:
     branches: [ "main", "develop" ]
     paths:
       - 'android/**'
       - 'src/**'
-      - 'Cargo.toml'
       - 'build.rs'
+      - 'build_android.sh'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.cargo/config.toml'
+      - '.github/workflows/android.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
+  # Must match the NDK the publish workflow builds the released .so files with, or this
+  # job green-lights a toolchain that never ships. See .github/workflows/publish.yml.
+  NDK_VERSION: r27c
 
 jobs:
   build:
@@ -25,15 +48,17 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Install protoc
-        run: sudo apt-get install -y protobuf-compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
 
-      - uses: nttld/setup-ndk@v1
+      - uses: nttld/setup-ndk@ed92fe6cadad69be94a966a7ee3271275e62f779 # v1
         id: setup-ndk
         with:
-          ndk-version: r29
+          ndk-version: ${{ env.NDK_VERSION }}
           add-to-path: false
 
       - run: ./build_android.sh
@@ -47,17 +72,17 @@ jobs:
           sudo udevadm trigger --name-match=kvm
 
       - name: Gradle cache
-        uses: gradle/actions/setup-gradle@v3
+        uses: gradle/actions/setup-gradle@d9c87d481d55275bb5441eef3fe0e46805f9ef70 # v3
 
       - name: set up JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           java-version: '21'
           distribution: "temurin"
           cache: 'gradle'
 
       - name: AVD cache
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         id: avd-cache
         with:
           path: |
@@ -67,7 +92,7 @@ jobs:
 
       - name: create AVD and generate snapshot for caching
         if: steps.avd-cache.outputs.cache-hit != 'true'
-        uses: reactivecircus/android-emulator-runner@v2
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
         with:
           api-level: 34
           arch: x86_64
@@ -95,7 +120,7 @@ jobs:
           echo sonatypePassword=${SONATYPEPASSWORD} >> local.properties
 
       - name: Android test
-        uses: reactivecircus/android-emulator-runner@v2
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
         with:
           api-level: 34
           arch: x86_64

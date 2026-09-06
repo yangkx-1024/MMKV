@@ -174,7 +174,6 @@ impl MemoryMap {
             .ok_or_else(|| IOError("append overflowed content length".to_string()))?;
         let new_content_len = u64::try_from(new_content_len)
             .map_err(|_| IOError("append overflowed stored content length".to_string()))?;
-        self.write_content_len(new_content_len);
         // SAFETY: `&mut self` ensures no aliased mutable access. Readers hold MmapHandle
         // which provides only &[u8]. The write target [start, end) was validated to be within
         // bounds and starts at write_offset — readers never access bytes past write_offset.
@@ -182,6 +181,19 @@ impl MemoryMap {
             let dst = (self.raw.ptr.as_ptr() as *mut u8).add(start);
             ptr::copy_nonoverlapping(value.as_ptr(), dst, data_len);
         }
+        // Publish the record only after its bytes are in the mapping. The header is what
+        // makes a record visible: anything at or past `write_offset` is scratch space, so
+        // bumping it first would briefly advertise bytes that have not been written yet.
+        // Ordering these two stores costs nothing and keeps every observer of the mapping
+        // — a reopen after a crash, another process mapping the same file — from framing
+        // a record out of uninitialised bytes.
+        //
+        // This orders the two stores, it does not make them durable. `put` does not fsync
+        // (see the contract on `MMKV::put`), so after a power loss the header and the
+        // record bytes can still reach the disk out of order. Recovery does not depend on
+        // that: an unframeable tail is discarded when the file is next opened
+        // (`MmkvImpl::new`).
+        self.write_content_len(new_content_len);
         Ok(())
     }
 

@@ -18,13 +18,29 @@ with [AES-EAX](https://github.com/RustCrypto/AEADs/tree/master/eax).
 MMKV is thread-safe but cannot guarantee cross-process data consistency.
 If you want to use it in a cross-process scenario, please ensure that there is no competing write.
 
+## Platform support
+
+The store is a `mmap` of the data file, kept in sync with `msync`, and it relies on
+`fsync` of the parent directory to make a rename durable. That is a Unix contract, so
+this crate supports Unix-like targets only:
+
+| Target | Status |
+| --- | --- |
+| Linux | Supported, covered by CI |
+| macOS | Supported, covered by CI |
+| Android | Supported, covered by CI |
+| iOS | Supported, covered by CI |
+| Windows | Not supported: building raises a compile error |
+
+The minimum supported Rust version is **1.85**, checked by CI on every push. Bumping it
+is a breaking change for consumers, so it moves only in a minor release.
+
 ## Build requirements
 
 Building this library requires [protoc](https://grpc.io/docs/protoc-installation/) (the Protocol Buffers compiler) to be installed on your system.
 
 - **macOS**: `brew install protobuf`
 - **Ubuntu/Debian**: `sudo apt-get install protobuf-compiler`
-- **Windows**: download from the [protobuf releases page](https://github.com/protocolbuffers/protobuf/releases)
 
 ## How to use
 

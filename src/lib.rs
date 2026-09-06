@@ -12,6 +12,21 @@
 //! mmkv.clear_data().unwrap();
 //! ```
 //! For detailed API doc, see [MMKV]
+//!
+//! # Platform support
+//!
+//! The store is a `mmap` of the data file, kept in sync with `msync` and sized with
+//! `ftruncate`, and the directory entries it renames are made durable with `fsync` on
+//! the parent directory. That is a Unix contract, so the crate supports Unix-like
+//! targets (Linux, Android, macOS, iOS) and nothing else. Windows is not supported.
+
+// Fail here rather than at link time with a pile of missing `libc` symbols.
+#[cfg(not(unix))]
+compile_error!(
+    "mmkv supports Unix-like targets only (Linux, Android, macOS, iOS): it maps the store \
+     with mmap/msync and relies on fsync of the parent directory to publish renames."
+);
+
 pub use crate::core::buffer::{FromBytes, ProvideTypeToken, ToBytes, TypeToken};
 pub use crate::log::LogLevel;
 pub use crate::log::Logger;

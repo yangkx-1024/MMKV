@@ -1,7 +1,15 @@
 #!/bin/bash
+# Fail on the first error instead of carrying on and shipping a half-built framework: a
+# failed target build used to leave the previous target's .a in place and still exit 0.
+set -euo pipefail
 
-cargo install cargo-expand
-cargo install cbindgen
+# Both tools shape the generated C header, so a release must not pick up whatever version
+# happens to be current on the day it runs. Bump these deliberately.
+CARGO_EXPAND_VERSION="1.0.126"
+CBINDGEN_VERSION="0.29.4"
+
+cargo install cargo-expand --version "$CARGO_EXPAND_VERSION" --locked
+cargo install cbindgen --version "$CBINDGEN_VERSION" --locked
 # Build static libs
 for TARGET in \
         aarch64-apple-ios x86_64-apple-ios aarch64-apple-ios-sim \
@@ -9,12 +17,12 @@ for TARGET in \
 do
     echo "Build for $TARGET..."
     rustup target add $TARGET
-    cargo build -r --target=$TARGET
+    cargo build -r --locked --target=$TARGET
     strip target/"$TARGET"/release/libmmkv.a
 done
 
 HEADER="include"
-mkdir $HEADER
+mkdir -p $HEADER
 cargo expand ffi > $HEADER/mod.rs
 cbindgen --config cbindgen.toml $HEADER/mod.rs -o src/ffi/rust_mmkv.h
 cp src/ffi/rust_mmkv.h $HEADER/rust_mmkv.h
@@ -29,7 +37,7 @@ echo "module RustMMKV {
 FRAMEWORK="ios/MMKV/RustMMKV.xcframework"
 rm -rf $FRAMEWORK
 LIBNAME=libmmkv.a
-mkdir mac-lipo ios-sim-lipo
+mkdir -p mac-lipo ios-sim-lipo
 IOS_SIM_LIPO=ios-sim-lipo/$LIBNAME
 MAC_LIPO=mac-lipo/$LIBNAME
 lipo -create -output $IOS_SIM_LIPO \

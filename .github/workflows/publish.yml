@@ -22,17 +22,34 @@ on:
         type: boolean
         default: false
 
+# One release at a time, and never cancel one half way through: a cancelled run can leave
+# a version pushed to main with nothing published against it.
+concurrency:
+  group: publish-release
+  cancel-in-progress: false
+
 permissions:
   contents: write
 
+env:
+  # Must match the NDK the Android CI check builds with, so what is verified is what
+  # ships. See .github/workflows/android.yml.
+  NDK_VERSION: r27c
+
 jobs:
-  release_and_swift:
+  # Decide the version, build the Apple framework, verify the crate, and push the release
+  # commit. Everything downstream builds from the exact commit this job reports, never
+  # from a branch name: `main` can move while a release is running, and three ecosystems
+  # publishing three different trees under one version number is not recoverable.
+  prepare:
+    name: Prepare release commit
     runs-on: macos-latest
     outputs:
       new_tag: ${{ steps.prepare.outputs.new_tag }}
+      release_sha: ${{ steps.push.outputs.release_sha }}
     steps:
-      - uses: swift-actions/setup-swift@v3
-      - uses: actions/checkout@v6
+      - uses: swift-actions/setup-swift@364295d9c23900ce04d4e5cc708387921b4e50f9 # v3
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: main
           fetch-depth: 0
@@ -137,6 +154,14 @@ jobs:
         run: |
           rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios aarch64-apple-darwin x86_64-apple-darwin
 
+      # Verify before anything is pushed or published. The CI workflow only proves the
+      # tree was good before the version bump; this proves the tree that ships is good.
+      - name: Test the release tree
+        run: |
+          set -euo pipefail
+          cargo test --locked --release
+          cargo test --locked --release --features encryption
+
       - name: Build xcframework
         run: ./build_apple.sh
 
@@ -154,7 +179,9 @@ jobs:
           REPLACEMENT="$replacement" perl -0777 -i -pe 's/\.binaryTarget\(\s*name:\s*"RustMMKV".*?\)/$ENV{REPLACEMENT}/gs' Package.swift
 
       - name: Commit and push release version files
+        id: push
         run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Package.swift Cargo.toml Cargo.lock android/buildSrc/src/main/java/Version.kt
@@ -162,63 +189,86 @@ jobs:
             echo "No release version file changes to commit"
           else
             git commit -m "chore: prepare release files for ${{ steps.prepare.outputs.new_tag }}"
-            git push origin main
+            # Reject rather than overwrite if someone pushed to main while we were building.
+            git push origin HEAD:main
           fi
+          release_sha="$(git rev-parse HEAD)"
+          echo "release_sha=$release_sha" >> "$GITHUB_OUTPUT"
+          echo "Release commit: $release_sha"
 
-      - name: Create and push tag
-        run: |
-          git tag -a "${{ steps.prepare.outputs.new_tag }}" -m "Release ${{ steps.prepare.outputs.new_tag }}"
-          git push origin "${{ steps.prepare.outputs.new_tag }}"
+      # The zip the Swift manifest was checksummed against. Every later job uses this
+      # exact file, so the checksum committed to Package.swift cannot drift from the
+      # asset attached to the release.
+      - name: Upload xcframework for the release job
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: xcframework
+          path: ios/MMKV/RustMMKV.xcframework.zip
+          retention-days: 1
+          if-no-files-found: error
 
-      - name: Create GitHub release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          prerelease_flag=""
-          if [ "${{ inputs.prerelease }}" = "true" ]; then
-            prerelease_flag="--prerelease"
-          fi
-
-          gh release create "${{ steps.prepare.outputs.new_tag }}" \
-            --repo "${{ github.repository }}" \
-            --title "${{ steps.prepare.outputs.new_tag }}" \
-            --notes-file "${{ steps.prepare.outputs.notes_file }}" \
-            $prerelease_flag
-
-      - name: Upload xcframework to release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release upload "${{ steps.prepare.outputs.new_tag }}" ios/MMKV/RustMMKV.xcframework.zip --clobber --repo "${{ github.repository }}"
+      - name: Upload release notes for the release job
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-notes
+          path: release-notes.md
+          retention-days: 1
+          if-no-files-found: error
 
   rust_publish:
     name: Publish Rust crate
     runs-on: ubuntu-latest
-    needs: release_and_swift
+    needs: prepare
     env:
       CARGO_TERM_COLOR: always
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: main
+          ref: ${{ needs.prepare.outputs.release_sha }}
+
       - name: Install protoc
-        run: sudo apt-get install -y protobuf-compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+
+      - name: Confirm the tree matches the release version
+        run: |
+          set -euo pipefail
+          expected='${{ needs.prepare.outputs.new_tag }}'
+          actual="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)"
+          if [ "$actual" != "$expected" ]; then
+            echo "Cargo.toml says $actual, releasing $expected" >&2
+            exit 1
+          fi
+          echo "Publishing $actual from $(git rev-parse HEAD)"
+
+      - name: Test at the release commit
+        run: |
+          set -euo pipefail
+          cargo test --locked --release
+          cargo test --locked --release --features encryption
+
+      # A clean checkout of the release commit, so this catches packaging problems
+      # (a missing file, a bad `exclude`) before anything reaches the registry.
+      - name: Check the crate packages cleanly
+        run: cargo publish --locked --dry-run
+
       - name: Cargo publish
-        run: cargo publish
+        run: cargo publish --locked
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
   android_publish:
     name: Publish Android package
     runs-on: ubuntu-latest
-    needs: release_and_swift
+    needs: prepare
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: main
+          ref: ${{ needs.prepare.outputs.release_sha }}
 
       - name: set up JDK 21
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           java-version: '21'
           distribution: 'temurin'
@@ -233,16 +283,18 @@ jobs:
           printf '%s' "$GPG_SECRET" | base64 -d | gpg --dearmor > ./android/secret.gpg
 
       - name: Install protoc
-        run: sudo apt-get install -y protobuf-compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
 
       - name: Install Rust targets for Android
         run: |
           rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
 
-      - uses: nttld/setup-ndk@v1
+      - uses: nttld/setup-ndk@ed92fe6cadad69be94a966a7ee3271275e62f779 # v1
         id: setup-ndk
         with:
-          ndk-version: r27c
+          ndk-version: ${{ env.NDK_VERSION }}
           add-to-path: false
 
       - name: Build Rust .so files
@@ -276,3 +328,75 @@ jobs:
           chmod +x gradlew
           ./gradlew clean
           ./gradlew publishAggregationToCentralPortal
+
+  # The tag and the GitHub release are created last, so a failed crate or Android publish
+  # does not leave a tag standing for a version that only exists in one place. Re-running
+  # the workflow after a partial failure is then a matter of fixing the cause: the release
+  # commit is already on main, and no tag has claimed the version yet.
+  release:
+    name: Tag and publish the GitHub release
+    runs-on: ubuntu-latest
+    needs: [prepare, rust_publish, android_publish]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.prepare.outputs.release_sha }}
+          fetch-depth: 0
+
+      - name: Download xcframework
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: xcframework
+
+      - name: Download release notes
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-notes
+
+      - name: Create and push tag
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "${{ needs.prepare.outputs.new_tag }}" \
+            -m "Release ${{ needs.prepare.outputs.new_tag }}" \
+            "${{ needs.prepare.outputs.release_sha }}"
+          git push origin "${{ needs.prepare.outputs.new_tag }}"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          prerelease_flag=""
+          if [ "${{ inputs.prerelease }}" = "true" ]; then
+            prerelease_flag="--prerelease"
+          fi
+
+          gh release create "${{ needs.prepare.outputs.new_tag }}" \
+            --repo "${{ github.repository }}" \
+            --title "${{ needs.prepare.outputs.new_tag }}" \
+            --notes-file release-notes.md \
+            --target "${{ needs.prepare.outputs.release_sha }}" \
+            $prerelease_flag
+
+      - name: Upload xcframework to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ needs.prepare.outputs.new_tag }}" RustMMKV.xcframework.zip --clobber --repo "${{ github.repository }}"
+
+      # A receipt, so a partial or re-run release can be reconciled against what actually
+      # went out rather than against the workflow log.
+      - name: Write release receipt
+        run: |
+          {
+            echo "### Released ${{ needs.prepare.outputs.new_tag }}"
+            echo
+            echo "| Item | Value |"
+            echo "| --- | --- |"
+            echo "| Commit | \`${{ needs.prepare.outputs.release_sha }}\` |"
+            echo "| Crate | crates.io/crates/mmkv/${{ needs.prepare.outputs.new_tag }} |"
+            echo "| Android | Maven Central, version ${{ needs.prepare.outputs.new_tag }} |"
+            echo "| xcframework SHA-256 | \`$(sha256sum RustMMKV.xcframework.zip | cut -d' ' -f1)\` |"
+          } >> "$GITHUB_STEP_SUMMARY"

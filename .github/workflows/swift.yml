@@ -1,20 +1,46 @@
 name: Swift Test
 
+# This job builds five Apple targets and an xcframework, so it keeps a paths filter
+# rather than running on every push. The filter must list everything that changes the
+# framework: the Rust sources and their manifests, the lockfile, the release profile, the
+# script that builds and lipos it, the cbindgen config that generates the header the
+# Swift package compiles against, the package manifest, and this file. GitHub Actions
+# does not support YAML anchors, so the two lists below are duplicated on purpose and
+# must be kept in step.
 on:
   push:
     branches: [ "main", "develop" ]
     paths:
       - 'ios/**'
       - 'src/**'
-      - 'Cargo.toml'
       - 'build.rs'
+      - 'build_apple.sh'
+      - 'cbindgen.toml'
+      - 'Package.swift'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.cargo/config.toml'
+      - '.github/workflows/swift.yml'
   pull_request:
     branches: [ "main", "develop" ]
     paths:
       - 'ios/**'
       - 'src/**'
-      - 'Cargo.toml'
       - 'build.rs'
+      - 'build_apple.sh'
+      - 'cbindgen.toml'
+      - 'Package.swift'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.cargo/config.toml'
+      - '.github/workflows/swift.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -25,8 +51,8 @@ jobs:
     runs-on: macos-latest
 
     steps:
-      - uses: swift-actions/setup-swift@v3
-      - uses: actions/checkout@v6
+      - uses: swift-actions/setup-swift@364295d9c23900ce04d4e5cc708387921b4e50f9 # v3
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Install protoc
         run: brew install protobuf
       - name: Build

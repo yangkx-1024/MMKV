@@ -2,11 +2,19 @@
 name = "mmkv"
 version = "0.9.2"
 edition = "2024"
+# Edition 2024 needs 1.85, and so do the AES/EAX crates the `encryption` feature pulls
+# in. CI checks both flavours against exactly this version, so bump it only together
+# with that job.
+rust-version = "1.85"
 authors = ["Kexuan Yang <kexuan.yang@gmail.com>"]
 description = "Rust version of MMKV"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/yangkx-1024/MMKV"
 keywords = ["key-value", "mmkv"]
+# The store is a `mmap`/`msync`/`madvise` mapping over a file, so the crate builds on
+# Unix-like targets only. `src/lib.rs` turns anything else into a compile error rather
+# than a link failure.
+categories = ["os::unix-apis", "data-structures"]
 exclude = [
     "android", "ios", "build.sh", "build_android.sh",
     "build_apple.sh", "Package.swift", ".fleet", ".github",

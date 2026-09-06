@@ -186,6 +186,14 @@ impl MMKV {
     per write. Any encode or IO failure is returned as `Err` and leaves the previous
     value in place, both in memory and on disk.
 
+    Losing power is a weaker guarantee than losing the process. The page cache may not
+    have reached the disk yet, and the record and the header that publishes it can be
+    written back in either order. Nothing is lost quietly when that happens: a record
+    that cannot be framed is discarded together with everything after it the next time
+    the file is opened, so the store always comes back at a record boundary. Call
+    [`MMKV::clear_data`] or drop every handle if you need the file quiescent; there is
+    no API that forces a flush.
+
     If you want to persist custom struct to MMKV,
     your struct must implement [ToBytes] trait which serialize type to bytes,
     and [FromBytes] trait which deserialize type from bytes.

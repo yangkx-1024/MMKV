@@ -7,6 +7,30 @@ use std::time::Instant;
 
 const LOG_TAG: &str = "MMKV:Config";
 
+/// The directory `path` lives in, falling back to `.` for a bare file name.
+pub(crate) fn parent_dir(path: &Path) -> &Path {
+    path.parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."))
+}
+
+/// fsync the directory holding `path`.
+///
+/// `rename` is atomic, but the directory entry it creates is not durable until the
+/// directory itself is synced. Call this after any rename that publishes a file, so a
+/// power loss cannot leave the old entry in place while the renamed file is already gone.
+#[cfg(unix)]
+pub(crate) fn sync_parent_dir(path: &Path) -> std::io::Result<()> {
+    File::open(parent_dir(path))?.sync_all()
+}
+
+/// Directory handles cannot be opened for sync on every platform; the rename is still
+/// atomic, only the durability of the directory entry is left to the filesystem.
+#[cfg(not(unix))]
+pub(crate) fn sync_parent_dir(_: &Path) -> std::io::Result<()> {
+    Ok(())
+}
+
 pub struct Config {
     pub(crate) page_size: u64,
     pub path: PathBuf,

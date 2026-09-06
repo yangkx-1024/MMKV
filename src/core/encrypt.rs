@@ -17,6 +17,7 @@ use crate::Result;
 use crate::core::buffer::{
     Buffer, DecodeResult, Decoder, Encoder, decode_kv_type_value, encode_kv_bytes, split_frame,
 };
+use crate::core::config::{parent_dir, sync_parent_dir};
 
 const LOG_TAG: &str = "MMKV:Encrypt";
 const NONCE_LEN: usize = 11;
@@ -316,7 +317,7 @@ impl StreamWrapper {
                 .sync_all()
                 .map_err(|e| EncryptFailed(e.to_string()))?;
             fs::rename(&tmp_path, meta_file_path).map_err(|e| EncryptFailed(e.to_string()))?;
-            Self::sync_parent_dir(meta_file_path)?;
+            sync_parent_dir(meta_file_path).map_err(|e| EncryptFailed(e.to_string()))?;
             Ok(())
         })();
 
@@ -327,15 +328,8 @@ impl StreamWrapper {
         write_result
     }
 
-    fn parent_dir(path: &Path) -> &Path {
-        path.parent()
-            .filter(|p| !p.as_os_str().is_empty())
-            .unwrap_or_else(|| Path::new("."))
-    }
-
     fn open_temp_meta_file(meta_file_path: &Path) -> Result<(PathBuf, File)> {
-        fs::create_dir_all(Self::parent_dir(meta_file_path))
-            .map_err(|e| EncryptFailed(e.to_string()))?;
+        fs::create_dir_all(parent_dir(meta_file_path)).map_err(|e| EncryptFailed(e.to_string()))?;
         loop {
             let tmp_path = Self::temp_meta_file_path(meta_file_path);
             match OpenOptions::new()
@@ -359,18 +353,6 @@ impl StreamWrapper {
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_else(|| "meta".to_string());
         meta_file_path.with_file_name(format!("{file_name}.{suffix}.tmp"))
-    }
-
-    #[cfg(unix)]
-    fn sync_parent_dir(path: &Path) -> Result<()> {
-        File::open(Self::parent_dir(path))
-            .and_then(|dir| dir.sync_all())
-            .map_err(|e| EncryptFailed(e.to_string()))
-    }
-
-    #[cfg(not(unix))]
-    fn sync_parent_dir(_: &Path) -> Result<()> {
-        Ok(())
     }
 
     fn encrypt(&self, bytes: Vec<u8>, position: u32) -> Result<Vec<u8>> {

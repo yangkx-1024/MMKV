@@ -1,44 +1,166 @@
 name: Cargo Test
 
+# No `paths:` filter. A lockfile bump, a profile change in .cargo/config.toml or an edit
+# to this file all change what ships, and a filtered workflow that skips them reports
+# green for something it never built. The suite takes well under a minute, so everything
+# runs on every push instead.
 on:
   push:
     branches: [ "main", "develop" ]
-    paths:
-      - 'src/**'
-      - 'tests/**'
-      - 'Cargo.toml'
-      - 'build.rs'
-      - '.github/workflows/rust.yml'
   pull_request:
     branches: [ "main", "develop" ]
-    paths:
-      - 'src/**'
-      - 'tests/**'
-      - 'Cargo.toml'
-      - 'build.rs'
-      - '.github/workflows/rust.yml'
+  schedule:
+    # Weekly, so a new advisory against a pinned dependency surfaces without a push.
+    - cron: '17 4 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
+  # Registry dependencies are built with --cap-lints allow, so this denies warnings in
+  # this crate's own code without breaking on a warning inside a dependency.
+  RUSTFLAGS: -D warnings
 
 jobs:
-  build:
-
-    runs-on: ubuntu-latest
-
+  test:
+    name: Test ${{ matrix.os }} ${{ matrix.profile.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Linux and macOS are the two host platforms the crate supports; Android and iOS
+        # are cross-compiled by their own workflows. Debug and release are both here
+        # because the release profile in .cargo/config.toml sets panic = 'abort' and LTO,
+        # which the C ABI's non-aborting contract depends on.
+        os: [ubuntu-latest, macos-latest]
+        profile:
+          - name: debug
+            flag: ''
+          - name: release
+            flag: '--release'
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
       - name: Install protoc
-        run: sudo apt-get install -y protobuf-compiler
-      - name: Clippy default
-        run: cargo clippy --all-targets -- -D warnings
-      - name: Clippy feature encryption
-        run: cargo clippy --all-targets --features encryption -- -D warnings
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            brew install protobuf
+          else
+            sudo apt-get update
+            sudo apt-get install -y protobuf-compiler
+          fi
+
+      - name: Record the toolchain under test
+        run: rustc --version && cargo --version
+
       - name: Build default
-        run: cargo build --verbose -r
+        run: cargo build --locked --all-targets ${{ matrix.profile.flag }}
+
       - name: Build feature encryption
-        run: cargo build --features encryption --verbose -r
+        run: cargo build --locked --all-targets --features encryption ${{ matrix.profile.flag }}
+
       - name: Run default tests
-        run: cargo test --verbose -r
+        run: cargo test --locked --verbose ${{ matrix.profile.flag }}
+
       - name: Run feature encryption tests
-        run: cargo test --features encryption --verbose -r
+        run: cargo test --locked --verbose --features encryption ${{ matrix.profile.flag }}
+
+  msrv:
+    name: Minimum supported Rust version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Install protoc
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+
+      - name: Install the toolchain Cargo.toml declares
+        run: |
+          set -euo pipefail
+          # Read the version from the manifest so the gate and the published metadata
+          # cannot drift apart.
+          msrv="$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' Cargo.toml)"
+          if [ -z "$msrv" ]; then
+            echo "Cargo.toml declares no rust-version" >&2
+            exit 1
+          fi
+          echo "Declared MSRV: $msrv"
+          rustup toolchain install "$msrv" --profile minimal --no-self-update
+          echo "MSRV=$msrv" >> "$GITHUB_ENV"
+
+      - name: Check default
+        run: cargo "+${MSRV}" check --locked --all-targets
+
+      - name: Check feature encryption
+        run: cargo "+${MSRV}" check --locked --all-targets --features encryption
+
+  lint:
+    name: Format, Clippy and docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Install protoc
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+
+      - name: Format
+        run: cargo fmt --check
+
+      - name: Clippy default
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Clippy feature encryption
+        run: cargo clippy --locked --all-targets --features encryption -- -D warnings
+
+      - name: Docs
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --locked --no-deps --all-features
+
+  proc_macro:
+    name: Proc macro crate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      # `mmkv` depends on the published mmkv-proc-macro-lib, not on this directory, so
+      # nothing else in CI would ever compile it. Without this job an edit here is only
+      # discovered when someone tries to publish it.
+      - name: Format
+        working-directory: proc_macro_lib
+        run: cargo fmt --check
+
+      - name: Clippy
+        working-directory: proc_macro_lib
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Test
+        working-directory: proc_macro_lib
+        run: cargo test
+
+  audit:
+    name: Advisory audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --version 0.22.2 --locked
+
+      - name: Audit the lockfile
+        run: cargo audit
+
+# Miri is deliberately absent. Every test path goes through mmap/msync/madvise via libc,
+# and Miri cannot execute foreign functions, so `cargo miri test` fails before it reaches
+# any of this crate's logic rather than telling us anything about it. The unsafe here is
+# checked by the tests in src/core/memory_map.rs and by the crash tests in tests/crash.rs.

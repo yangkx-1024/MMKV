@@ -1,5 +1,5 @@
 use crate::core::buffer::{Buffer, Encoder, SliceLoc};
-use crate::core::config::Config;
+use crate::core::config::{Config, sync_parent_dir};
 #[cfg(feature = "encryption")]
 use crate::core::encrypt::Encryptor;
 use crate::core::io_looper::Executor;
@@ -271,9 +271,16 @@ impl IOWriter {
         // both the data file and self.encoder remain on the same (old) generation.
         #[cfg(feature = "encryption")]
         self.encryptor.persist_pending_to_meta(&pending)?;
-        // Commit point B: atomically replace the data file.
+        // Commit point B: atomically replace the data file. The rename swaps the entry
+        // atomically, but the entry is only durable once the directory is synced — until
+        // then a power loss can resurrect the pre-trim file while the shadow file it was
+        // replaced with has already been unlinked. The meta file takes the same care
+        // after its own rename, so both commit points are durable in the same way.
         std::fs::rename(&tmp_path, &self.config.path)
             .map_err(|e| Error::IOError(format!("failed to rename tmp file: {e}")))?;
+        sync_parent_dir(&self.config.path).map_err(|e| {
+            Error::IOError(format!("failed to sync dir after replacing data file: {e}"))
+        })?;
 
         let new_handle = tmp_mm.to_handle();
 

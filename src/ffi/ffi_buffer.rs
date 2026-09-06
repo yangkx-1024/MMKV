@@ -1,8 +1,23 @@
 use std::any::TypeId;
 use std::fmt::Debug;
+use std::mem::ManuallyDrop;
 
 use crate::Error;
 use crate::ffi::*;
+
+/// `Vec::into_raw_parts` on stable Rust.
+///
+/// Gives up ownership of the vector's buffer and hands back the `(pointer, length,
+/// capacity)` triple the C ABI stores. Nothing is freed until a caller rebuilds the
+/// vector with `Vec::from_raw_parts` from these exact three values, which is what every
+/// `Releasable::release` in this module does.
+///
+/// The standard library method is still unstable, and using it would raise the crate's
+/// MSRV for no benefit.
+fn into_raw_parts<T>(vec: Vec<T>) -> (*mut T, usize, usize) {
+    let mut vec = ManuallyDrop::new(vec);
+    (vec.as_mut_ptr(), vec.len(), vec.capacity())
+}
 
 pub(super) trait Releasable: Debug {
     fn release(&mut self);
@@ -57,7 +72,7 @@ impl_release_for_primary!(bool, i32, i64, f32, f64);
 
 impl ByteSlice {
     pub(super) fn new(string: String) -> Self {
-        let (bytes, len, capacity) = string.into_bytes().into_raw_parts();
+        let (bytes, len, capacity) = into_raw_parts(string.into_bytes());
         ByteSlice {
             bytes,
             len,
@@ -77,7 +92,7 @@ impl Releasable for ByteSlice {
 impl RawTypedArray {
     pub(super) fn new<T: Debug>(array: Vec<T>, type_token: Types) -> Self {
         let log = format!("{:?}", array);
-        let (ptr, len, capacity) = array.into_raw_parts();
+        let (ptr, len, capacity) = into_raw_parts(array);
         verbose!(LOG_TAG, "leak {log}, ptr: {:?}", ptr);
         RawTypedArray {
             array: ptr as *const _,

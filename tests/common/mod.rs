@@ -69,11 +69,7 @@ impl Store {
     }
 
     pub fn try_open(&self) -> mmkv::Result<MMKV> {
-        MMKV::new(
-            self.dir_str(),
-            #[cfg(feature = "encryption")]
-            TEST_KEY,
-        )
+        open_dir(self.dir_str())
     }
 
     /// Open with a key of the test's choosing (encryption only).
@@ -174,6 +170,17 @@ impl Store {
             .open(self.data_file())
             .unwrap()
     }
+}
+
+/// Open a store at an arbitrary directory, applying [`TEST_KEY`] under the encryption
+/// feature. [`Store`] owns its directory and deletes it on drop, so the crash tests —
+/// whose child process is handed a path by its parent — go through this instead.
+pub fn open_dir(dir: &str) -> mmkv::Result<MMKV> {
+    MMKV::new(
+        dir,
+        #[cfg(feature = "encryption")]
+        TEST_KEY,
+    )
 }
 
 /// See [`Store::snapshot`].
