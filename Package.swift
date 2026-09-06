@@ -19,27 +19,7 @@ let package = Package(
         .target(
             name: "MMKV",
             dependencies: ["RustMMKV"],
-            path: "",
-            exclude: [
-                "android",
-                "proc_macro_lib",
-                "src",
-                "target",
-                "tests",
-                "build_android.sh",
-                "build_apple.sh",
-                "build.rs",
-                "build.sh",
-                "Cargo.lock",
-                "Cargo.toml",
-                "cbindgen.toml",
-                "README.md",
-                "LICENSE-APACHE",
-                "ios/MMKVDemo",
-                "ios/MMKV/Tests",
-                "LICENSE-MIT"
-            ],
-            sources: ["ios/MMKV/Sources/MMKV"]
+            path: "ios/MMKV/Sources/MMKV"
         ),
         .testTarget(
             name: "MMKVTests",
