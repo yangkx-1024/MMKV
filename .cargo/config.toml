@@ -1,6 +1,14 @@
 [build]
 #target = "x86_64-linux-android"
 
+# Settings for the shipped artifacts: the Android .so and the Apple xcframework are built
+# with `cargo build --release`, and unwinding out of the C ABI would be undefined anyway.
+#
+# panic = 'abort' applies to every release build, tests included. `cargo test --release`
+# copes, because it rebuilds the dependencies with unwind for the test harness, but
+# `cargo build --release --tests` (and so --all-targets) does not, and fails to link with
+# "requires panic strategy `abort` which is incompatible with ... `unwind`". Keep
+# --all-targets out of release builds; see .github/workflows/rust.yml.
 [profile.release]
 opt-level = 'z'
 lto = true

@@ -59,11 +59,18 @@ jobs:
       - name: Record the toolchain under test
         run: rustc --version && cargo --version
 
+      # Deliberately not --all-targets. The release profile sets panic = "abort" (see
+      # .cargo/config.toml), and `cargo build --tests` under it builds the test harness,
+      # which needs unwind, against abort-built dependencies; the link then fails with
+      # "requires panic strategy `abort` which is incompatible with ... `unwind`".
+      # `cargo test` is the command that knows to rebuild the dependencies with unwind,
+      # so it is left to build the test targets below. The only thing --all-targets adds
+      # in this crate is those same test targets: there are no benches, examples or bins.
       - name: Build default
-        run: cargo build --locked --all-targets ${{ matrix.profile.flag }}
+        run: cargo build --locked ${{ matrix.profile.flag }}
 
       - name: Build feature encryption
-        run: cargo build --locked --all-targets --features encryption ${{ matrix.profile.flag }}
+        run: cargo build --locked --features encryption ${{ matrix.profile.flag }}
 
       - name: Run default tests
         run: cargo test --locked --verbose ${{ matrix.profile.flag }}
