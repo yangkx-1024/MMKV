@@ -2,12 +2,12 @@ use std::mem::size_of;
 use std::sync::Arc;
 use std::{f32, f64, str, vec};
 
-use crate::core::memory_map::MmapHandle;
 use crate::Error::{DataInvalid, DecodeFailed, KeyNotFound, TypeMissMatch};
 use crate::Result;
+use crate::core::memory_map::MmapHandle;
+use buffa::Message;
 #[cfg(not(feature = "encryption"))]
 use buffa::view::MessageView;
-use buffa::Message;
 
 mod generated {
     #![allow(dead_code, unused_imports)]
@@ -262,6 +262,23 @@ pub fn encode_kv_bytes(key: &str, type_token: i32, value: &[u8]) -> Vec<u8> {
     .encode_to_vec()
 }
 
+/// Split one `[u32 big-endian len][len bytes]` frame off the front of `data`.
+/// Returns the frame body and the number of bytes the whole frame occupies, or
+/// `DataInvalid` when the prefix is missing or the declared length runs past `data`.
+/// Must never panic: corrupted files reach this from `MMKV::new`.
+pub fn split_frame(data: &[u8]) -> Result<(&[u8], u32)> {
+    const PREFIX: usize = size_of::<u32>();
+    let prefix: [u8; PREFIX] = data
+        .get(..PREFIX)
+        .and_then(|bytes| bytes.try_into().ok())
+        .ok_or(DataInvalid)?;
+    let item_len = u32::from_be_bytes(prefix) as usize;
+    let end = PREFIX.checked_add(item_len).ok_or(DataInvalid)?;
+    let body = data.get(PREFIX..end).ok_or(DataInvalid)?;
+    let frame_len = u32::try_from(end).map_err(|_| DataInvalid)?;
+    Ok((body, frame_len))
+}
+
 /// Decode protobuf KV bytes and return `(type_token, value_bytes)`.
 #[cfg_attr(not(feature = "encryption"), allow(dead_code))]
 pub fn decode_kv_type_value(kv_bytes: &[u8]) -> Result<(i32, Vec<u8>)> {
@@ -473,7 +490,7 @@ impl FromBytes for String {
 
 impl FromBytes for bool {
     fn from_bytes(bytes: &[u8]) -> Result<Self> {
-        Ok(bytes[0] == 1)
+        bytes.first().map(|byte| *byte == 1).ok_or(DataInvalid)
     }
 }
 
@@ -489,12 +506,11 @@ macro_rules! impl_from_buffer_for_number {
         impl FromBytes for $t {
             fn from_bytes(bytes: &[u8]) -> Result<Self> {
                 const ITEM_SIZE: usize = size_of::<$t>() / size_of::<u8>();
-                let array_result: std::result::Result<[u8; ITEM_SIZE], _> =
-                    bytes[0..ITEM_SIZE].try_into();
-                match array_result {
-                    Ok(array) => Ok(<$t>::from_be_bytes(array)),
-                    Err(_) => Err(DataInvalid),
-                }
+                let array: [u8; ITEM_SIZE] = bytes
+                    .get(..ITEM_SIZE)
+                    .and_then(|bytes| bytes.try_into().ok())
+                    .ok_or(DataInvalid)?;
+                Ok(<$t>::from_be_bytes(array))
             }
         }
         )+
@@ -512,16 +528,15 @@ macro_rules! impl_from_buffer_for_typed_array {
                 if bytes.len() % ITEM_SIZE != 0 {
                     return Err(DataInvalid);
                 }
-                let len = bytes.len() / ITEM_SIZE;
-                let mut vec = Vec::with_capacity(len);
-                for i in 0..len {
-                    let sub_arr: [u8; ITEM_SIZE] = bytes[i * ITEM_SIZE..(i + 1) * ITEM_SIZE]
-                        .try_into()
-                        .unwrap();
-                    let value = <$t>::from_be_bytes(sub_arr);
-                    vec.push(value)
-                }
-                Ok(vec)
+                bytes
+                    .chunks_exact(ITEM_SIZE)
+                    .map(|chunk| {
+                        chunk
+                            .try_into()
+                            .map(<$t>::from_be_bytes)
+                            .map_err(|_| DataInvalid)
+                    })
+                    .collect()
             }
         }
         )+
@@ -540,6 +555,10 @@ impl PartialEq for Buffer {
     }
 }
 
+/// Unit tests for the encoding primitives: `Buffer` construction and parsing,
+/// `SliceLoc` location maths, `TypeToken` validation and the `FromBytes`/`ToBytes`
+/// conversions. Nothing here touches a store; the only file used is an anonymous
+/// temp file backing a small mmap.
 #[cfg(test)]
 mod tests {
     use crate::core::buffer::{Buffer, TypeMissMatch};
@@ -547,23 +566,13 @@ mod tests {
 
     fn dummy_mmap() -> MmapHandle {
         use crate::core::memory_map::MemoryMap;
-        use std::fs::OpenOptions;
-        let file = OpenOptions::new()
-            .create(true)
-            .truncate(true)
-            .write(true)
-            .read(true)
-            .open("test_buffer_dummy_mmap")
-            .unwrap();
+        let file = tempfile::tempfile().unwrap();
         file.set_len(64).unwrap();
-        let mm = MemoryMap::new(&file, 64).unwrap();
-        let handle = mm.to_handle();
-        let _ = std::fs::remove_file("test_buffer_dummy_mmap");
-        handle
+        MemoryMap::new(&file, 64).unwrap().to_handle()
     }
 
     #[test]
-    fn test_buffer() {
+    fn every_value_type_roundtrips_through_encoded_bytes() {
         let mmap = dummy_mmap();
 
         let buffer = Buffer::new("first_key", "first_value");
@@ -643,7 +652,41 @@ mod tests {
     }
 
     #[test]
-    fn test_buffer_owned_equality() {
+    fn from_bytes_rejects_short_input() {
+        use crate::Error::DataInvalid;
+        use crate::core::buffer::FromBytes;
+        assert_eq!(bool::from_bytes(&[]), Err(DataInvalid));
+        assert_eq!(i32::from_bytes(&[1, 2, 3]), Err(DataInvalid));
+        assert_eq!(i64::from_bytes(&[]), Err(DataInvalid));
+        assert_eq!(f32::from_bytes(&[0]), Err(DataInvalid));
+        assert_eq!(f64::from_bytes(&[0; 7]), Err(DataInvalid));
+        assert_eq!(Vec::<i32>::from_bytes(&[0; 5]), Err(DataInvalid));
+        assert_eq!(Vec::<i32>::from_bytes(&[]), Ok(vec![]));
+    }
+
+    #[test]
+    fn split_frame_rejects_malformed_input() {
+        use crate::Error::DataInvalid;
+        use crate::core::buffer::split_frame;
+        let malformed: [&[u8]; 4] = [
+            &[],
+            &[0, 0, 0],
+            &[0, 0, 0, 5, 1, 2, 3, 4],
+            &[0xFF, 0xFF, 0xFF, 0xFF, 1],
+        ];
+        for data in malformed {
+            assert_eq!(split_frame(data).err(), Some(DataInvalid), "{data:?}");
+        }
+        let (body, len) = split_frame(&[0, 0, 0, 2, 9, 8, 7]).unwrap();
+        assert_eq!(body, &[9, 8]);
+        assert_eq!(len, 6);
+        let (body, len) = split_frame(&[0, 0, 0, 0, 9]).unwrap();
+        assert!(body.is_empty());
+        assert_eq!(len, 4);
+    }
+
+    #[test]
+    fn cloning_an_owned_buffer_preserves_equality_and_value() {
         let bytes = vec![1u8, 2, 3, 4];
         let buffer = Buffer::new("shared_key", bytes.as_slice());
         let clone = buffer.clone();
@@ -652,5 +695,154 @@ mod tests {
         assert_eq!(buffer, clone);
         assert_eq!(buffer.parse::<Vec<u8>>(&mmap), Ok(bytes.clone()));
         assert_eq!(clone.parse::<Vec<u8>>(&mmap), Ok(bytes));
+    }
+
+    #[test]
+    fn from_encoded_bytes_rejects_garbage() {
+        use crate::Error::DecodeFailed;
+        let err = Buffer::from_encoded_bytes(&[0xFF; 16]).unwrap_err();
+        assert!(matches!(err, DecodeFailed(_)), "{err:?}");
+    }
+
+    #[test]
+    fn string_from_bytes_rejects_invalid_utf8() {
+        use crate::Error::DataInvalid;
+        use crate::core::buffer::FromBytes;
+        assert_eq!(String::from_bytes(&[0xF0, 0x9F, 0x92]), Err(DataInvalid));
+    }
+
+    #[test]
+    #[should_panic(expected = "type token 0 ~ 100 reserved for internal usage")]
+    fn type_token_zero_is_reserved() {
+        use crate::core::buffer::TypeToken;
+        let _ = TypeToken::new(0);
+    }
+
+    #[test]
+    #[should_panic(expected = "type token 0 ~ 100 reserved for internal usage")]
+    fn type_token_hundred_is_reserved() {
+        use crate::core::buffer::TypeToken;
+        let _ = TypeToken::new(100);
+    }
+
+    #[test]
+    fn type_token_above_the_reserved_range_is_accepted() {
+        use crate::core::buffer::TypeToken;
+        assert_eq!(TypeToken::new(101).token, 101);
+    }
+
+    #[test]
+    fn parsing_an_owned_tombstone_reports_key_not_found() {
+        use crate::Error::KeyNotFound;
+        let mmap = dummy_mmap();
+        assert_eq!(
+            Buffer::deleted_buffer("gone").parse::<i32>(&mmap),
+            Err(KeyNotFound)
+        );
+    }
+
+    /// The CRC-mode `SliceLoc` points straight at the value bytes inside the record,
+    /// so the location maths is only meaningful against a real encoded record.
+    #[cfg(not(feature = "encryption"))]
+    mod crc_slice {
+        use super::dummy_mmap;
+        use crate::Error::{KeyNotFound, TypeMissMatch};
+        use crate::core::buffer::{Buffer, Encoder, ProvideTypeToken, SliceLoc};
+        use crate::core::crc::CrcEncoder;
+        use crate::core::memory_map::MemoryMap;
+
+        #[test]
+        fn from_record_rejects_records_shorter_than_the_framing() {
+            assert_eq!(SliceLoc::from_record(0, 0, 4, 0, 0), None);
+        }
+
+        #[test]
+        fn from_record_rejects_a_tombstone_with_an_empty_value() {
+            let file = tempfile::tempfile().unwrap();
+            file.set_len(128).unwrap();
+            let mut mm = MemoryMap::new(&file, 128).unwrap();
+            let tombstone = Buffer::deleted_buffer("gone");
+            let bytes = CrcEncoder
+                .encode_to_bytes("gone", tombstone.kv_type(), tombstone.kv_value(), 0)
+                .unwrap();
+            let record_start = mm.write_offset().unwrap();
+            mm.append(&bytes).unwrap();
+
+            assert_eq!(
+                SliceLoc::from_record(
+                    mm.base_ptr(),
+                    record_start,
+                    bytes.len(),
+                    tombstone.kv_type(),
+                    0
+                ),
+                None
+            );
+        }
+
+        #[test]
+        fn from_record_locates_the_value_bytes_inside_the_mmap() {
+            let file = tempfile::tempfile().unwrap();
+            file.set_len(128).unwrap();
+            let mut mm = MemoryMap::new(&file, 128).unwrap();
+            let value = vec![9u8, 8, 7, 6, 5];
+            let buffer = Buffer::new("key", value.as_slice());
+            let bytes = CrcEncoder
+                .encode_to_bytes("key", buffer.kv_type(), buffer.kv_value(), 0)
+                .unwrap();
+            let record_start = mm.write_offset().unwrap();
+            mm.append(&bytes).unwrap();
+
+            let loc = SliceLoc::from_record(
+                mm.base_ptr(),
+                record_start,
+                bytes.len(),
+                buffer.kv_type(),
+                0,
+            )
+            .expect("a record with a non-empty value must yield a location");
+            assert_eq!(loc.value_len, value.len());
+            assert_eq!(mm.read(loc.byte_range()).unwrap(), value.as_slice());
+        }
+
+        #[test]
+        fn parsing_a_slice_honours_tombstones_and_type_tokens() {
+            let mmap = dummy_mmap();
+            let deleted = Buffer::Slice(SliceLoc {
+                type_token: 100,
+                value_offset: 8,
+                value_len: 1,
+            });
+            assert_eq!(deleted.parse::<i32>(&mmap), Err(KeyNotFound));
+
+            let i32_slice = Buffer::Slice(SliceLoc {
+                type_token: <i32 as ProvideTypeToken>::type_token().token,
+                value_offset: 8,
+                value_len: 4,
+            });
+            assert_eq!(i32_slice.parse::<String>(&mmap), Err(TypeMissMatch));
+            assert_eq!(i32_slice.parse::<i32>(&mmap), Ok(0));
+        }
+    }
+
+    /// The encryption-mode `SliceLoc` only records where the ciphertext frame lives.
+    #[cfg(feature = "encryption")]
+    mod aead_slice {
+        use crate::core::buffer::SliceLoc;
+
+        #[test]
+        fn from_record_rejects_records_shorter_than_the_length_prefix() {
+            assert_eq!(SliceLoc::from_record(0, 0, 3, 7, 0), None);
+        }
+
+        #[test]
+        fn from_record_strips_the_length_prefix_and_keeps_the_position() {
+            let loc = SliceLoc::from_record(0, 40, 24, 7, 5).unwrap();
+            assert_eq!(loc.record_offset, 44);
+            assert_eq!(loc.record_len, 20);
+            assert_eq!(loc.position, 5);
+            assert_eq!(loc.type_token, 7);
+            assert_eq!(loc.byte_range(), 44..64);
+        }
     }
 }

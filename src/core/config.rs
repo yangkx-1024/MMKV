@@ -164,17 +164,18 @@ impl Config {
     }
 }
 
+/// Unit tests for file sizing (`Config::new`, `ensure_file_len`, `ensure_size`),
+/// the orphaned-tmp sweep and `remove_file`.
 #[cfg(test)]
 mod tests {
     use super::Config;
     use std::fs;
-    use std::path::Path;
+    use tempfile::tempdir;
 
     #[test]
     fn ensure_file_len_doubles_small_overflow_and_aligns_large_jumps() {
-        let file_name = "test_config_ensure_file_len";
-        let _ = fs::remove_file(file_name);
-        let mut config = Config::new(Path::new(file_name), 64).unwrap();
+        let dir = tempdir().unwrap();
+        let mut config = Config::new(&dir.path().join("config"), 64).unwrap();
 
         assert_eq!(config.file_size().unwrap(), 64);
         // Small overflow doubles from 64 to 128.
@@ -188,20 +189,82 @@ mod tests {
         // Small overflow after growth doubles from 320 to 640.
         assert_eq!(config.ensure_file_len(321).unwrap(), 640);
         assert_eq!(config.file_size().unwrap(), 640);
-
-        config.remove_file().unwrap();
     }
 
     #[test]
     fn ensure_size_falls_back_before_exceeding_mappable_limit() {
-        let file_name = "test_config_growth_plan_limit";
-        let _ = fs::remove_file(file_name);
-        let config = Config::new(Path::new(file_name), 64).unwrap();
+        let dir = tempdir().unwrap();
+        let config = Config::new(&dir.path().join("config"), 64).unwrap();
 
         // Simulate a constrained 32-bit-like mmap limit on a 64-bit host.
         assert_eq!(config.ensure_size(200, 201, 255).unwrap(), 201);
         assert_eq!(config.ensure_size(128, 191, 255).unwrap(), 192);
+    }
 
-        config.remove_file().unwrap();
+    #[test]
+    fn ensure_size_rejects_a_requirement_above_the_mappable_limit() {
+        let dir = tempdir().unwrap();
+        let config = Config::new(&dir.path().join("config"), 64).unwrap();
+
+        assert!(config.ensure_size(128, 256, 255).is_err());
+    }
+
+    #[test]
+    fn ensure_file_len_is_a_no_op_when_the_file_is_already_large_enough() {
+        let dir = tempdir().unwrap();
+        let mut config = Config::new(&dir.path().join("config"), 64).unwrap();
+
+        assert_eq!(config.ensure_file_len(64).unwrap(), 64);
+        assert_eq!(config.ensure_file_len(1).unwrap(), 64);
+        assert_eq!(config.file_size().unwrap(), 64);
+    }
+
+    #[test]
+    fn new_sizes_a_fresh_file_to_one_page_and_keeps_an_existing_length() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("config");
+
+        let config = Config::new(&path, 64).unwrap();
+        assert_eq!(config.file_size().unwrap(), 64);
+        drop(config);
+
+        // A file that already has content keeps whatever length it has.
+        fs::write(&path, vec![0u8; 100]).unwrap();
+        let config = Config::new(&path, 64).unwrap();
+        assert_eq!(config.file_size().unwrap(), 100);
+    }
+
+    #[test]
+    fn new_sweeps_orphaned_tmp_siblings_and_leaves_everything_else_alone() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("config");
+        let tmp1 = dir.path().join("config.tmp.1");
+        let tmp2 = dir.path().join("config.tmp.7");
+        let meta = dir.path().join("config.meta");
+        let unrelated = dir.path().join("other.tmp.1");
+        for file in [&tmp1, &tmp2, &meta, &unrelated] {
+            fs::write(file, b"x").unwrap();
+        }
+
+        let _config = Config::new(&path, 64).unwrap();
+
+        assert!(!tmp1.exists());
+        assert!(!tmp2.exists());
+        assert!(meta.exists(), "the meta file must survive the sweep");
+        assert!(
+            unrelated.exists(),
+            "tmp files of another store must survive the sweep"
+        );
+    }
+
+    #[test]
+    fn remove_file_deletes_the_store_and_is_ok_when_it_is_already_gone() {
+        let dir = tempdir().unwrap();
+        let config = Config::new(&dir.path().join("config"), 64).unwrap();
+
+        assert!(config.path.exists());
+        assert_eq!(config.remove_file(), Ok(()));
+        assert!(!config.path.exists());
+        assert_eq!(config.remove_file(), Ok(()));
     }
 }

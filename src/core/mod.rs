@@ -9,4 +9,6 @@ mod iter;
 mod memory_map;
 pub mod mmkv_impl;
 mod shared_state;
+#[cfg(test)]
+pub(crate) mod test_support;
 mod writer;

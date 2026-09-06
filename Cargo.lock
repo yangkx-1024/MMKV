@@ -572,6 +572,7 @@ dependencies = [
  "libc",
  "mmkv-proc-macro-lib",
  "once_cell",
+ "tempfile",
 ]
 
 [[package]]

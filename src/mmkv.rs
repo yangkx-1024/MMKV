@@ -136,6 +136,12 @@ impl MMKV {
     /**
     Types must implement [ProvideTypeToken] and [ToBytes] to be persisted in MMKV.
 
+    `put` returns once the record has been written to the memory-mapped file, so
+    `Ok(())` means the value is visible to every reader of this process and lives in
+    the OS page cache, where it survives a crash of this process. No `fsync` is issued
+    per write. Any encode or IO failure is returned as `Err` and leaves the previous
+    value in place, both in memory and on disk.
+
     If you want to persist custom struct to MMKV,
     your struct must implement [ToBytes] trait which serialize type to bytes,
     and [FromBytes] trait which deserialize type from bytes.
@@ -175,8 +181,9 @@ impl MMKV {
         }
     }
 
-    let temp_dir = std::env::temp_dir();
-    let mmkv = MMKV::new(temp_dir.to_str().unwrap(), #[cfg(feature = "encryption")] "88C51C536176AD8A8EE4A06F62EE897E").unwrap();
+    let dir = std::env::temp_dir().join("mmkv_doc_put");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mmkv = MMKV::new(dir.to_str().unwrap(), #[cfg(feature = "encryption")] "88C51C536176AD8A8EE4A06F62EE897E").unwrap();
     let my_struct = MyStruct {
         int_value: 1,
         str_value: "abc".to_string(),
@@ -201,6 +208,10 @@ impl MMKV {
         }
     }
 
+    /**
+    Delete `key`. Returns once the tombstone has been written to the memory-mapped
+    file; on failure the key keeps its previous value. Deleting a missing key is `Ok`.
+    */
     pub fn delete(&self, key: &str) -> Result<()> {
         match self.mmkv_impl.write() {
             Ok(mut mmkv) => mmkv.delete(key),
@@ -281,116 +292,40 @@ impl MMKV {
     }
 }
 
+/// Unit tests for the instance-cache internals of [MMKV], which need the private
+/// `mmkv_impl` field and `INSTANCE_MAP`. Everything observable through the public API is
+/// tested in `tests/` instead.
 #[cfg(test)]
 mod tests {
-    use std::fs;
     use std::sync::Arc;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
-    use crate::Error::KeyNotFound;
+    use tempfile::tempdir;
+
+    #[cfg(feature = "encryption")]
+    use crate::core::test_support::TEST_KEY;
 
     use super::*;
 
-    #[test]
-    #[allow(unused_assignments)]
-    fn test_instance() {
-        let _ = fs::remove_file("mini_mmkv");
-        let _ = fs::remove_file("mini_mmkv.meta");
-        let mut mmkv = MMKV::new(
-            ".",
+    fn open(dir: &Path) -> MMKV {
+        MMKV::new(
+            dir.to_str().unwrap(),
             #[cfg(feature = "encryption")]
-            "88C51C536176AD8A8EE4A06F62EE897E",
+            TEST_KEY,
         )
-        .unwrap();
-        debug!(LOG_TAG, "---------------");
-        mmkv = MMKV::new(
-            ".",
-            #[cfg(feature = "encryption")]
-            "88C51C536176AD8A8EE4A06F62EE897E",
-        )
-        .unwrap();
-        mmkv.put("first", 1i32).unwrap();
-        mmkv.put("second", 2i32).unwrap();
-        assert_eq!(mmkv.get("first"), Ok(1));
-        assert!(mmkv.get::<String>("first").is_err());
-        assert!(mmkv.get::<bool>("first").is_err());
-        assert_eq!(mmkv.get("second"), Ok(2));
-        assert!(mmkv.get::<i32>("third").is_err());
-        mmkv.put("third", 3).unwrap();
-        assert_eq!(mmkv.get("third"), Ok(3));
-        mmkv.put("fourth", "four").unwrap();
-        assert_eq!(mmkv.get("fourth"), Ok("four".to_string()));
-        mmkv.put("first", "one").unwrap();
-        assert!(mmkv.get::<i32>("first").is_err());
-        assert_eq!(mmkv.get("first"), Ok("one".to_string()));
-        mmkv.put("second", false).unwrap();
-        assert!(mmkv.get::<String>("second").is_err());
-        assert_eq!(mmkv.get("second"), Ok(false));
-
-        mmkv.put("i64", 2i64).unwrap();
-        assert_eq!(mmkv.get::<i64>("i64"), Ok(2));
-
-        mmkv.put("f32", 2.2f32).unwrap();
-        assert_eq!(mmkv.get::<f32>("f32"), Ok(2.2));
-
-        mmkv.put("f64", 2.22f64).unwrap();
-        assert_eq!(mmkv.get::<f64>("f64"), Ok(2.22));
-
-        mmkv.put("byte_array", vec![1u8, 2, 3].as_slice()).unwrap();
-        assert_eq!(mmkv.get::<Vec<u8>>("byte_array"), Ok(vec![1, 2, 3]));
-
-        mmkv.put("i32_array", vec![1i32, 2, 3].as_slice()).unwrap();
-        assert_eq!(mmkv.get("i32_array"), Ok(vec![1, 2, 3]));
-
-        mmkv.put("i64_array", vec![1i64, 2, 3].as_slice()).unwrap();
-        assert_eq!(mmkv.get("i64_array"), Ok(vec![1i64, 2, 3]));
-
-        mmkv.put("f32_array", vec![1.1f32, 2.2, 3.3].as_slice())
-            .unwrap();
-        assert_eq!(mmkv.get::<Vec<f32>>("f32_array"), Ok(vec![1.1, 2.2, 3.3]));
-
-        mmkv.put("f64_array", vec![1.1f64, 2.2, 3.3].as_slice())
-            .unwrap();
-        assert_eq!(mmkv.get::<Vec<f64>>("f64_array"), Ok(vec![1.1, 2.2, 3.3]));
-
-        mmkv.delete("second").unwrap();
-        assert_eq!(mmkv.get::<i32>("second"), Err(KeyNotFound));
-        drop(mmkv);
-        debug!(LOG_TAG, "---------------");
-
-        mmkv = MMKV::new(
-            ".",
-            #[cfg(feature = "encryption")]
-            "88C51C536176AD8A8EE4A06F62EE897E",
-        )
-        .unwrap();
-        assert_eq!(mmkv.get("first"), Ok("one".to_string()));
-        assert_eq!(mmkv.get::<i32>("second"), Err(KeyNotFound));
-        mmkv.clear_data().unwrap();
-        let _ = fs::remove_file("mini_mmkv");
-        let _ = fs::remove_file("mini_mmkv.meta");
+        .unwrap()
     }
 
     #[test]
-    fn test_instance_cache_uses_canonical_dir() {
-        let unique = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let dir = std::env::temp_dir().join(format!("mmkv_canonical_{unique}"));
-        fs::create_dir_all(&dir).unwrap();
+    fn the_instance_cache_is_keyed_by_the_canonical_dir() {
+        let temp = tempdir().unwrap();
+        let dir = temp.path();
 
         let dir_with_trailing_slash = format!("{}/", dir.display());
-        let mmkv = MMKV::new(
-            dir.to_str().unwrap(),
-            #[cfg(feature = "encryption")]
-            "88C51C536176AD8A8EE4A06F62EE897E",
-        )
-        .unwrap();
+        let mmkv = open(dir);
         let mmkv_same_dir = MMKV::new(
             &dir_with_trailing_slash,
             #[cfg(feature = "encryption")]
-            "88C51C536176AD8A8EE4A06F62EE897E",
+            TEST_KEY,
         )
         .unwrap();
 
@@ -399,6 +334,61 @@ mod tests {
         mmkv.clear_data().unwrap();
         drop(mmkv_same_dir);
         drop(mmkv);
-        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn dropping_the_last_handle_evicts_the_dir_from_the_cache() {
+        let temp = tempdir().unwrap();
+        let dir = temp.path();
+        let canonical = fs::canonicalize(dir).unwrap();
+
+        let mmkv = open(dir);
+        let second_handle = open(dir);
+        assert!(INSTANCE_MAP.read().unwrap().contains_key(&canonical));
+
+        drop(second_handle);
+        assert!(
+            INSTANCE_MAP.read().unwrap().contains_key(&canonical),
+            "a live handle must keep the entry"
+        );
+
+        drop(mmkv);
+        assert!(
+            !INSTANCE_MAP.read().unwrap().contains_key(&canonical),
+            "the last handle must evict the entry"
+        );
+
+        // A later open creates a fresh entry rather than resurrecting a dead Weak.
+        let reopened = open(dir);
+        assert!(
+            INSTANCE_MAP
+                .read()
+                .unwrap()
+                .get(&canonical)
+                .and_then(|weak| weak.upgrade())
+                .is_some()
+        );
+        reopened.clear_data().unwrap();
+    }
+
+    #[test]
+    fn new_rejects_a_path_that_is_not_a_writable_dir() {
+        let temp = tempdir().unwrap();
+        let file = temp.path().join("not_a_dir");
+        fs::write(&file, b"x").unwrap();
+        let missing = temp.path().join("missing_dir");
+
+        for path in [&file, &missing] {
+            let result = MMKV::new(
+                path.to_str().unwrap(),
+                #[cfg(feature = "encryption")]
+                TEST_KEY,
+            );
+            assert!(
+                matches!(result, Err(IOError(_))),
+                "{} must be rejected",
+                path.display()
+            );
+        }
     }
 }

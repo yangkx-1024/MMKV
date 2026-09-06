@@ -8,6 +8,7 @@ on:
       - 'tests/**'
       - 'Cargo.toml'
       - 'build.rs'
+      - '.github/workflows/rust.yml'
   pull_request:
     branches: [ "main", "develop" ]
     paths:
@@ -15,6 +16,7 @@ on:
       - 'tests/**'
       - 'Cargo.toml'
       - 'build.rs'
+      - '.github/workflows/rust.yml'
 
 env:
   CARGO_TERM_COLOR: always
@@ -28,6 +30,10 @@ jobs:
       - uses: actions/checkout@v6
       - name: Install protoc
         run: sudo apt-get install -y protobuf-compiler
+      - name: Clippy default
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Clippy feature encryption
+        run: cargo clippy --all-targets --features encryption -- -D warnings
       - name: Build default
         run: cargo build --verbose -r
       - name: Build feature encryption

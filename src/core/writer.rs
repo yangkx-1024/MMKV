@@ -344,55 +344,31 @@ impl IOWriter {
     }
 }
 
+/// Implementation-level unit tests for the writer: append, expand, shadow-file trim and
+/// the Owned -> Slice promotion of `shared_kv.kv_map` entries.
 #[cfg(test)]
 mod tests {
     use super::IOWriter;
     use crate::Error::KeyNotFound;
-    use crate::core::buffer::Buffer;
+    use crate::core::buffer::{Buffer, ProvideTypeToken};
     use crate::core::config::Config;
-    #[cfg(not(feature = "encryption"))]
-    use crate::core::crc::CrcEncoder;
-    #[cfg(feature = "encryption")]
-    use crate::core::encrypt::Encryptor;
     use crate::core::memory_map::MemoryMap;
-    use crate::core::mmkv_impl::MmkvImpl;
     use crate::core::shared_state::{SharedKvMap, SharedState};
+    use crate::core::test_support::{self, page_for, record_len, temp_config};
     use std::collections::HashMap;
-    use std::fs;
     use std::path::Path;
+    use tempfile::tempdir;
 
-    #[cfg(feature = "encryption")]
-    const TEST_KEY: &str = "88C51C536176AD8A8EE4A06F62EE897E";
-
-    #[cfg(not(feature = "encryption"))]
-    fn make_writer(
-        config: Config,
-        mm: MemoryMap,
-        shared_kv: SharedKvMap,
-        _file_name: &str,
-    ) -> IOWriter {
-        IOWriter::new(config, mm, 0, shared_kv, Box::new(CrcEncoder))
-    }
-
-    #[cfg(feature = "encryption")]
-    fn make_writer(
-        config: Config,
-        mm: MemoryMap,
-        shared_kv: SharedKvMap,
-        file_name: &str,
-    ) -> IOWriter {
-        let encryptor = Encryptor::init(Path::new(file_name), TEST_KEY);
-        let encoder: Box<dyn crate::core::buffer::Encoder> = Box::new(encryptor.clone());
-        IOWriter::new(config, mm, 0, shared_kv, encoder, encryptor)
-    }
-
-    fn reopen_mmkv(config: &Config) -> MmkvImpl {
-        MmkvImpl::new(
-            Config::new(&config.path, config.page_size).unwrap(),
-            #[cfg(feature = "encryption")]
-            TEST_KEY,
-        )
-        .unwrap()
+    fn make_writer(config: Config, mm: MemoryMap, shared_kv: SharedKvMap, path: &Path) -> IOWriter {
+        let codec = test_support::codec(path);
+        #[cfg(not(feature = "encryption"))]
+        {
+            IOWriter::new(config, mm, 0, shared_kv, Box::new(codec))
+        }
+        #[cfg(feature = "encryption")]
+        {
+            IOWriter::new(config, mm, 0, shared_kv, Box::new(codec.clone()), codec)
+        }
     }
 
     fn new_shared_state(mm: &MemoryMap) -> SharedKvMap {
@@ -413,17 +389,14 @@ mod tests {
 
     #[test]
     fn write_expands_until_large_record_fits() {
-        let file_name = "test_writer_large_record";
-        let _ = fs::remove_file(file_name);
-        let _ = fs::remove_file(format!("{file_name}.meta"));
-        let config = Config::new(Path::new(file_name), 64).unwrap();
+        let (_dir, config) = temp_config(64);
         let mm = MemoryMap::new(&config.file, config.file_size().unwrap()).unwrap();
         let shared_kv = new_shared_state(&mm);
         let mut writer = make_writer(
             config.try_clone().unwrap(),
             mm,
             shared_kv.clone(),
-            file_name,
+            &config.path,
         );
 
         let large_value = vec![7u8; 256];
@@ -440,26 +413,20 @@ mod tests {
             Buffer::Slice(_)
         ));
 
-        let reopened = reopen_mmkv(&config);
+        let reopened = test_support::open(&config);
         assert_eq!(reopened.get::<Vec<u8>>("large").unwrap(), vec![7u8; 256]);
-
-        writer.remove_file().unwrap();
-        let _ = fs::remove_file(format!("{file_name}.meta"));
     }
 
     #[test]
     fn trim_uses_latest_len_after_expand() {
-        let file_name = "test_writer_trim_expand";
-        let _ = fs::remove_file(file_name);
-        let _ = fs::remove_file(format!("{file_name}.meta"));
-        let config = Config::new(Path::new(file_name), 96).unwrap();
+        let (_dir, config) = temp_config(96);
         let mm = MemoryMap::new(&config.file, config.file_size().unwrap()).unwrap();
         let shared_kv = new_shared_state(&mm);
         let mut writer = make_writer(
             config.try_clone().unwrap(),
             mm,
             shared_kv.clone(),
-            file_name,
+            &config.path,
         );
 
         let value1 = vec![1u8; 40];
@@ -481,27 +448,21 @@ mod tests {
         assert_eq!(writer.position, 2);
         // Verify values via reopen (kv_map entries may be Slice after shadow-file trim,
         // so we cannot use kv_value() which only works on Owned).
-        let reopened = reopen_mmkv(&config);
+        let reopened = test_support::open(&config);
         assert_eq!(reopened.get::<Vec<u8>>("k1").unwrap(), vec![3u8; 120]);
         assert_eq!(reopened.get::<Vec<u8>>("k2").unwrap(), vec![2u8; 40]);
-
-        writer.remove_file().unwrap();
-        let _ = fs::remove_file(format!("{file_name}.meta"));
     }
 
     #[test]
     fn trim_rewrites_from_shared_snapshot_after_delete() {
-        let file_name = "test_writer_delete_trim";
-        let _ = fs::remove_file(file_name);
-        let _ = fs::remove_file(format!("{file_name}.meta"));
-        let config = Config::new(Path::new(file_name), 96).unwrap();
+        let (_dir, config) = temp_config(96);
         let mm = MemoryMap::new(&config.file, config.file_size().unwrap()).unwrap();
         let shared_kv = new_shared_state(&mm);
         let mut writer = make_writer(
             config.try_clone().unwrap(),
             mm,
             shared_kv.clone(),
-            file_name,
+            &config.path,
         );
 
         let value1 = vec![1u8; 40];
@@ -522,30 +483,25 @@ mod tests {
         assert_eq!(writer.position, 2);
         assert!(!shared_kv.kv_map.read().unwrap().contains_key("k1"));
 
-        let reopened = reopen_mmkv(&config);
+        let reopened = test_support::open(&config);
         assert_eq!(reopened.get::<Vec<u8>>("k1"), Err(KeyNotFound));
         assert_eq!(reopened.get::<Vec<u8>>("k2").unwrap(), vec![2u8; 40]);
         assert_eq!(reopened.get::<Vec<u8>>("k3").unwrap(), vec![3u8; 120]);
-
-        writer.remove_file().unwrap();
-        let _ = fs::remove_file(format!("{file_name}.meta"));
     }
 
     #[test]
     #[cfg(feature = "encryption")]
     fn trim_rotates_nonce() {
         use std::fs;
-        let file_name = "test_writer_nonce_rotation";
-        let _ = fs::remove_file(file_name);
-        let _ = fs::remove_file(format!("{file_name}.meta"));
-        let config = Config::new(Path::new(file_name), 96).unwrap();
+        let (_dir, config) = temp_config(96);
+        let meta_path = config.path.with_extension("meta");
         let mm = MemoryMap::new(&config.file, config.file_size().unwrap()).unwrap();
         let shared_kv = new_shared_state(&mm);
         let mut writer = make_writer(
             config.try_clone().unwrap(),
             mm,
             shared_kv.clone(),
-            file_name,
+            &config.path,
         );
 
         let value1 = vec![1u8; 40];
@@ -557,25 +513,22 @@ mod tests {
         insert(&shared_kv, buffer2.clone());
         writer.write(buffer2, false).unwrap();
 
-        let nonce_before = fs::read(format!("{file_name}.meta")).unwrap();
+        let nonce_before = fs::read(&meta_path).unwrap();
 
         let updated = vec![3u8; 120];
         let buffer3 = Buffer::new("k1", updated.as_slice());
         insert(&shared_kv, buffer3.clone());
         writer.write(buffer3, true).unwrap();
 
-        let nonce_after = fs::read(format!("{file_name}.meta")).unwrap();
+        let nonce_after = fs::read(&meta_path).unwrap();
         assert_ne!(
             nonce_before, nonce_after,
             "nonce must rotate on rewrite_snapshot"
         );
 
-        let reopened = reopen_mmkv(&config);
+        let reopened = test_support::open(&config);
         assert_eq!(reopened.get::<Vec<u8>>("k1").unwrap(), updated);
         assert_eq!(reopened.get::<Vec<u8>>("k2").unwrap(), value2);
-
-        writer.remove_file().unwrap();
-        let _ = fs::remove_file(format!("{file_name}.meta"));
     }
 
     /// Regression test for the mixed-generation corruption described in the nonce-rotation
@@ -593,19 +546,15 @@ mod tests {
     #[test]
     #[cfg(feature = "encryption")]
     fn trim_failure_does_not_produce_mixed_generation_store() {
-        let file_name = "test_writer_trim_failure_mixed_gen";
-        let tmp1_path = format!("{file_name}.tmp.1");
-        let _ = fs::remove_file(file_name);
-        let _ = fs::remove_file(format!("{file_name}.meta"));
-        let _ = fs::remove_file(&tmp1_path);
-        let config = Config::new(Path::new(file_name), 96).unwrap();
+        use std::fs;
+        let (_dir, config) = temp_config(96);
         let mm = MemoryMap::new(&config.file, config.file_size().unwrap()).unwrap();
         let shared_kv = new_shared_state(&mm);
         let mut writer = make_writer(
             config.try_clone().unwrap(),
             mm,
             shared_kv.clone(),
-            file_name,
+            &config.path,
         );
 
         // Write two large keys to fill the page so the next write triggers trim.
@@ -622,7 +571,7 @@ mod tests {
 
         // Block the trim by pre-creating the tmp file that shadow_file_trim will try to
         // create_new.  The failure happens at open() before any nonce state is committed.
-        fs::write(&tmp1_path, b"").unwrap();
+        let blockers = test_support::block_next_trims(&config, 1);
 
         // A large write with duplicated=true triggers trim, which fails at create_new.
         let v3 = vec![3u8; 120];
@@ -634,7 +583,9 @@ mod tests {
         );
 
         // Remove the blocking file so the path is clean.
-        fs::remove_file(&tmp1_path).unwrap();
+        for blocker in blockers {
+            fs::remove_file(blocker).unwrap();
+        }
 
         // A small append that fits in the current mmap.  Before the fix, the nonce was
         // already rotated in-memory (by before_rewrite at the top of shadow_file_trim),
@@ -649,31 +600,24 @@ mod tests {
 
         drop(writer);
 
-        let reopened = reopen_mmkv(&config);
+        let reopened = test_support::open(&config);
         assert_eq!(
             reopened.get::<Vec<u8>>("k2").unwrap(),
             v4,
             "post-failure append must survive reopen without mixed-generation corruption"
         );
-
-        fs::remove_file(file_name).unwrap();
-        let _ = fs::remove_file(format!("{file_name}.meta"));
-        let _ = fs::remove_file(&tmp1_path);
     }
 
     #[test]
     fn trim_reads_latest_shared_snapshot() {
-        let file_name = "test_writer_trim_latest_shared_snapshot";
-        let _ = fs::remove_file(file_name);
-        let _ = fs::remove_file(format!("{file_name}.meta"));
-        let config = Config::new(Path::new(file_name), 96).unwrap();
+        let (_dir, config) = temp_config(96);
         let mm = MemoryMap::new(&config.file, config.file_size().unwrap()).unwrap();
         let shared_kv = new_shared_state(&mm);
         let mut writer = make_writer(
             config.try_clone().unwrap(),
             mm,
             shared_kv.clone(),
-            file_name,
+            &config.path,
         );
 
         let initial = vec![1u8; 40];
@@ -691,10 +635,173 @@ mod tests {
 
         writer.write(mid_buffer, true).unwrap();
 
-        let reopened = reopen_mmkv(&config);
+        let reopened = test_support::open(&config);
         assert_eq!(reopened.get::<Vec<u8>>("k1").unwrap(), future);
+    }
 
-        writer.remove_file().unwrap();
-        let _ = fs::remove_file(format!("{file_name}.meta"));
+    /// Only `Owned` buffers carry the key and value the encoder needs; a `Slice` names
+    /// bytes that are already in the file and must never be re-submitted for writing.
+    #[test]
+    fn writing_a_slice_buffer_is_rejected() {
+        let (_dir, config) = temp_config(256);
+        let mm = MemoryMap::new(&config.file, config.file_size().unwrap()).unwrap();
+        let shared_kv = new_shared_state(&mm);
+        let mut writer = make_writer(
+            config.try_clone().unwrap(),
+            mm,
+            shared_kv.clone(),
+            &config.path,
+        );
+
+        let buffer = Buffer::new("k1", 1i32);
+        insert(&shared_kv, buffer.clone());
+        writer.write(buffer, false).unwrap();
+
+        let promoted = shared_kv.kv_map.read().unwrap().get("k1").unwrap().clone();
+        assert!(matches!(promoted, Buffer::Slice(_)));
+        assert!(writer.write(promoted, false).is_err());
+    }
+
+    #[test]
+    fn a_successful_append_promotes_the_map_entry_to_a_slice() {
+        let (_dir, config) = temp_config(256);
+        let mm = MemoryMap::new(&config.file, config.file_size().unwrap()).unwrap();
+        let shared_kv = new_shared_state(&mm);
+        let mut writer = make_writer(
+            config.try_clone().unwrap(),
+            mm,
+            shared_kv.clone(),
+            &config.path,
+        );
+
+        let value = vec![5u8; 24];
+        let buffer = Buffer::new("k1", value.as_slice()).with_seq(1);
+        insert(&shared_kv, buffer.clone());
+        assert!(matches!(
+            shared_kv.kv_map.read().unwrap().get("k1").unwrap(),
+            Buffer::Owned { .. }
+        ));
+
+        writer.write(buffer, false).unwrap();
+
+        let promoted = shared_kv.kv_map.read().unwrap().get("k1").unwrap().clone();
+        assert!(matches!(promoted, Buffer::Slice(_)));
+        let mmap_guard = shared_kv.mmap.load();
+        let (type_token, bytes) = writer
+            .encoder
+            .materialize_slice(&mmap_guard, &promoted)
+            .expect("a promoted Slice must be readable from the mmap");
+        assert_eq!(type_token, <&[u8] as ProvideTypeToken>::type_token().token);
+        assert_eq!(bytes, value);
+    }
+
+    /// A put that lands while the previous one is still in the IO queue must win: the
+    /// writer may only promote the entry it actually wrote.
+    #[test]
+    fn a_stale_promotion_never_overwrites_a_newer_put() {
+        let (_dir, config) = temp_config(256);
+        let mm = MemoryMap::new(&config.file, config.file_size().unwrap()).unwrap();
+        let shared_kv = new_shared_state(&mm);
+        let mut writer = make_writer(
+            config.try_clone().unwrap(),
+            mm,
+            shared_kv.clone(),
+            &config.path,
+        );
+
+        let stale = Buffer::new("k1", 1i32).with_seq(1);
+        let newest = Buffer::new("k1", 2i32).with_seq(2);
+        insert(&shared_kv, newest);
+
+        writer.write(stale, false).unwrap();
+
+        let entry = shared_kv.kv_map.read().unwrap().get("k1").unwrap().clone();
+        assert!(
+            matches!(entry, Buffer::Owned { seq: 2, .. }),
+            "expected the seq-2 Owned entry, got {entry:?}"
+        );
+    }
+
+    #[test]
+    fn expanding_publishes_a_bigger_mmap_and_keeps_old_slices_readable() {
+        let (_dir, config) = temp_config(64);
+        let mm = MemoryMap::new(&config.file, config.file_size().unwrap()).unwrap();
+        let shared_kv = new_shared_state(&mm);
+        let mut writer = make_writer(
+            config.try_clone().unwrap(),
+            mm,
+            shared_kv.clone(),
+            &config.path,
+        );
+
+        let first = vec![1u8; 8];
+        let buffer = Buffer::new("k1", first.as_slice());
+        insert(&shared_kv, buffer.clone());
+        writer.write(buffer, false).unwrap();
+        let slice_before = shared_kv.kv_map.read().unwrap().get("k1").unwrap().clone();
+        assert!(matches!(slice_before, Buffer::Slice(_)));
+        let len_before = shared_kv.mmap.load().len();
+
+        // A record that cannot fit forces an expand (nothing is pending a trim).
+        let large = vec![2u8; 256];
+        let buffer = Buffer::new("k2", large.as_slice());
+        insert(&shared_kv, buffer.clone());
+        writer.write(buffer, false).unwrap();
+
+        let mmap_guard = shared_kv.mmap.load();
+        assert!(
+            mmap_guard.len() > len_before,
+            "expand must publish a bigger handle: {} -> {}",
+            len_before,
+            mmap_guard.len()
+        );
+        // Slice offsets are relative to the mapping start, so the pre-expand entry still
+        // points at the same record in the remapped file.
+        let (_, bytes) = writer
+            .encoder
+            .materialize_slice(&mmap_guard, &slice_before)
+            .expect("a Slice taken before the expand must still read");
+        assert_eq!(bytes, first);
+    }
+
+    /// After deleting a key, the next trim rewrites only the live entries, so the write
+    /// offset moves back below where it was before the trim.
+    #[test]
+    fn a_trim_after_a_delete_shrinks_the_write_offset() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("mmkv");
+        let value = vec![6u8; 16];
+        let rec = record_len(&path, "k1", value.as_slice());
+        let config = Config::new(&path, page_for(4, rec)).unwrap();
+        let mm = MemoryMap::new(&config.file, config.file_size().unwrap()).unwrap();
+        let shared_kv = new_shared_state(&mm);
+        let mut writer = make_writer(
+            config.try_clone().unwrap(),
+            mm,
+            shared_kv.clone(),
+            &config.path,
+        );
+
+        for key in ["k1", "k2", "k3", "k4"] {
+            let buffer = Buffer::new(key, value.as_slice());
+            insert(&shared_kv, buffer.clone());
+            writer.write(buffer, false).unwrap();
+        }
+        let offset_before_trim = writer.mm.write_offset().unwrap();
+        assert_eq!(offset_before_trim, page_for(4, rec) as usize);
+
+        // The page is exactly full, so the tombstone cannot be appended and the writer
+        // has to rewrite the live entries into a shadow file instead.
+        delete(&shared_kv, "k1");
+        writer.write(Buffer::deleted_buffer("k1"), true).unwrap();
+
+        assert_eq!(writer.mm.write_offset().unwrap(), page_for(3, rec) as usize);
+        assert!(writer.mm.write_offset().unwrap() < offset_before_trim);
+
+        let reopened = test_support::open(&config);
+        assert_eq!(reopened.get::<Vec<u8>>("k1"), Err(KeyNotFound));
+        for key in ["k2", "k3", "k4"] {
+            assert_eq!(reopened.get::<Vec<u8>>(key).unwrap(), value);
+        }
     }
 }

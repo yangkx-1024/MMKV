@@ -178,6 +178,8 @@ impl InnerLooper {
     }
 }
 
+/// Unit tests for the looper semantics: job ordering, draining on quit and drop, error
+/// handling and what `post`/`call`/`quit` do once the looper is closed.
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
@@ -186,6 +188,7 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
+    use crate::Error::IOError;
     use crate::core::io_looper::{Executor, IOLooper};
 
     struct SimpleExecutor;
@@ -205,7 +208,7 @@ mod tests {
     }
 
     #[test]
-    fn test_io_loop() {
+    fn posted_jobs_run_in_order_and_are_drained_on_quit_and_drop() {
         let mut io_looper = IOLooper::new(SimpleExecutor);
         io_looper
             .post(|executor| {
@@ -258,7 +261,7 @@ mod tests {
     }
 
     #[test]
-    fn test_concurrent_post_and_quit_does_not_drop_accepted_jobs() {
+    fn concurrent_post_and_quit_does_not_drop_accepted_jobs() {
         struct CountingExecutor {
             executed: Arc<Mutex<Vec<usize>>>,
         }
@@ -325,7 +328,7 @@ mod tests {
     }
 
     #[test]
-    fn test_call_returns_result_in_order() {
+    fn call_returns_results_in_order() {
         struct CountingExecutor {
             value: usize,
         }
@@ -348,5 +351,67 @@ mod tests {
             })
             .unwrap();
         assert_eq!(value, 5);
+    }
+
+    /// A job that fails is logged, not fatal: the looper keeps serving later jobs and
+    /// the pending counter still returns to zero.
+    #[test]
+    fn a_failing_job_is_logged_and_the_looper_keeps_running() {
+        struct CountingExecutor {
+            executed: Arc<AtomicUsize>,
+        }
+
+        impl Executor for CountingExecutor {}
+
+        let executed = Arc::new(AtomicUsize::new(0));
+        let mut io_looper = IOLooper::new(CountingExecutor {
+            executed: Arc::clone(&executed),
+        });
+
+        io_looper
+            .post(|_| Err(IOError("job failed on purpose".to_string())))
+            .unwrap();
+        let value = io_looper
+            .call(|executor| {
+                executor.executed.fetch_add(1, Ordering::Relaxed);
+                Ok(7)
+            })
+            .unwrap();
+
+        assert_eq!(value, 7, "the job after the failing one still ran");
+        io_looper.quit().unwrap();
+        assert_eq!(executed.load(Ordering::Relaxed), 1);
+        assert_eq!(
+            io_looper.inner_looper.pending_jobs.load(Ordering::Relaxed),
+            0
+        );
+    }
+
+    #[test]
+    fn call_propagates_the_task_error_to_the_caller() {
+        let io_looper = IOLooper::new(SimpleExecutor);
+
+        let err = io_looper
+            .call(|_| Err::<(), _>(IOError("task failed".to_string())))
+            .unwrap_err();
+
+        assert_eq!(err, IOError("task failed".to_string()));
+    }
+
+    #[test]
+    fn post_and_call_after_quit_are_rejected() {
+        let mut io_looper = IOLooper::new(SimpleExecutor);
+        io_looper.quit().unwrap();
+
+        assert!(io_looper.post(|_| Ok(())).is_err());
+        assert!(io_looper.call(|_| Ok(1)).is_err());
+    }
+
+    #[test]
+    fn quitting_twice_is_ok() {
+        let mut io_looper = IOLooper::new(SimpleExecutor);
+
+        assert_eq!(io_looper.quit(), Ok(()));
+        assert_eq!(io_looper.quit(), Ok(()));
     }
 }

@@ -87,6 +87,13 @@ impl MmapHandle {
     pub fn read(&self, range: Range<usize>) -> &[u8] {
         &self.raw[range]
     }
+
+    /// The length of the mapping this handle points at. Test-only: production readers
+    /// never need it, but tests assert that an expand publishes a bigger mapping.
+    #[cfg(test)]
+    pub(crate) fn len(&self) -> usize {
+        self.raw.len
+    }
 }
 
 #[derive(Debug)]
@@ -205,6 +212,21 @@ impl MemoryMap {
             .map_err(|e| IOError(format!("failed to flush mmap: {e}")))
     }
 
+    /// Move the write offset back to `offset`, discarding everything after it.
+    /// Used at open to drop an undecodable tail so that later appends overwrite it.
+    pub fn truncate_content(&mut self, offset: usize) -> Result<()> {
+        if offset < LEN_OFFSET || offset > self.len() {
+            return Err(IOError(format!(
+                "truncate offset {offset} out of bounds, header {LEN_OFFSET}, mmap len {}",
+                self.len()
+            )));
+        }
+        let content_len = u64::try_from(offset - LEN_OFFSET)
+            .map_err(|_| IOError("truncate overflowed stored content length".to_string()))?;
+        self.write_content_len(content_len);
+        Ok(())
+    }
+
     pub fn read(&self, range: Range<usize>) -> Result<&[u8]> {
         if range.start > range.end || range.end > self.len() {
             return Err(IOError(format!(
@@ -251,14 +273,22 @@ impl MemoryMap {
     }
 }
 
+/// Unit tests for the mapping itself: the 8-byte content-length header, append and read
+/// bounds, truncation, flushing and the shared read-only `MmapHandle`.
 #[cfg(test)]
 mod tests {
-    use std::fs;
-    use std::fs::OpenOptions;
+    use std::fs::File;
 
     use crate::Error::IOError;
 
     use super::{LEN_OFFSET, MemoryMap};
+
+    /// An anonymous temp file of `len` bytes; it disappears when the handle drops.
+    fn temp_file(len: u64) -> File {
+        let file = tempfile::tempfile().unwrap();
+        file.set_len(len).unwrap();
+        file
+    }
 
     fn write_raw(mm: &mut MemoryMap, offset: usize, data: &[u8]) {
         unsafe {
@@ -268,16 +298,8 @@ mod tests {
     }
 
     #[test]
-    fn test_mmap() {
-        let _ = fs::remove_file("test_mmap");
-        let file = OpenOptions::new()
-            .create(true)
-            .truncate(true)
-            .write(true)
-            .read(true)
-            .open("test_mmap")
-            .unwrap();
-        file.set_len(1024).unwrap();
+    fn append_and_read_track_the_content_length_header() {
+        let file = temp_file(1024);
         let mut mm = MemoryMap::new(&file, 1024).unwrap();
         assert_eq!(mm.write_offset().unwrap(), LEN_OFFSET);
         mm.append(&[1, 2, 3]).unwrap();
@@ -300,20 +322,28 @@ mod tests {
 
         let read = mm.read(9..10).unwrap();
         assert_eq!(read[0], 4);
-        let _ = fs::remove_file("test_mmap");
     }
 
     #[test]
-    fn test_mmap_append_out_of_bounds() {
-        let _ = fs::remove_file("test_mmap_append_out_of_bounds");
-        let file = OpenOptions::new()
-            .create(true)
-            .truncate(true)
-            .write(true)
-            .read(true)
-            .open("test_mmap_append_out_of_bounds")
-            .unwrap();
-        file.set_len((LEN_OFFSET + 1) as u64).unwrap();
+    fn truncate_content_moves_the_write_offset_and_rejects_bad_offsets() {
+        let file = temp_file(64);
+        let mut mm = MemoryMap::new(&file, 64).unwrap();
+        mm.append(&[1, 2, 3, 4]).unwrap();
+        assert_eq!(mm.write_offset().unwrap(), LEN_OFFSET + 4);
+
+        mm.truncate_content(LEN_OFFSET + 2).unwrap();
+        assert_eq!(mm.write_offset().unwrap(), LEN_OFFSET + 2);
+        mm.append(&[9]).unwrap();
+        assert_eq!(mm.read(LEN_OFFSET..LEN_OFFSET + 3).unwrap(), &[1, 2, 9]);
+
+        assert!(mm.truncate_content(LEN_OFFSET - 1).is_err());
+        assert!(mm.truncate_content(65).is_err());
+        assert_eq!(mm.write_offset().unwrap(), LEN_OFFSET + 3);
+    }
+
+    #[test]
+    fn append_past_the_mapping_is_rejected() {
+        let file = temp_file((LEN_OFFSET + 1) as u64);
         let mut mm = MemoryMap::new(&file, (LEN_OFFSET + 1) as u64).unwrap();
 
         let err = mm.append(&[1, 2]).unwrap_err();
@@ -327,21 +357,11 @@ mod tests {
                 LEN_OFFSET + 1
             ))
         );
-
-        let _ = fs::remove_file("test_mmap_append_out_of_bounds");
     }
 
     #[test]
-    fn test_mmap_read_out_of_bounds() {
-        let _ = fs::remove_file("test_mmap_read_out_of_bounds");
-        let file = OpenOptions::new()
-            .create(true)
-            .truncate(true)
-            .write(true)
-            .read(true)
-            .open("test_mmap_read_out_of_bounds")
-            .unwrap();
-        file.set_len((LEN_OFFSET + 1) as u64).unwrap();
+    fn read_past_the_mapping_is_rejected() {
+        let file = temp_file((LEN_OFFSET + 1) as u64);
         let mm = MemoryMap::new(&file, (LEN_OFFSET + 1) as u64).unwrap();
 
         let err = mm.read(LEN_OFFSET..LEN_OFFSET + 2).unwrap_err();
@@ -354,21 +374,11 @@ mod tests {
                 LEN_OFFSET + 1
             ))
         );
-
-        let _ = fs::remove_file("test_mmap_read_out_of_bounds");
     }
 
     #[test]
-    fn test_mmap_rejects_len_smaller_than_header() {
-        let _ = fs::remove_file("test_mmap_small_len");
-        let file = OpenOptions::new()
-            .create(true)
-            .truncate(true)
-            .write(true)
-            .read(true)
-            .open("test_mmap_small_len")
-            .unwrap();
-        file.set_len((LEN_OFFSET - 1) as u64).unwrap();
+    fn new_rejects_a_length_smaller_than_the_header() {
+        let file = temp_file((LEN_OFFSET - 1) as u64);
 
         let err = MemoryMap::new(&file, (LEN_OFFSET - 1) as u64).unwrap_err();
         assert_eq!(
@@ -379,21 +389,11 @@ mod tests {
                 LEN_OFFSET
             ))
         );
-
-        let _ = fs::remove_file("test_mmap_small_len");
     }
 
     #[test]
-    fn test_mmap_rejects_invalid_stored_length() {
-        let _ = fs::remove_file("test_mmap_invalid_len");
-        let file = OpenOptions::new()
-            .create(true)
-            .truncate(true)
-            .write(true)
-            .read(true)
-            .open("test_mmap_invalid_len")
-            .unwrap();
-        file.set_len((LEN_OFFSET + 1) as u64).unwrap();
+    fn a_stored_length_past_the_mapping_is_rejected() {
+        let file = temp_file((LEN_OFFSET + 1) as u64);
         let mut mm = MemoryMap::new(&file, (LEN_OFFSET + 1) as u64).unwrap();
         write_raw(&mut mm, 0, &2u64.to_be_bytes());
 
@@ -402,7 +402,40 @@ mod tests {
             err,
             IOError("invalid mmap content length 2, max 1".to_string())
         );
+    }
 
-        let _ = fs::remove_file("test_mmap_invalid_len");
+    #[test]
+    fn a_handle_taken_before_an_append_observes_the_new_bytes() {
+        let file = temp_file(64);
+        let mut mm = MemoryMap::new(&file, 64).unwrap();
+        let handle = mm.to_handle();
+
+        mm.append(&[1, 2, 3]).unwrap();
+
+        assert_eq!(
+            handle.read(LEN_OFFSET..LEN_OFFSET + 3),
+            &[1, 2, 3],
+            "MmapHandle shares the mapping, it is not a snapshot"
+        );
+    }
+
+    #[test]
+    fn flush_after_an_append_succeeds() {
+        let file = temp_file(64);
+        let mut mm = MemoryMap::new(&file, 64).unwrap();
+        mm.append(&[1, 2, 3, 4]).unwrap();
+
+        assert_eq!(mm.flush(), Ok(()));
+    }
+
+    #[test]
+    fn content_start_offset_and_len_describe_the_mapping() {
+        let file = temp_file(128);
+        let mm = MemoryMap::new(&file, 128).unwrap();
+
+        assert_eq!(mm.content_start_offset(), LEN_OFFSET);
+        assert_eq!(mm.len(), 128);
+        assert_eq!(mm.to_handle().len(), 128);
+        assert_eq!(mm.write_offset().unwrap(), mm.content_start_offset());
     }
 }

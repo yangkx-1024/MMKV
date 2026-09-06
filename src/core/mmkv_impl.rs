@@ -31,12 +31,12 @@ impl MmkvImpl {
     pub fn new(config: Config, #[cfg(feature = "encryption")] key: &str) -> Result<Self> {
         let time_start = Instant::now();
         #[cfg(feature = "encryption")]
-        let encryptor = Encryptor::init(&config.path, key);
+        let encryptor = Encryptor::init(&config.path, key)?;
         #[cfg(feature = "encryption")]
         let encoder = Box::new(encryptor.clone());
         #[cfg(not(feature = "encryption"))]
         let encoder = Box::new(CrcEncoder);
-        let mm = MemoryMap::new(&config.file, config.file_size()?)?;
+        let mut mm = MemoryMap::new(&config.file, config.file_size()?)?;
         #[cfg(feature = "encryption")]
         {
             let write_offset = mm.write_offset()?;
@@ -50,9 +50,23 @@ impl MmkvImpl {
         #[cfg(not(feature = "encryption"))]
         let decoder = Box::new(CrcEncoder);
         let mmap_base = mm.base_ptr();
-        let (kv_map, decoded_position) = mm
+        let (kv_map, decoded_position, decoded_end) = mm
             .iter(|bytes, position| decoder.decode_bytes(bytes, position))?
             .into_map(mmap_base);
+        let write_offset = mm.write_offset()?;
+        if decoded_end < write_offset {
+            // The tail cannot be framed, so every later append would land after garbage
+            // and every reopen would stop here again. Drop it and keep the good prefix.
+            error!(
+                LOG_TAG,
+                "discarding {} undecodable bytes at offset {}, moving write offset {} -> {}",
+                write_offset - decoded_end,
+                decoded_end,
+                write_offset,
+                decoded_end
+            );
+            mm.truncate_content(decoded_end)?;
+        }
         let item_count = kv_map.len();
         let content_len = mm.write_offset()?;
         let file_size = mm.len();
@@ -103,9 +117,12 @@ impl MmkvImpl {
             kv_map.insert(key.to_string(), raw_buffer.clone())
         };
         let duplicated = previous.is_some();
+        // Run the write on the IO thread and wait for it, so that `Ok(())` means the
+        // record is in the memory-mapped file. On failure restore the previous entry
+        // so readers never see a value that never reached disk.
         if let Err(err) = self
             .io_looper
-            .post(move |writer| writer.write(raw_buffer, duplicated))
+            .call(move |writer| writer.write(raw_buffer, duplicated))
         {
             let mut kv_map = self
                 .shared_kv
@@ -185,7 +202,9 @@ impl MmkvImpl {
         if previous.is_none() {
             return Ok(());
         }
-        if let Err(err) = self.io_looper.post({
+        // Same contract as `put`: wait for the tombstone to be written, and restore the
+        // entry on failure so the key cannot silently resurrect on the next launch.
+        if let Err(err) = self.io_looper.call({
             let key = key.clone();
             move |writer| writer.write(Buffer::deleted_buffer(&key), true)
         }) {
@@ -225,310 +244,126 @@ impl MmkvImpl {
     }
 }
 
+/// Unit tests for the parts of `MmkvImpl` that need private access: the exact byte
+/// offsets of trim and expand, rollback of a failed write, recovery from a damaged file
+/// and the closed-instance contract. Behaviour that is observable through `MMKV` is
+/// tested in `tests/` instead.
 #[cfg(test)]
 mod tests {
-    use std::io::{Seek, SeekFrom, Write};
-    use std::mem::size_of;
-    use std::path::Path;
-    use std::sync::RwLock;
-    use std::{fs, thread};
+    use std::fs;
 
-    use crate::Error::{IOError, KeyNotFound};
-    use crate::LogLevel::Debug;
-    use crate::MMKV;
-    use crate::core::buffer::Buffer;
+    use crate::Error::{DataInvalid, IOError, InstanceClosed, KeyNotFound};
+    use crate::core::buffer::{Buffer, ProvideTypeToken};
     use crate::core::config::Config;
     #[cfg(feature = "encryption")]
     use crate::core::encrypt::Encryptor;
-    use crate::core::memory_map::MemoryMap;
-    use crate::core::mmkv_impl::MmkvImpl;
+    use crate::core::test_support::{
+        self, HEADER_LEN, page_for, record_len, temp_config, write_offset_at,
+    };
 
-    #[cfg(feature = "encryption")]
-    const TEST_KEY: &str = "88C51C536176AD8A8EE4A06F62EE897E";
+    use tempfile::tempdir;
 
-    fn init(config: &Config) -> MmkvImpl {
-        MMKV::set_log_level(Debug);
-        MmkvImpl::new(
-            Config::new(&config.path, config.page_size).unwrap(),
-            #[cfg(feature = "encryption")]
-            TEST_KEY,
-        )
-        .unwrap()
-    }
-
-    fn write_offset_at(path: &str) -> usize {
-        use std::fs::OpenOptions;
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(path)
-            .unwrap();
-        let len = file.metadata().unwrap().len();
-        MemoryMap::new(&file, len).unwrap().write_offset().unwrap()
-    }
-
+    /// One feature-neutral walk through append -> trim -> expand, checking the write
+    /// offset after every step. Record sizes are measured with the codec of the current
+    /// build flavour (17 bytes with CRC framing, 24 with AEAD framing) and the page is
+    /// sized from that measurement, so the same script holds for both.
     #[test]
-    #[cfg(not(feature = "encryption"))]
-    fn test_trim_and_expand_default() {
-        let file_path = "test_trim_and_expand_default";
-        let _ = fs::remove_file(file_path);
-        assert!(!Path::new(file_path).exists());
-        let _ = fs::remove_file(format!("{}.meta", file_path));
-        let config = &Config::new(Path::new(file_path), 100).unwrap();
-        let mut mmkv = init(config);
-        mmkv.put("key1", Buffer::new("key1", 1)).unwrap(); // + 17
+    fn trim_and_expand_keep_the_file_at_the_expected_offsets() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("mmkv");
+        // Every key is 4 chars and every value an i32, so all records are the same size.
+        let rec = record_len(&path, "key1", 1i32);
+        let page = page_for(5, rec);
+        let config = Config::new(&path, page).unwrap();
+        let config = &config;
+        let offset_of = |records: usize| page_for(records, rec) as usize;
+
+        let mut mmkv = test_support::open(config);
+        mmkv.put("key1", Buffer::new("key1", 1)).unwrap();
         assert_eq!(mmkv.get::<i32>("key1"), Ok(1));
         drop(mmkv);
-        assert_eq!(write_offset_at(file_path), 25);
+        assert_eq!(write_offset_at(&path), offset_of(1));
 
-        mmkv = init(config);
-        mmkv.put("key2", Buffer::new("key2", 2)).unwrap(); // + 17
-        mmkv.put("key3", Buffer::new("key3", 3)).unwrap(); // + 17
-        mmkv.put("key1", Buffer::new("key1", 4)).unwrap(); // + 17
-        mmkv.put("key2", Buffer::new("key2", 5)).unwrap(); // + 17
+        // Fill the page exactly: two new keys plus two duplicates.
+        mmkv = test_support::open(config);
+        mmkv.put("key2", Buffer::new("key2", 2)).unwrap();
+        mmkv.put("key3", Buffer::new("key3", 3)).unwrap();
+        mmkv.put("key1", Buffer::new("key1", 4)).unwrap();
+        mmkv.put("key2", Buffer::new("key2", 5)).unwrap();
         drop(mmkv);
-        assert_eq!(write_offset_at(file_path), 93);
+        assert_eq!(write_offset_at(&path), offset_of(5));
 
-        mmkv = init(config);
-        mmkv.put("key1", Buffer::new("key1", 6)).unwrap(); // + 17, trim, 3 items remain
+        // The page is full and the put is a duplicate, so the writer trims instead of
+        // expanding: only the three live keys survive.
+        mmkv = test_support::open(config);
+        mmkv.put("key1", Buffer::new("key1", 6)).unwrap();
         drop(mmkv);
-        assert_eq!(write_offset_at(file_path), 59);
+        assert_eq!(write_offset_at(&path), offset_of(3));
+        assert_eq!(fs::metadata(&path).unwrap().len(), page);
 
-        mmkv = init(config);
+        mmkv = test_support::open(config);
         assert_eq!(mmkv.get::<i32>("key1"), Ok(6));
         assert_eq!(mmkv.get::<i32>("key2"), Ok(5));
+        assert_eq!(mmkv.get::<i32>("key3"), Ok(3));
         mmkv.put("key4", Buffer::new("key4", 4)).unwrap();
-        mmkv.put("key5", Buffer::new("key5", 5)).unwrap(); // 93
-        mmkv.put("key6", Buffer::new("key6", 6)).unwrap(); // expand, 110
+        mmkv.put("key5", Buffer::new("key5", 5)).unwrap();
+        assert_eq!(mmkv.get::<i32>("key5"), Ok(5));
+        // Nothing is pending a trim, so a sixth key doubles the file instead.
+        mmkv.put("key6", Buffer::new("key6", 6)).unwrap();
         drop(mmkv);
-        assert_eq!(write_offset_at(file_path), 110);
-        assert_eq!(fs::metadata(file_path).unwrap().len(), 200);
+        assert_eq!(write_offset_at(&path), offset_of(6));
+        assert_eq!(fs::metadata(&path).unwrap().len(), page * 2);
 
-        mmkv = init(config);
+        mmkv = test_support::open(config);
+        assert_eq!(mmkv.get::<i32>("key6"), Ok(6));
         mmkv.put("key7", Buffer::new("key7", 7)).unwrap();
         drop(mmkv);
-        assert_eq!(write_offset_at(file_path), 127);
+        assert_eq!(write_offset_at(&path), offset_of(7));
 
-        mmkv = init(config);
+        mmkv = test_support::open(config);
+        for (key, value) in [
+            ("key1", 6),
+            ("key2", 5),
+            ("key3", 3),
+            ("key4", 4),
+            ("key5", 5),
+            ("key6", 6),
+            ("key7", 7),
+        ] {
+            assert_eq!(mmkv.get::<i32>(key), Ok(value), "after reopen: {key}");
+        }
         mmkv.clear_data().unwrap();
-        assert!(!Path::new(file_path).exists());
+        assert!(!path.exists());
     }
 
     #[test]
     #[cfg(feature = "encryption")]
-    fn test_trim_and_expand_encrypt() {
-        let file = "test_trim_and_expand_encrypt";
-        let _ = fs::remove_file(file);
-        let _ = fs::remove_file(format!("{file}.meta"));
-        let config = &Config::new(Path::new(file), 100).unwrap();
-        let mut mmkv = init(config);
-        mmkv.put("key1", Buffer::new("key1", 1)).unwrap(); // + 24
-        assert_eq!(mmkv.get::<i32>("key1"), Ok(1));
-        drop(mmkv);
-        assert_eq!(write_offset_at(file), 32);
-
-        mmkv = init(config);
-        mmkv.put("key2", Buffer::new("key2", 2)).unwrap(); // + 24
-        mmkv.put("key3", Buffer::new("key3", 3)).unwrap(); // + 24
-        drop(mmkv);
-        assert_eq!(write_offset_at(file), 80);
-
-        mmkv = init(config);
-        mmkv.put("key1", Buffer::new("key1", 4)).unwrap(); // + 24 trim
-        mmkv.put("key2", Buffer::new("key2", 5)).unwrap(); // + 24 trim
-        drop(mmkv);
-        assert_eq!(write_offset_at(file), 80);
-
-        mmkv = init(config);
-        assert_eq!(mmkv.get::<i32>("key1"), Ok(4));
-        assert_eq!(mmkv.get::<i32>("key2"), Ok(5));
-        mmkv.put("key4", Buffer::new("key4", 4)).unwrap(); // + 24
-        drop(mmkv);
-        assert_eq!(write_offset_at(file), 104);
-        assert_eq!(fs::metadata(file).unwrap().len(), 200);
-
-        mmkv = init(config);
-        mmkv.put("key5", Buffer::new("key5", 5)).unwrap(); // + 24
-        drop(mmkv);
-        assert_eq!(write_offset_at(file), 128);
-
-        mmkv = init(config);
-        mmkv.clear_data().unwrap();
-        assert!(!Path::new(file).exists());
-    }
-
-    #[test]
-    #[cfg(feature = "encryption")]
-    fn test_reopen_recovers_previous_nonce_after_interrupted_rotation() {
-        let file = "test_recover_previous_nonce";
-        let _ = fs::remove_file(file);
-        let _ = fs::remove_file(format!("{file}.meta"));
-        let config = Config::new(Path::new(file), 128).unwrap();
-        let mut mmkv = init(&config);
+    fn reopen_recovers_the_previous_nonce_after_an_interrupted_rotation() {
+        let (_dir, config) = temp_config(128);
+        let mut mmkv = test_support::open(&config);
         mmkv.put("key1", Buffer::new("key1", 7)).unwrap();
         drop(mmkv);
 
-        let encryptor = Encryptor::init(Path::new(file), TEST_KEY);
+        let encryptor = Encryptor::init(&config.path, test_support::TEST_KEY).unwrap();
         encryptor.rotate_nonce().unwrap();
         drop(encryptor);
 
-        let mut mmkv = init(&config);
+        let mut mmkv = test_support::open(&config);
         assert_eq!(mmkv.get::<i32>("key1"), Ok(7));
         mmkv.put("key2", Buffer::new("key2", 8)).unwrap();
         drop(mmkv);
 
-        let mut mmkv = init(&config);
+        let mut mmkv = test_support::open(&config);
         assert_eq!(mmkv.get::<i32>("key1"), Ok(7));
         assert_eq!(mmkv.get::<i32>("key2"), Ok(8));
         mmkv.clear_data().unwrap();
-        assert!(!Path::new(file).exists());
+        assert!(!config.path.exists());
     }
 
     #[test]
-    fn test_multi_thread_mmkv() {
-        let file = "test_multi_thread_mmkv";
-        let _ = fs::remove_file(file);
-        let _ = fs::remove_file(format!("{}.meta", file));
-        let config = &Config::new(Path::new(file), 4096).unwrap();
-        let mmkv = RwLock::new(Some(init(config)));
-        let loop_count = 1000;
-        let action = |thread_id: &str| {
-            for i in 0..loop_count {
-                let key = &format!("{thread_id}_key_{i}");
-                mmkv.write()
-                    .unwrap()
-                    .as_mut()
-                    .unwrap()
-                    .put(key, Buffer::new(key, i))
-                    .unwrap();
-            }
-        };
-        thread::scope(|s| {
-            s.spawn(|| {
-                let repeat_key = "test_multi_thread_mmkv_repeat_key";
-                for i in 0..loop_count {
-                    let mut lock = mmkv.write().unwrap();
-                    let mmkv = lock.as_mut().unwrap();
-                    if i % 2 == 0 {
-                        mmkv.put(repeat_key, Buffer::new(repeat_key, i)).unwrap();
-                    } else {
-                        mmkv.delete(repeat_key).unwrap();
-                    }
-                }
-            });
-            for i in 0..2 {
-                s.spawn(move || action(format!("thread_{i}").as_ref()));
-            }
-        });
-        drop(mmkv.write().unwrap().take());
-        let mut mmkv = init(config);
-        for i in 0..2 {
-            for j in 0..loop_count {
-                let key = &format!("thread_{i}_key_{j}");
-                assert_eq!(mmkv.get::<i32>(key).unwrap(), j)
-            }
-        }
-        assert_eq!(
-            mmkv.get::<i32>("test_multi_thread_mmkv_repeat_key"),
-            Err(KeyNotFound)
-        );
-        mmkv.clear_data().unwrap();
-        assert!(!Path::new(file).exists());
-    }
-
-    // Regression test for the reader-vs-trim race:
-    // Before the fix, a get() that dropped kv_map.read() before parse could read
-    // torn bytes from the live mmap while the IO thread reset it for a shadow-file trim.
-    #[test]
-    fn test_concurrent_reads_during_trim() {
-        use std::sync::{
-            Arc,
-            atomic::{AtomicUsize, Ordering},
-        };
-        let file = "test_concurrent_reads_during_trim";
-        let _ = fs::remove_file(file);
-        let _ = fs::remove_file(format!("{file}.meta"));
-        let config = &Config::new(Path::new(file), 96).unwrap();
-
-        let mut mmkv = init(config);
-        mmkv.put("stable", Buffer::new("stable", 42i32)).unwrap();
-        drop(mmkv);
-
-        let mmkv = Arc::new(RwLock::new(init(config)));
-        let errors = Arc::new(AtomicUsize::new(0));
-        let iters = 600;
-
-        thread::scope(|s| {
-            for _ in 0..4 {
-                let mmkv = Arc::clone(&mmkv);
-                let errors = Arc::clone(&errors);
-                s.spawn(move || {
-                    for _ in 0..iters {
-                        match mmkv.read().unwrap().get::<i32>("stable") {
-                            Ok(42) => {}
-                            _ => {
-                                errors.fetch_add(1, Ordering::Relaxed);
-                            }
-                        }
-                    }
-                });
-            }
-            // Writer triggers frequent trims by re-putting a large value repeatedly.
-            {
-                let mmkv = Arc::clone(&mmkv);
-                s.spawn(move || {
-                    let pad = vec![7u8; 64];
-                    for _ in 0..iters {
-                        let _ = mmkv
-                            .write()
-                            .unwrap()
-                            .put("trim_trigger", Buffer::new("trim_trigger", pad.as_slice()));
-                    }
-                });
-            }
-        });
-
-        assert_eq!(
-            errors.load(Ordering::Relaxed),
-            0,
-            "concurrent reads during trim observed wrong values"
-        );
-
-        // Drop before cleanup so the IO thread finishes any queued trim (which could
-        // rename a .tmp file back to the original path after we delete it).
-        drop(mmkv);
-
-        // Stable value must survive all trim cycles.
-        assert_eq!(init(config).get::<i32>("stable"), Ok(42));
-        init(config).clear_data().unwrap();
-        let _ = fs::remove_file(format!("{file}.meta"));
-    }
-
-    #[test]
-    fn test_sync_visibility_for_put_and_delete() {
-        let file = "test_sync_visibility_for_put_and_delete";
-        let _ = fs::remove_file(file);
-        let _ = fs::remove_file(format!("{}.meta", file));
-        let config = &Config::new(Path::new(file), 128).unwrap();
-        let mut mmkv = init(config);
-
-        mmkv.put("sync_key", Buffer::new("sync_key", 7)).unwrap();
-        assert_eq!(mmkv.get::<i32>("sync_key"), Ok(7));
-
-        mmkv.delete("sync_key").unwrap();
-        assert_eq!(mmkv.get::<i32>("sync_key"), Err(KeyNotFound));
-
-        mmkv.clear_data().unwrap();
-        assert!(!Path::new(file).exists());
-    }
-
-    #[test]
-    fn test_post_failure_rolls_back_shared_state() {
-        let file = "test_post_failure_rolls_back_shared_state";
-        let _ = fs::remove_file(file);
-        let _ = fs::remove_file(format!("{}.meta", file));
-        let config = &Config::new(Path::new(file), 128).unwrap();
-        let mut mmkv = init(config);
+    fn a_closed_looper_rolls_back_the_shared_state() {
+        let (_dir, config) = temp_config(128);
+        let mut mmkv = test_support::open(&config);
 
         mmkv.io_looper.quit().unwrap();
         assert!(
@@ -536,33 +371,171 @@ mod tests {
                 .is_err()
         );
         assert_eq!(mmkv.get::<i32>("rollback_key"), Err(KeyNotFound));
+    }
 
-        let _ = fs::remove_file(file);
-        let _ = fs::remove_file(format!("{}.meta", file));
+    /// A failed write must be reported by `put`/`delete`, must leave the in-memory map
+    /// equal to what is on disk, and must not wedge the instance.
+    #[test]
+    fn a_failed_write_returns_err_and_rolls_back() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("mmkv");
+
+        let v_k = vec![1u8; 60];
+        let v_j = vec![2u8; 30];
+        // Size the file so that exactly these two records fit; any further write (a
+        // duplicate put or a tombstone) then has to go through a shadow-file trim.
+        let page = HEADER_LEN
+            + record_len(&path, "k", v_k.as_slice())
+            + record_len(&path, "j", v_j.as_slice());
+        let config = Config::new(&path, page as u64).unwrap();
+        let mut mmkv = test_support::open(&config);
+        mmkv.put("k", Buffer::new("k", v_k.as_slice())).unwrap();
+        mmkv.put("j", Buffer::new("j", v_j.as_slice())).unwrap();
+
+        // Occupy the tmp paths the next two trims will `create_new`, so both trims fail.
+        let blockers = test_support::block_next_trims(&config, 2);
+
+        let new_k = vec![3u8; 60];
+        assert!(mmkv.put("k", Buffer::new("k", new_k.as_slice())).is_err());
+        assert_eq!(mmkv.get::<Vec<u8>>("k"), Ok(v_k.clone()));
+        assert!(mmkv.delete("j").is_err());
+        assert_eq!(mmkv.get::<Vec<u8>>("j"), Ok(v_j.clone()));
+        drop(mmkv);
+        for blocker in blockers {
+            fs::remove_file(blocker).unwrap();
+        }
+
+        // Disk agrees with what the callers were told.
+        let mut mmkv = test_support::open(&config);
+        assert_eq!(mmkv.get::<Vec<u8>>("k"), Ok(v_k));
+        assert_eq!(mmkv.get::<Vec<u8>>("j"), Ok(v_j));
+        // And once the fault is gone the same operations succeed.
+        mmkv.put("k", Buffer::new("k", new_k.as_slice())).unwrap();
+        mmkv.delete("j").unwrap();
+        assert_eq!(mmkv.get::<Vec<u8>>("k"), Ok(new_k.clone()));
+        assert_eq!(mmkv.get::<Vec<u8>>("j"), Err(KeyNotFound));
+        drop(mmkv);
+
+        let mut mmkv = test_support::open(&config);
+        assert_eq!(mmkv.get::<Vec<u8>>("k"), Ok(new_k));
+        assert_eq!(mmkv.get::<Vec<u8>>("j"), Err(KeyNotFound));
+        mmkv.clear_data().unwrap();
+        assert!(!path.exists());
+    }
+
+    /// A file whose tail cannot be framed must open, keep every record before the
+    /// damage, drop the damaged bytes, and stay writable across reopen.
+    #[test]
+    fn init_recovers_from_a_corrupted_tail() {
+        let (_dir, config) = temp_config(256);
+        let file = &config.path;
+        let mut mmkv = test_support::open(&config);
+        mmkv.put("k1", Buffer::new("k1", 1)).unwrap();
+        drop(mmkv);
+        let offset_after_k1 = write_offset_at(file);
+        let mut mmkv = test_support::open(&config);
+        mmkv.put("k2", Buffer::new("k2", 2)).unwrap();
+        drop(mmkv);
+        let good_end = write_offset_at(file);
+        let rec = good_end - offset_after_k1;
+
+        // Append a frame whose declared length runs far past the content, with the header
+        // bumped so the store believes those bytes are live records.
+        let garbage = [0xFF, 0xFF, 0xFF, 0xFF, 0xAA, 0xBB];
+        test_support::append_raw(file, &garbage);
+        assert_eq!(write_offset_at(file), good_end + garbage.len());
+
+        let mut mmkv = test_support::open(&config);
+        assert_eq!(mmkv.get::<i32>("k1"), Ok(1));
+        assert_eq!(mmkv.get::<i32>("k2"), Ok(2));
+        mmkv.put("k3", Buffer::new("k3", 3)).unwrap();
+        drop(mmkv);
+        // The garbage was discarded and k3 landed right after the last good record.
+        assert_eq!(write_offset_at(file), good_end + rec);
+
+        let mut mmkv = test_support::open(&config);
+        assert_eq!(mmkv.get::<i32>("k1"), Ok(1));
+        assert_eq!(mmkv.get::<i32>("k2"), Ok(2));
+        assert_eq!(mmkv.get::<i32>("k3"), Ok(3));
+        mmkv.clear_data().unwrap();
+        assert!(!file.exists());
+    }
+
+    /// A record whose value is shorter than its type needs must yield `DataInvalid`
+    /// from `get`, before and after a reopen, instead of panicking.
+    #[test]
+    fn get_reports_data_invalid_for_a_value_that_is_too_short() {
+        let (_dir, config) = temp_config(256);
+        let mut mmkv = test_support::open(&config);
+        let i32_token = <i32 as ProvideTypeToken>::type_token().token;
+        let bool_token = <bool as ProvideTypeToken>::type_token().token;
+        mmkv.put(
+            "short_i32",
+            Buffer::from_kv("short_i32", i32_token, vec![1, 2]),
+        )
+        .unwrap();
+        mmkv.put(
+            "empty_bool",
+            Buffer::from_kv("empty_bool", bool_token, vec![]),
+        )
+        .unwrap();
+        assert_eq!(mmkv.get::<i32>("short_i32"), Err(DataInvalid));
+        assert_eq!(mmkv.get::<bool>("empty_bool"), Err(DataInvalid));
+        drop(mmkv);
+
+        let mut mmkv = test_support::open(&config);
+        assert_eq!(mmkv.get::<i32>("short_i32"), Err(DataInvalid));
+        assert_eq!(mmkv.get::<bool>("empty_bool"), Err(DataInvalid));
+        mmkv.clear_data().unwrap();
+        assert!(!config.path.exists());
     }
 
     #[test]
-    fn test_init_rejects_invalid_mmap_header() {
-        let file = "test_invalid_mmap_header";
-        let _ = fs::remove_file(file);
-        let _ = fs::remove_file(format!("{}.meta", file));
-        let config = Config::new(Path::new(file), (size_of::<u64>() + 1) as u64).unwrap();
-        let mut file_handle = config.file.try_clone().unwrap();
-        file_handle.seek(SeekFrom::Start(0)).unwrap();
-        file_handle.write_all(&2u64.to_be_bytes()).unwrap();
-        file_handle.sync_all().unwrap();
+    fn init_rejects_a_header_that_claims_more_content_than_the_file_holds() {
+        let (_dir, config) = temp_config((HEADER_LEN + 1) as u64);
+        test_support::set_content_len(&config.path, 2);
 
-        let result = MmkvImpl::new(
-            config.try_clone().unwrap(),
-            #[cfg(feature = "encryption")]
-            TEST_KEY,
-        );
         assert_eq!(
-            result.err(),
+            test_support::try_open(&config).err(),
             Some(IOError("invalid mmap content length 2, max 1".to_string()))
         );
+    }
 
-        let _ = fs::remove_file(file);
-        let _ = fs::remove_file(format!("{}.meta", file));
+    /// `clear_data` closes the instance for good; every later operation must say so
+    /// rather than silently writing to a store that is no longer there.
+    #[test]
+    fn operations_after_clear_data_report_instance_closed() {
+        let (_dir, config) = temp_config(128);
+        let mut mmkv = test_support::open(&config);
+        mmkv.put("key1", Buffer::new("key1", 1)).unwrap();
+
+        mmkv.clear_data().unwrap();
+        assert!(!config.path.exists());
+
+        assert_eq!(
+            mmkv.put("key1", Buffer::new("key1", 2)),
+            Err(InstanceClosed)
+        );
+        assert_eq!(mmkv.get::<i32>("key1"), Err(InstanceClosed));
+        assert_eq!(mmkv.delete("key1"), Err(InstanceClosed));
+        // Clearing an already-cleared instance is a no-op, not an error.
+        assert_eq!(mmkv.clear_data(), Ok(()));
+    }
+
+    #[test]
+    fn deleting_a_missing_key_is_ok_and_writes_no_tombstone() {
+        let (_dir, config) = temp_config(256);
+        let mut mmkv = test_support::open(&config);
+        mmkv.put("key1", Buffer::new("key1", 1)).unwrap();
+        let offset_before = write_offset_at(&config.path);
+
+        assert_eq!(mmkv.delete("never_written"), Ok(()));
+
+        assert_eq!(write_offset_at(&config.path), offset_before);
+        assert_eq!(mmkv.get::<i32>("key1"), Ok(1));
+        drop(mmkv);
+        // And the reopened store agrees: no tombstone ever reached the file.
+        assert_eq!(write_offset_at(&config.path), offset_before);
+        assert_eq!(test_support::open(&config).get::<i32>("key1"), Ok(1));
     }
 }
