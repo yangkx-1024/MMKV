@@ -2,10 +2,11 @@
 name = "mmkv"
 version = "0.9.3"
 edition = "2024"
-# Edition 2024 needs 1.85, and so do the AES/EAX crates the `encryption` feature pulls
-# in. CI checks both flavours against exactly this version, so bump it only together
-# with that job.
-rust-version = "1.85"
+# Tracks the latest stable toolchain at the time of the bump. Edition 2024 alone would
+# need 1.85, but the lockfile resolves dependencies against this version (`aes` 0.9.4
+# needs 1.89, for one), so a lower value holds them back. CI checks both flavours against
+# exactly this version, so bump it only together with that job.
+rust-version = "1.99"
 authors = ["Kexuan Yang <kexuan.yang@gmail.com>"]
 description = "Rust version of MMKV"
 license = "MIT OR Apache-2.0"
@@ -32,7 +33,6 @@ aes = { version = "0.9", optional = true }
 aead-stream = { version = "0.6.0", features = ["alloc"], optional = true }
 getrandom = { version = "0.4", optional = true }
 hex = { version = "0.4.3", optional = true }
-mmkv-proc-macro-lib = { version = "0.0.3" }
 chrono = { version = "0.4" }
 once_cell = { version = "1.21" }
 crossbeam-channel = "0.5"
