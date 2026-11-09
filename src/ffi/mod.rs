@@ -2,7 +2,6 @@ mod ffi_buffer;
 
 use crate::{Error, LogLevel, Logger, MMKV};
 use ffi_buffer::{Leakable, Releasable};
-use mmkv_proc_macro_lib::Leakable;
 use std::ffi::{CStr, c_void};
 use std::fmt::Debug;
 use std::os::raw::c_char;
@@ -58,7 +57,7 @@ pub enum Types {
 /// `len` bytes at `bytes`, not NUL-terminated. Owned by the `RawBuffer` or
 /// `InternalError` it hangs off and freed with it; never free it directly.
 #[repr(C)]
-#[derive(Debug, Leakable)]
+#[derive(Debug)]
 pub struct ByteSlice {
     pub bytes: *const u8,
     pub len: usize,
@@ -67,7 +66,7 @@ pub struct ByteSlice {
 
 /// `len` elements of `type_token` at `array`. Owned by its `RawBuffer` and freed with it.
 #[repr(C)]
-#[derive(Debug, Leakable)]
+#[derive(Debug)]
 pub struct RawTypedArray {
     pub array: *const c_void,
     pub type_token: Types,
@@ -144,7 +143,7 @@ pub type RawCStr = *const c_char;
 /// otherwise. `raw_data` is NULL for `put_*` and `delete`. Everything reachable from the
 /// buffer is owned by it.
 #[repr(C)]
-#[derive(Debug, Leakable)]
+#[derive(Debug)]
 pub struct RawBuffer {
     pub raw_data: *const c_void,
     pub type_token: Types,
@@ -154,7 +153,7 @@ pub struct RawBuffer {
 /// A failed call: `code` is one of the `MMKV_ERR_*` constants and `reason` is NULL or a
 /// UTF-8 message, owned by the `RawBuffer`.
 #[repr(C)]
-#[derive(Debug, Leakable)]
+#[derive(Debug)]
 pub struct InternalError {
     pub code: i32,
     pub reason: *const ByteSlice,

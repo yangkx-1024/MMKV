@@ -70,6 +70,22 @@ macro_rules! impl_release_for_primary {
 
 impl_release_for_primary!(bool, i32, i64, f32, f64);
 
+/// Frees what a `#[repr(C)]` FFI struct owns when the struct itself is dropped, so that
+/// releasing the outer `*mut T` from `Leakable::leak` frees everything reachable from it.
+macro_rules! impl_drop_via_release {
+    ($($ident:ident),+) => {
+        $(
+            impl Drop for $ident {
+                fn drop(&mut self) {
+                    self.release()
+                }
+            }
+        )+
+    };
+}
+
+impl_drop_via_release!(ByteSlice, RawTypedArray, RawBuffer, InternalError);
+
 impl ByteSlice {
     pub(super) fn new(string: String) -> Self {
         let (bytes, len, capacity) = into_raw_parts(string.into_bytes());

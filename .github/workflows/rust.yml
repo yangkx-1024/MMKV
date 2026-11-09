@@ -134,27 +134,6 @@ jobs:
           RUSTDOCFLAGS: -D warnings
         run: cargo doc --locked --no-deps --all-features
 
-  proc_macro:
-    name: Proc macro crate
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-
-      # `mmkv` depends on the published mmkv-proc-macro-lib, not on this directory, so
-      # nothing else in CI would ever compile it. Without this job an edit here is only
-      # discovered when someone tries to publish it.
-      - name: Format
-        working-directory: proc_macro_lib
-        run: cargo fmt --check
-
-      - name: Clippy
-        working-directory: proc_macro_lib
-        run: cargo clippy --all-targets -- -D warnings
-
-      - name: Test
-        working-directory: proc_macro_lib
-        run: cargo test
-
   audit:
     name: Advisory audit
     runs-on: ubuntu-latest
