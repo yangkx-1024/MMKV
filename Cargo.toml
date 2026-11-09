@@ -1,6 +1,6 @@
 [package]
 name = "mmkv"
-version = "0.9.3"
+version = "0.10.0"
 edition = "2024"
 # Tracks the latest stable toolchain at the time of the bump. Edition 2024 alone would
 # need 1.85, but the lockfile resolves dependencies against this version (`aes` 0.9.4
