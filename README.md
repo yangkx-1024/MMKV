@@ -32,7 +32,7 @@ this crate supports Unix-like targets only:
 | iOS | Supported, covered by CI |
 | Windows | Not supported: building raises a compile error |
 
-The minimum supported Rust version is **1.85**, checked by CI on every push. Bumping it
+The minimum supported Rust version is **1.99**, checked by CI on every push. Bumping it
 is a breaking change for consumers, so it moves only in a minor release.
 
 ## Build requirements
